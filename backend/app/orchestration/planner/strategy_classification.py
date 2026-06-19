@@ -15,10 +15,12 @@ from config import BookConstraints, BookGuides
 from app.orchestration.planner.parse_intent import SystemGoal
 import logging
 import json
+
 logger = logging.getLogger(__name__)
 MAX_GOALS = 15
 
 StrategyType = Union[REQUEST_CLASSES]
+
 
 class StrategyClassificationResult(BaseModel):
     """Generic classification result for any node type."""
@@ -27,7 +29,7 @@ class StrategyClassificationResult(BaseModel):
     refused: List[StrategyType] = []
     continue_pipeline: bool = False
 
-    def get_accepted_node_ids(self):
+    def get_accepted_id_to_node(self):
         """Return dict of node_id -> serialized node data."""
         return {node.id: node for node in self.accepted}
 
@@ -58,9 +60,11 @@ class StrategyClassificationNode(BaseModel):
         result = StrategyClassificationResult()
 
         for strategy in self.strategies:
-            if (strategy.refusal or 
-                strategy.confidence < accepted_tuning or 
-                not strategy.target_goal):
+            if (
+                strategy.refusal
+                or strategy.confidence < accepted_tuning
+                or not strategy.target_goal
+            ):
                 result.refused.append(strategy)
             else:
                 result.accepted.append(strategy)
@@ -99,9 +103,9 @@ class StrategyClassificationWorkflow(
         """Classify the user query into book-related strategies."""
         if not system_goals:
             raise ValueError("System goals are required")
-        
+
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
-        
+
         system_prompt = format_prompt(
             prompt_path=self._SYSTEM_PROMPT_PATH,
             book_constraints=str(BookConstraints()),
@@ -119,7 +123,7 @@ class StrategyClassificationWorkflow(
             tool_message.content
         )
         self.finalize_result(classification_result)
-    
+
     def _format_system_goals(self, system_goals: list[SystemGoal]) -> AssistantMessage:
         payload = [
             {
@@ -130,7 +134,7 @@ class StrategyClassificationWorkflow(
             for goal in system_goals
         ]
         return AssistantMessage(content=json.dumps(payload))
-        
+
     def finalize_result(
         self, classification_result: StrategyClassificationResult
     ) -> None:
@@ -140,6 +144,6 @@ class StrategyClassificationWorkflow(
             ok=bool(
                 classification_result.continue_pipeline
                 and len(classification_result.accepted) > 0
-                and classification_result.get_accepted_node_ids()
+                and classification_result.get_accepted_id_to_node()
             )
         )

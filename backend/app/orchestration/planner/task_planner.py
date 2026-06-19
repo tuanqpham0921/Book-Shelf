@@ -64,8 +64,8 @@ class TaskPlan(BaseModel):
     missing_ids: List[str] = Field(default_factory=list)
     execution_order: List[str] = Field(default_factory=list)
 
-    def validate_plan(self, node_ids: dict[str, BaseRequest]) -> None:
-        self._validate_dependency_in_accepted(node_ids)
+    def validate_plan(self, id_to_node: dict[str, BaseRequest]) -> None:
+        self._validate_dependency_in_accepted(id_to_node)
         self.execution_order = self._create_execution_order()
         self._validate_execution_order()
 
@@ -80,7 +80,7 @@ class TaskPlan(BaseModel):
             )
 
     def _validate_dependency_in_accepted(
-        self, node_ids: dict[str, BaseRequest]
+        self, id_to_node: dict[str, BaseRequest]
     ) -> None:
         accepted_ids = set(task.id for task in self.accepted)
         for task in self.accepted:
@@ -160,10 +160,10 @@ class TaskGenerationNode(BaseModel):
         max_length=MAX_TASKS,
     )
 
-    async def __call__(self, node_ids) -> TaskPlan:
+    async def __call__(self, id_to_node) -> TaskPlan:
         logger.debug("🔍 Processing TaskGenerationNode")
 
-        valid_ids = set(node_ids.keys())
+        valid_ids = set(id_to_node.keys())
         missing_ids = valid_ids.copy()
         accepted, refused, seen_ids = [], [], set()
 
@@ -193,7 +193,7 @@ class TaskGenerationNode(BaseModel):
             missing_ids=missing_ids,
         )
 
-        plan_result.validate_plan(node_ids=node_ids)
+        plan_result.validate_plan(id_to_node=id_to_node)
         return plan_result
 
 
@@ -225,25 +225,27 @@ class TaskPlanWorkflow(UserFacingBaseWorkflow[TaskPlanOutput]):
         )
         self.user_message = user_message
 
-    async def run(self, system_goals: list[SystemGoal], node_ids: dict[str, BaseRequest]) -> None:
+    async def run(
+        self, system_goals: list[SystemGoal], id_to_node: dict[str, BaseRequest]
+    ) -> None:
         """Create a task execution plan with dependency resolution."""
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
 
-        if not node_ids:
+        if not id_to_node:
             raise RuntimeError("No accepted node ids")
 
         tool_override = self.modify_schema(
-            tool_model=self.tool_models[0], valid_ids=list(node_ids.keys())
+            tool_model=self.tool_models[0], valid_ids=list(id_to_node.keys())
         )
 
-        formatted_node_ids = {}
-        for id in node_ids:
-            formatted_node_ids[id] = node_ids[id].model_dump()
+        formatted_id_to_node = {}
+        for id in id_to_node:
+            formatted_id_to_node[id] = id_to_node[id].model_dump()
 
         messages = [
             self._format_system_goals(system_goals),
             AssistantMessage(
-                content=json.dumps(formatted_node_ids, separators=(",", ":"))
+                content=json.dumps(formatted_id_to_node, separators=(",", ":"))
             ),
         ]
 
@@ -257,13 +259,13 @@ class TaskPlanWorkflow(UserFacingBaseWorkflow[TaskPlanOutput]):
         )
         assistant_msg = await self.run_llm_call(req)
         tool_message = await self.run_tool_call(
-            assistant_msg.tool_calls[0], node_ids=node_ids
+            assistant_msg.tool_calls[0], id_to_node=id_to_node
         )
 
         plan_result = TaskPlan.model_validate(tool_message.content)
 
         self.finalize_result(plan_result)
-        
+
     def _format_system_goals(self, system_goals: list[SystemGoal]) -> AssistantMessage:
         payload = [
             {

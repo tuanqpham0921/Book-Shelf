@@ -28,9 +28,11 @@ from app.domains.base_request import BaseRequest
 from common.operation import OperationResult
 from app.common.prompt_loader import format_prompt
 import logging
+
 ChildWorkflowT = TypeVar("ChildWorkflowT", bound=UserFacingBaseWorkflow)
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass(slots=True)
 class OrchestrationOutput(UserFacingOutput):
@@ -39,7 +41,7 @@ class OrchestrationOutput(UserFacingOutput):
     strategy_result: StrategyClassificationResult | None = None
     task_plan: TaskPlan | None = None
     diagram: str | None = None
-    
+
     def _sub_summary(self) -> dict[str, Any]:
         parse_summary = self.parse_result.to_summary() if self.parse_result else None
         strategy_summary = (
@@ -136,17 +138,17 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         )
 
     async def _run_task_planner(
-        self, system_goals: list[SystemGoal], node_ids: dict[str, BaseRequest]
+        self, system_goals: list[SystemGoal], id_to_node: dict[str, BaseRequest]
     ) -> OperationResult[Any] | None:
         workflow = self._child_workflow(TaskPlanWorkflow)
         return await self._run_phase(
-            lambda: workflow(system_goals, node_ids),
+            lambda: workflow(system_goals, id_to_node),
             error_message=self.task_planner_failure_message,
         )
 
     async def run(self, request_context: RequestContext) -> None:
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
-        
+
         self.output.session_id = request_context.session_id
         self.output.chat_messages.append(self.user_message)
 
@@ -155,7 +157,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
             # TODO: Handle the case where the initial parse failed
             # with meaningful error message
             return
-        
+
         system_goals = parse_result.output.parse_result.system_goals
         # system_goals = "\n".join(["* " + goal.description + "\n" for goal in system_goals])
 
@@ -163,12 +165,12 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         if strategy_result is None:
             return
 
-        node_ids = self.output.strategy_result.get_accepted_node_ids()
-        plan_result = await self._run_task_planner(system_goals, node_ids)
+        id_to_node = self.output.strategy_result.get_accepted_id_to_node()
+        plan_result = await self._run_task_planner(system_goals, id_to_node)
         if plan_result is None:
             return
 
-        diagram = await self.send_mermaid(plan_result.output.task_plan, node_ids)
+        diagram = await self.send_mermaid(plan_result.output.task_plan, id_to_node)
         self.output.diagram = diagram
 
         self.output.summary = await self.generate_summary()
@@ -186,9 +188,9 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         )
         await self.generate_user_response([self.user_message], prompt=prompt)
         return sub_summary
-    
+
     async def send_mermaid(
-        self, task_plan: TaskPlan, node_ids: dict[str, BaseRequest]
+        self, task_plan: TaskPlan, id_to_node: dict[str, BaseRequest]
     ) -> None:
         if not self.result.ok:
             await self.sse_stream.send_error(self.planner_failure_message)
@@ -197,7 +199,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         from app.common.mermaid import get_mermaid_diagram
 
         try:
-            diagram = get_mermaid_diagram(task_plan, node_ids)
+            diagram = get_mermaid_diagram(task_plan, id_to_node)
         except Exception as e:
             logger.warning(f"⚠️ Error generating Mermaid diagram: {e}")
             await self.sse_stream.send_error(self.planner_failure_message)
