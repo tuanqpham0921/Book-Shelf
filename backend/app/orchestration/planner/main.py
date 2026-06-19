@@ -138,11 +138,11 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         )
 
     async def _run_task_planner(
-        self, system_goals: list[SystemGoal], id_to_node: dict[str, BaseRequest]
+        self, system_goals: list[SystemGoal], strategy_result: StrategyClassificationResult
     ) -> OperationResult[Any] | None:
         workflow = self._child_workflow(TaskPlanWorkflow)
         return await self._run_phase(
-            lambda: workflow(system_goals, id_to_node),
+            lambda: workflow(system_goals, strategy_result),
             error_message=self.task_planner_failure_message,
         )
 
@@ -165,12 +165,11 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         if strategy_result is None:
             return
 
-        id_to_node = self.output.strategy_result.get_accepted_id_to_node()
-        plan_result = await self._run_task_planner(system_goals, id_to_node)
+        plan_result = await self._run_task_planner(system_goals, self.output.strategy_result)
         if plan_result is None:
             return
 
-        diagram = await self.send_mermaid(plan_result.output.task_plan, id_to_node)
+        diagram = await self.send_mermaid(plan_result.output.task_plan, self.output.strategy_result)
         self.output.diagram = diagram
 
         self.output.summary = await self.generate_summary()
@@ -190,7 +189,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         return sub_summary
 
     async def send_mermaid(
-        self, task_plan: TaskPlan, id_to_node: dict[str, BaseRequest]
+        self, task_plan: TaskPlan, strategy_result: StrategyClassificationResult
     ) -> None:
         if not self.result.ok:
             await self.sse_stream.send_error(self.planner_failure_message)
@@ -199,7 +198,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         from app.common.mermaid import get_mermaid_diagram
 
         try:
-            diagram = get_mermaid_diagram(task_plan, id_to_node)
+            diagram = get_mermaid_diagram(task_plan, strategy_result.get_accepted_id_to_node())
         except Exception as e:
             logger.warning(f"⚠️ Error generating Mermaid diagram: {e}")
             await self.sse_stream.send_error(self.planner_failure_message)
