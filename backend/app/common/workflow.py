@@ -92,5 +92,7 @@ class UserFacingBaseWorkflow(Workflow[OutputT]):
     async def run_tool_call(
         self, tool_call: ParsedFunctionToolCall, **kwargs
     ) -> ToolMessage:
-        result = await self.run_async_step(ToolMessage.execute(tool_call, **kwargs))
+        result = await self.run_async_step(
+            ToolMessage.execute(tool_call, **kwargs)
+        )
         return result.output
