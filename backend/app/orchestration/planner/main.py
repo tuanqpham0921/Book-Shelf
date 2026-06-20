@@ -1,7 +1,6 @@
 import json
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any
 
 from app.common.sse_stream import SSEStream
 from app.common.messages import UserMessage
@@ -22,14 +21,10 @@ from app.orchestration.planner.task_planner import (
     TaskPlanOutput,
     TaskPlan,
 )
-from app.orchestration.planner.parse_intent import SystemGoal
 from app.common.workflow import UserFacingBaseWorkflow, UserFacingOutput
-from app.domains.base_request import BaseRequest
 from common.operation import OperationResult
 from app.common.prompt_loader import format_prompt
 import logging
-
-ChildWorkflowT = TypeVar("ChildWorkflowT", bound=UserFacingBaseWorkflow)
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +74,6 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         )
         self.user_message = user_message
 
-    def _child_workflow(self, workflow_cls: type[ChildWorkflowT]) -> ChildWorkflowT:
-        return workflow_cls(self.sse_stream, self.user_message, self.llm_client)
-
     def add_step(
         self, step: OperationResult[Any], *, raise_on_failure: bool = True
     ) -> OperationResult[Any]:
@@ -97,80 +89,65 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
 
         return step
 
-    async def _run_phase(
-        self,
-        workflow_call: Callable[[], Awaitable[OperationResult[Any]]],
-        *,
-        error_message: str,
-    ) -> OperationResult[Any] | None:
-        result = await self.run_async_step(workflow_call(), raise_on_failure=False)
-        if result is None:
-            return None
-
-        if not result.ok:
-            if result.run_time_error:
-                await self.sse_stream.send_error(error_message)
-
-            self.result.ok = False
-            self.result.message = error_message
-            return None
-        return result
-
-    async def _run_initial_parse(self) -> OperationResult[Any] | None:
-        workflow = self._child_workflow(InitialParseWorkflow)
-        result = await self._run_phase(
-            workflow,
-            error_message=self.initial_parse_failure_message,
-        )
-        if result is None:
-            return None
-
-        await self.sse_stream.send_divider()
-        return result
-
-    async def _run_strategy_classification(
-        self, system_goals: list[SystemGoal]
-    ) -> OperationResult[Any] | None:
-        workflow = self._child_workflow(StrategyClassificationWorkflow)
-        return await self._run_phase(
-            lambda: workflow(system_goals),
-            error_message=self.strategy_classification_failure_message,
-        )
-
-    async def _run_task_planner(
-        self, system_goals: list[SystemGoal], strategy_result: StrategyClassificationResult
-    ) -> OperationResult[Any] | None:
-        workflow = self._child_workflow(TaskPlanWorkflow)
-        return await self._run_phase(
-            lambda: workflow(system_goals, strategy_result),
-            error_message=self.task_planner_failure_message,
-        )
-
     async def run(self, request_context: RequestContext) -> None:
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
 
         self.output.session_id = request_context.session_id
         self.output.chat_messages.append(self.user_message)
 
-        parse_result = await self._run_initial_parse()
-        if parse_result is None or not parse_result.ok:
-            # TODO: Handle the case where the initial parse failed
-            # with meaningful error message
+        parse_workflow = InitialParseWorkflow(
+            self.sse_stream, self.user_message, self.llm_client
+        )
+        parse_result = await self.run_async_step(parse_workflow(), raise_on_failure=False)
+        if not parse_result.ok:
+            if parse_result.run_time_error:
+                await self.sse_stream.send_error(self.initial_parse_failure_message)
+            self.result.ok = False
+            self.result.message = self.initial_parse_failure_message
             return
 
-        system_goals = parse_result.output.parse_result.system_goals
-        # system_goals = "\n".join(["* " + goal.description + "\n" for goal in system_goals])
+        await self.sse_stream.send_divider()
+        #------------------------------------------------------------------------------------------------
 
-        strategy_result = await self._run_strategy_classification(system_goals)
-        if strategy_result is None:
+        system_goals = self.output.parse_result.system_goals
+
+        strategy_workflow = StrategyClassificationWorkflow(
+            self.sse_stream, self.user_message, self.llm_client
+        )
+        strategy_result = await self.run_async_step(
+            strategy_workflow(system_goals), raise_on_failure=False
+        )
+        if not strategy_result.ok:
+            if strategy_result.run_time_error:
+                await self.sse_stream.send_error(
+                    self.strategy_classification_failure_message
+                )
+            self.result.ok = False
+            self.result.message = self.strategy_classification_failure_message
+            return
+        
+        #------------------------------------------------------------------------------------------------
+
+        task_workflow = TaskPlanWorkflow(
+            self.sse_stream, self.user_message, self.llm_client
+        )
+        plan_result = await self.run_async_step(
+            task_workflow(system_goals, self.output.strategy_result),
+            raise_on_failure=False,
+        )
+        if not plan_result.ok:
+            if plan_result.run_time_error:
+                await self.sse_stream.send_error(self.task_planner_failure_message)
+            self.result.ok = False
+            self.result.message = self.task_planner_failure_message
             return
 
-        plan_result = await self._run_task_planner(system_goals, self.output.strategy_result)
-        if plan_result is None:
-            return
+        #------------------------------------------------------------------------------------------------
 
-        diagram = await self.send_mermaid(plan_result.output.task_plan, self.output.strategy_result)
-        self.output.diagram = diagram
+        self.output.diagram = await self.send_mermaid(
+            self.output.task_plan, self.output.strategy_result
+        )
+        #------------------------------------------------------------------------------------------------
 
         self.output.summary = await self.generate_summary()
         self.result.ok = True
@@ -190,19 +167,17 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
 
     async def send_mermaid(
         self, task_plan: TaskPlan, strategy_result: StrategyClassificationResult
-    ) -> None:
-        if not self.result.ok:
-            await self.sse_stream.send_error(self.planner_failure_message)
-            return
-
+    ) -> str | None:
         from app.common.mermaid import get_mermaid_diagram
 
         try:
-            diagram = get_mermaid_diagram(task_plan, strategy_result.get_accepted_id_to_node())
+            diagram = get_mermaid_diagram(
+                task_plan, strategy_result.get_accepted_id_to_node()
+            )
         except Exception as e:
             logger.warning(f"⚠️ Error generating Mermaid diagram: {e}")
-            await self.sse_stream.send_error(self.planner_failure_message)
-            return
+            await self.sse_stream.send_error(self.task_planner_failure_message)
+            return None
 
         await self.sse_stream.send_chars("# My Plan for Your Request")
         await self.sse_stream.send_mermaid(diagram)
