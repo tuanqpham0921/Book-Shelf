@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from typing import List, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.common.messages import AssistantMessage, UserMessage, ToolMessage
 from app.common.prompt_loader import format_prompt
@@ -15,9 +15,13 @@ from config import BookConstraints, BookGuides
 from app.orchestration.planner.parse_intent import SystemGoal
 import logging
 import json
+import traceback
 
 logger = logging.getLogger(__name__)
+
+
 MAX_GOALS = 15
+MAX_STRATEGIES = 15
 
 StrategyType = Union[REQUEST_CLASSES]
 
@@ -51,9 +55,27 @@ class StrategyClassificationNode(BaseModel):
 
     strategies: List[StrategyType] = Field(
         default_factory=list,
-        max_length=15,
+        max_length=MAX_STRATEGIES,
         description="List of strategies generated from the query",
     )
+    
+    @field_validator("strategies", mode="before")
+    @classmethod
+    def check_strategies(cls, value):
+        if not isinstance(value, list):
+            value = [value]
+
+        seen_ids: set[str] = set()
+        deduped = []
+        for item in value:
+            item_id = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+            if item_id is not None:
+                if item_id in seen_ids:
+                    continue
+                seen_ids.add(item_id)
+            deduped.append(item)
+
+        return deduped[:MAX_STRATEGIES]
 
     async def __call__(self, accepted_tuning: float = 0.7):
         """Convert to ClassificationResult format"""
@@ -116,7 +138,7 @@ class StrategyClassificationWorkflow(
             messages=[self._format_system_goals(system_goals)],
             tool_models=self.tool_models,
         )
-        assistant_msg = await self.run_llm_call(req, save_payload=True)
+        assistant_msg = await self.run_llm_call(req)
 
         tool_message = await self.run_tool_call(assistant_msg.tool_calls[0])
         classification_result = StrategyClassificationResult.model_validate(

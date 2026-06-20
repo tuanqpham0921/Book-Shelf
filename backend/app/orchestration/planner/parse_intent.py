@@ -12,7 +12,7 @@ from app.common.messages import UserMessage
 from clients.openai_client import OpenAIClient
 
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from app.common.messages import AssistantMessage, BaseMessage
 from app.domains.registry import format_node_type_catalog
 from typing import Annotated
@@ -21,41 +21,71 @@ import uuid
 logger = logging.getLogger(__name__)
 
 from app.domains.node_types import NodeTypeEnum
-
+from app.domains.node_types import UnknownNodeTypeEnum
 SystemGoalDescription = Annotated[str, Field(max_length=100)]
 
 MAX_SYSTEM_GOALS = 10
+MIN_STRING_LENGTH = 10
+MAX_STRING_LENGTH = 500
+MIN_CONFIDENCE = 0.0
+MAX_CONFIDENCE = 1.0
+MAX_TARGET_NODE_TYPES = 10
 
 class SystemGoal(BaseModel):
     _id: str = PrivateAttr(default="")
 
     description: str = Field(
         ...,
-        min_length=10,
-        max_length=100,
+        min_length=MIN_STRING_LENGTH,
+        max_length=MAX_STRING_LENGTH,
         description="Description of the system goal",
     )
     confidence: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
+        ...,
+        ge=MIN_CONFIDENCE,
+        le=MAX_CONFIDENCE,
         description="Confidence between 0 and 1 that the system can handle this goal",
     )
     
     target_node_types: list[NodeTypeEnum] = Field(
         ..., 
-        max_length=10,
+        max_length=MAX_TARGET_NODE_TYPES,
         description="List of available request schemas to complete this goal",
     )
     
-    def model_post_init(self, __context: object) -> None:
-        if not self.target_node_types:
-            raise ValueError("Target node types are required")
-        self.target_node_types = list(set(self.target_node_types))
+    @field_validator("description", mode="before")
+    @classmethod
+    def check_description(cls, value):
+        if not isinstance(value, str):
+            return f"is not a string, padded to the description"
+        if len(value) < MIN_STRING_LENGTH:
+            value += f"is less than {MIN_STRING_LENGTH} characters, padded to the description"
+        if len(value) > MAX_STRING_LENGTH:
+            return value[:MAX_STRING_LENGTH-4] + "..."
+        return value
+    
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def check_confidence(cls, value):
+        if not isinstance(value, (float, int)):
+            return MIN_CONFIDENCE
+        if not (MIN_CONFIDENCE <= value <= MAX_CONFIDENCE):
+            return MIN_CONFIDENCE
+        return float(value)
+    
+    @field_validator("target_node_types", mode="before")
+    @classmethod
+    def check_target_node_types(cls, value):
+        if not isinstance(value, list) or not value:
+            return [UnknownNodeTypeEnum.UNKNOWN]
+        if len(value) > MAX_TARGET_NODE_TYPES:
+            value = value[:MAX_TARGET_NODE_TYPES]
+        return list(dict.fromkeys(value))
 
     @property
     def id(self) -> str:
         return self._id
+        
     
 class InitialParseResult(BaseModel):
     system_goals: list[SystemGoal] = Field(default_factory=list)
@@ -95,10 +125,16 @@ class InitialParseRequest(BaseModel):
     and separate small_talk and out_of_scope from in-domain requests.
     """
     small_talk: Optional[str] = Field(
-        None, min_length=1, max_length=500, description="Small talk in the request"
+        default=None, 
+        min_length=MIN_STRING_LENGTH, 
+        max_length=MAX_STRING_LENGTH, 
+        description="Small talk in the request",
     )
     out_of_scope: Optional[str] = Field(
-        None, min_length=1, max_length=500, description="Out-of-domain content"
+        default=None, 
+        min_length=MIN_STRING_LENGTH, 
+        max_length=MAX_STRING_LENGTH, 
+        description="Out-of-domain content",
     )
     system_goals: list[SystemGoal] = Field(
         default_factory=list,
@@ -106,8 +142,54 @@ class InitialParseRequest(BaseModel):
         description="System goals for the query",
     )
     reasoning: str = Field(
-        ..., min_length=10, max_length=500, description="Reasoning for classification"
+        ..., 
+        min_length=MIN_STRING_LENGTH, 
+        max_length=MAX_STRING_LENGTH, 
+        description="Reasoning for classification",
     )
+    
+    @field_validator("small_talk", mode="before")
+    @classmethod
+    def check_small_talk(cls, value):
+        if not isinstance(value, str):
+            return ""
+        if len(value) < MIN_STRING_LENGTH:
+            value += f"is less than {MIN_STRING_LENGTH} characters, padded to the small talk"
+        if len(value) > MAX_STRING_LENGTH:
+            return value[:MAX_STRING_LENGTH-4] + "..."
+        return value
+    
+    @field_validator("out_of_scope", mode="before")
+    @classmethod
+    def check_out_of_scope(cls, value):
+        if not isinstance(value, str):
+            return ""
+        if len(value) < MIN_STRING_LENGTH:
+            value += f"is less than {MIN_STRING_LENGTH} characters, padded to the out of scope"
+        if len(value) > MAX_STRING_LENGTH:
+            return value[:MAX_STRING_LENGTH-4] + "..."
+        return value
+    
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def check_reasoning(cls, value):
+        if not isinstance(value, str):
+            return ""
+        if len(value) < MIN_STRING_LENGTH:
+            value += f"is less than {MIN_STRING_LENGTH} characters, padded to the reasoning"
+        if len(value) > MAX_STRING_LENGTH:
+            return value[:MAX_STRING_LENGTH-4] + "..."
+        return value
+    
+    @field_validator("system_goals", mode="before")
+    @classmethod
+    def check_system_goals(cls, value):
+        if not isinstance(value, list):
+            value = [value]
+        if len(value) > MAX_SYSTEM_GOALS:
+            value = value[:MAX_SYSTEM_GOALS]
+        return list(dict.fromkeys(value))
+    
     
     async def __call__(self, confident_tuning: float = 0.5) -> InitialParseResult:
         if len(self.system_goals) == 0 and not self.small_talk and not self.out_of_scope:
