@@ -126,13 +126,11 @@ class InitialParseRequest(BaseModel):
     """
     small_talk: Optional[str] = Field(
         default=None, 
-        min_length=MIN_STRING_LENGTH, 
         max_length=MAX_STRING_LENGTH, 
         description="Small talk in the request",
     )
     out_of_scope: Optional[str] = Field(
         default=None, 
-        min_length=MIN_STRING_LENGTH, 
         max_length=MAX_STRING_LENGTH, 
         description="Out-of-domain content",
     )
@@ -152,9 +150,7 @@ class InitialParseRequest(BaseModel):
     @classmethod
     def check_small_talk(cls, value):
         if not isinstance(value, str):
-            return ""
-        if len(value) < MIN_STRING_LENGTH:
-            value += f"is less than {MIN_STRING_LENGTH} characters, padded to the small talk"
+            return str(value)
         if len(value) > MAX_STRING_LENGTH:
             return value[:MAX_STRING_LENGTH-4] + "..."
         return value
@@ -163,9 +159,7 @@ class InitialParseRequest(BaseModel):
     @classmethod
     def check_out_of_scope(cls, value):
         if not isinstance(value, str):
-            return ""
-        if len(value) < MIN_STRING_LENGTH:
-            value += f"is less than {MIN_STRING_LENGTH} characters, padded to the out of scope"
+            return str(value)
         if len(value) > MAX_STRING_LENGTH:
             return value[:MAX_STRING_LENGTH-4] + "..."
         return value
@@ -174,7 +168,7 @@ class InitialParseRequest(BaseModel):
     @classmethod
     def check_reasoning(cls, value):
         if not isinstance(value, str):
-            return ""
+            return f"is not a string, padded to the reasoning"
         if len(value) < MIN_STRING_LENGTH:
             value += f"is less than {MIN_STRING_LENGTH} characters, padded to the reasoning"
         if len(value) > MAX_STRING_LENGTH:
@@ -188,7 +182,7 @@ class InitialParseRequest(BaseModel):
             value = [value]
         if len(value) > MAX_SYSTEM_GOALS:
             value = value[:MAX_SYSTEM_GOALS]
-        return list(dict.fromkeys(value))
+        return value
     
     
     async def __call__(self, confident_tuning: float = 0.5) -> InitialParseResult:
