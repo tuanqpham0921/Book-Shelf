@@ -139,6 +139,15 @@ class StrategyClassificationWorkflow(
             tool_models=self.tool_models,
         )
         assistant_msg = await self.run_llm_call(req)
+        
+        # TODO:
+        # Continue here
+        # let call be the goal id rejection
+        # exapdn the result field to add reasoning for the rejection
+        # then you can add reasonings in there easier
+        # __call__ handle all the rejection and accepted logic and filling out
+        # the result field
+        # we might want to do the same for base requests and also the task planner
 
         tool_message = await self.run_tool_call(assistant_msg.tool_calls[0])
         classification_result = StrategyClassificationResult.model_validate(
