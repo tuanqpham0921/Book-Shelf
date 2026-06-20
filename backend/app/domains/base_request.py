@@ -42,13 +42,19 @@ class BaseRequest(BaseModel):
 
 class AnalyzeBaseRequest(BaseRequest):
     depends_on: list[str] = Field(
-        default_factory=list,
+        ...,
         description="Task ids from the previous step (task_1, task_2, …) that must complete first",
         max_length=10,
     )
     
     def model_post_init(self, __context: object) -> None:
         """Validate the dependencies of the task and return a new task with the valid dependencies"""
+        if not self.depends_on:
+            self.refusal = True
+            self.reasoning = "No dependencies provided for a request with dependencies"
+            return
+        
+        self.depends_on = list(set(self.depends_on))
         if self.id in self.depends_on:
             logger.warning(f"Task {self.id} depended on itself; removing dependency")
             self.depends_on.remove(self.id)
