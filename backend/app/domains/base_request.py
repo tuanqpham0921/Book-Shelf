@@ -122,6 +122,9 @@ class DomainRequest(BaseRequest):
                 continue
             goals.append(item)
             
+        if not goals or len(goals) < MIN_LIST_LENGTH:
+            goals = [GOAL_PLACEHOLDER] * MIN_LIST_LENGTH
+            
         return list(dict.fromkeys(goals))[:MAX_LIST_LENGTH]
     
     @model_validator(mode="before")
@@ -168,24 +171,28 @@ class AnalyzeBaseRequest(DomainRequest):
                 not re.match(TASK_ID_PATTERN, item)):
                 continue
             tasks.append(item)
-            
+
+        if not tasks or len(tasks) < MIN_LIST_LENGTH:
+            tasks = [TASK_PLACEHOLDER] * MIN_LIST_LENGTH
+
         return list(dict.fromkeys(tasks))[:MAX_LIST_LENGTH]
-    
+
     @model_validator(mode="before")
+    @classmethod
     def validate_depends_on(cls, data):
         if not isinstance(data, dict):
             return data
-        
+
         refusal = data.get("refusal", None)
         if refusal is None or not isinstance(refusal, bool):
-            data['refusal'] = False
+            data["refusal"] = False
             return data
-        
+
         if data.get("depends_on", None) is None:
-            data['refusal'] = True
+            data["refusal"] = True
             data["depends_on"] = [TASK_PLACEHOLDER] * MIN_LIST_LENGTH
         return data
-    
+
     def model_post_init(self, __context) -> None:
         if self.depends_on.count(TASK_PLACEHOLDER) == len(self.depends_on):
             self.depends_on = [TASK_PLACEHOLDER] * MIN_LIST_LENGTH
