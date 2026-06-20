@@ -21,12 +21,12 @@ so you can log in as an admin, or develop more advanced features to the system
 
 from typing import Optional, Literal
 from pydantic import Field
-from app.domains.base_request import BaseRequest
+from app.domains.base_request import DomainRequest
 from app.domains.project.schemas.filter_schemas import ProjectInfoField
 from app.domains.project.node_types import NodeTypeEnum
 
 
-class FeedbackRequest(BaseRequest):
+class FeedbackRequest(DomainRequest):
     """user wants to send feedback about the project (feedback text, optional contact_info)"""
 
     node_type: Literal[NodeTypeEnum.FEEDBACK] = NodeTypeEnum.FEEDBACK
@@ -39,7 +39,7 @@ class FeedbackRequest(BaseRequest):
     feedback: str = Field(..., description="User's feedback to the project")
 
 
-class ProjectInfoRequest(BaseRequest):
+class ProjectInfoRequest(DomainRequest):
     """request information about the app, tech stack, architecture, or project metadata (fields list)"""
 
     node_type: Literal[NodeTypeEnum.PROJECT_INFO] = NodeTypeEnum.PROJECT_INFO

@@ -20,6 +20,8 @@ from pydantic import PrivateAttr
 import uuid
 logger = logging.getLogger(__name__)
 
+from app.domains.node_types import NodeTypeEnum
+
 SystemGoalDescription = Annotated[str, Field(max_length=100)]
 
 MAX_SYSTEM_GOALS = 10
@@ -39,6 +41,17 @@ class SystemGoal(BaseModel):
         le=1.0,
         description="Confidence between 0 and 1 that the system can handle this goal",
     )
+    
+    target_node_types: list[NodeTypeEnum] = Field(
+        ..., 
+        max_length=10,
+        description="List of available request schemas to complete this goal",
+    )
+    
+    def model_post_init(self, __context: object) -> None:
+        if not self.target_node_types:
+            raise ValueError("Target node types are required")
+        self.target_node_types = list(set(self.target_node_types))
 
     @property
     def id(self) -> str:

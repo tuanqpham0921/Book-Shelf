@@ -5,7 +5,7 @@ These are the specific schemas that the LLM should generate during classificatio
 
 from typing import Optional, Literal, List
 from pydantic import Field
-from app.domains.base_request import BaseRequest, AnalyzeBaseRequest
+from app.domains.base_request import DomainRequest, AnalyzeBaseRequest
 from app.domains.books.node_types import NodeTypeEnum
 from .filter_schemas import BooksFilter
 import logging
@@ -59,7 +59,7 @@ class RecommendationStrategy(AnalyzeBaseRequest):
         super().model_post_init(__context)
 
 
-class FindByTitleRetrieval(BaseRequest):
+class FindByTitleRetrieval(DomainRequest):
     """Retrieve a book by title from the database."""
 
     node_type: Literal[NodeTypeEnum.FIND_TITLE] = NodeTypeEnum.FIND_TITLE
@@ -69,14 +69,14 @@ class FindByTitleRetrieval(BaseRequest):
     )
 
 
-class FindByISBN13Retrieval(BaseRequest):
+class FindByISBN13Retrieval(DomainRequest):
     """Retrieve a book by ISBN13 from the database."""
 
     node_type: Literal[NodeTypeEnum.FIND_ISBN13] = NodeTypeEnum.FIND_ISBN13
     isbn13: str = Field(..., description="ISBN13 to search for")
 
 
-class FindByTraitsRetrieval(BaseRequest):
+class FindByTraitsRetrieval(DomainRequest):
     """Retrieve a book by traits (not isbn13 or title) from the database.
     (trait, genre, rating, page count, or filter-based search)
     """
