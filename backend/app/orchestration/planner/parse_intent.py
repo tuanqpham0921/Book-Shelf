@@ -18,82 +18,34 @@ from app.domains.registry import format_node_type_catalog
 from typing import Annotated
 from pydantic import PrivateAttr
 import uuid
+
+from app.orchestration.planner.request_context import SystemGoal, InitialParseRequest
+from app.orchestration.planner.request_context import MAX_SYSTEM_GOALS
+
 logger = logging.getLogger(__name__)
 
-from app.domains.node_types import NodeTypeEnum
-from app.domains.node_types import UnknownNodeTypeEnum
-SystemGoalDescription = Annotated[str, Field(max_length=100)]
 
-MAX_SYSTEM_GOALS = 10
-MIN_STRING_LENGTH = 10
-MAX_STRING_LENGTH = 500
-MIN_CONFIDENCE = 0.0
-MAX_CONFIDENCE = 1.0
-MAX_TARGET_NODE_TYPES = 10
+@dataclass(slots=True)
+class AcceptedSystemGoal:
+    id: str
+    goal: str
 
-class SystemGoal(BaseModel):
-    _id: str = PrivateAttr(default="")
 
-    description: str = Field(
-        ...,
-        min_length=MIN_STRING_LENGTH,
-        max_length=MAX_STRING_LENGTH,
-        description="Description of the system goal",
-    )
-    confidence: float = Field(
-        ...,
-        ge=MIN_CONFIDENCE,
-        le=MAX_CONFIDENCE,
-        description="Confidence between 0 and 1 that the system can handle this goal",
-    )
-    
-    target_node_types: list[NodeTypeEnum] = Field(
-        ..., 
-        max_length=MAX_TARGET_NODE_TYPES,
-        description="List of available request schemas to complete this goal",
-    )
-    
-    @field_validator("description", mode="before")
-    @classmethod
-    def check_description(cls, value):
-        if not isinstance(value, str):
-            return f"is not a string, padded to the description"
-        if len(value) < MIN_STRING_LENGTH:
-            value += f"is less than {MIN_STRING_LENGTH} characters, padded to the description"
-        if len(value) > MAX_STRING_LENGTH:
-            return value[:MAX_STRING_LENGTH-4] + "..."
-        return value
-    
-    @field_validator("confidence", mode="before")
-    @classmethod
-    def check_confidence(cls, value):
-        if not isinstance(value, (float, int)):
-            return MIN_CONFIDENCE
-        if not (MIN_CONFIDENCE <= value <= MAX_CONFIDENCE):
-            return MIN_CONFIDENCE
-        return float(value)
-    
-    @field_validator("target_node_types", mode="before")
-    @classmethod
-    def check_target_node_types(cls, value):
-        if not isinstance(value, list) or not value:
-            return [UnknownNodeTypeEnum.UNKNOWN]
-        if len(value) > MAX_TARGET_NODE_TYPES:
-            value = value[:MAX_TARGET_NODE_TYPES]
-        return list(dict.fromkeys(value))
+@dataclass(slots=True)
+class RejectedSystemGoal(AcceptedSystemGoal):
+    reason: str
 
-    @property
-    def id(self) -> str:
-        return self._id
-        
-    
-class InitialParseResult(BaseModel):
-    system_goals: list[SystemGoal] = Field(default_factory=list)
-    rejected_system_goals: list[SystemGoal] = Field(default_factory=list)
+
+@dataclass(slots=True)
+class InitialParseOutput(UserFacingOutput):
+    accepted_system_goals: list[AcceptedSystemGoal] = Field(default_factory=list)
+    rejected_system_goals: list[RejectedSystemGoal] = Field(default_factory=list)
+
     continue_pipeline: bool = Field(default=False)
     small_talk: Optional[str] = Field(None)
     out_of_scope: Optional[str] = Field(None)
     reasoning: str = Field(default="")
+
     def to_summary(self) -> dict[str, str | bool | None]:
         return {
             "continue_pipeline": self.continue_pipeline,
@@ -101,7 +53,9 @@ class InitialParseResult(BaseModel):
             "num_rejected_system": len(self.rejected_system_goals),
             "num_accepted_system": len(self.system_goals),
             "system_goals": [goal.description for goal in self.system_goals],
-            "rejected_system_goals": [goal.description for goal in self.rejected_system_goals],
+            "rejected_system_goals": [
+                goal.description for goal in self.rejected_system_goals
+            ],
             "small_talk": self.small_talk,
             "out_of_scope": self.out_of_scope,
         }
@@ -110,115 +64,16 @@ class InitialParseResult(BaseModel):
         return [
             AssistantMessage(
                 content=self.model_dump_json(
-                    include={"small_talk", 
-                             "out_of_scope", 
-                             "rejected_system_goals", 
-                             "continue_pipeline", 
-                             "reasoning"}
+                    include={
+                        "small_talk",
+                        "out_of_scope",
+                        "rejected_system_goals",
+                        "continue_pipeline",
+                        "reasoning",
+                    }
                 )
             )
         ]
-
-class InitialParseRequest(BaseModel):
-    """
-    Initial parse for the Book Recommender: extract system_goals with confidence,
-    and separate small_talk and out_of_scope from in-domain requests.
-    """
-    small_talk: Optional[str] = Field(
-        default=None, 
-        max_length=MAX_STRING_LENGTH, 
-        description="Small talk in the request",
-    )
-    out_of_scope: Optional[str] = Field(
-        default=None, 
-        max_length=MAX_STRING_LENGTH, 
-        description="Out-of-domain content",
-    )
-    system_goals: list[SystemGoal] = Field(
-        default_factory=list,
-        max_length=MAX_SYSTEM_GOALS,
-        description="System goals for the query",
-    )
-    reasoning: str = Field(
-        ..., 
-        min_length=MIN_STRING_LENGTH, 
-        max_length=MAX_STRING_LENGTH, 
-        description="Reasoning for classification",
-    )
-    
-    @field_validator("small_talk", mode="before")
-    @classmethod
-    def check_small_talk(cls, value):
-        if not isinstance(value, str):
-            return str(value)
-        if len(value) > MAX_STRING_LENGTH:
-            return value[:MAX_STRING_LENGTH-4] + "..."
-        return value
-    
-    @field_validator("out_of_scope", mode="before")
-    @classmethod
-    def check_out_of_scope(cls, value):
-        if not isinstance(value, str):
-            return str(value)
-        if len(value) > MAX_STRING_LENGTH:
-            return value[:MAX_STRING_LENGTH-4] + "..."
-        return value
-    
-    @field_validator("reasoning", mode="before")
-    @classmethod
-    def check_reasoning(cls, value):
-        if not isinstance(value, str):
-            return f"is not a string, padded to the reasoning"
-        if len(value) < MIN_STRING_LENGTH:
-            value += f"is less than {MIN_STRING_LENGTH} characters, padded to the reasoning"
-        if len(value) > MAX_STRING_LENGTH:
-            return value[:MAX_STRING_LENGTH-4] + "..."
-        return value
-    
-    @field_validator("system_goals", mode="before")
-    @classmethod
-    def check_system_goals(cls, value):
-        if not isinstance(value, list):
-            value = [value]
-        if len(value) > MAX_SYSTEM_GOALS:
-            value = value[:MAX_SYSTEM_GOALS]
-        return value
-    
-    
-    async def __call__(self, confident_tuning: float = 0.5) -> InitialParseResult:
-        if len(self.system_goals) == 0 and not self.small_talk and not self.out_of_scope:
-            logger.warning("Nothing was classified in the initial parse")
-            return InitialParseResult(reasoning=self.reasoning)
-        
-        accepted_system_goals = []
-        rejected_system_goals = []
-        for goal in self.system_goals:
-            if goal.confidence >= confident_tuning and len(accepted_system_goals) < MAX_SYSTEM_GOALS:
-                accepted_system_goals.append(goal)
-                goal._id = f"goal_{len(accepted_system_goals)}"
-            else:
-                reason = (
-                    f"Rejected: confidence too low ({goal.confidence})"
-                    if goal.confidence < confident_tuning
-                    else f"Rejected: exceeded max goals ({MAX_SYSTEM_GOALS})"
-                )
-                rejected_system_goals.append(
-                    goal.model_copy(update={"description": f"{goal.description} — {reason}"})
-                )
-        
-        return InitialParseResult(
-            system_goals=accepted_system_goals,
-            rejected_system_goals=rejected_system_goals,
-            continue_pipeline=len(accepted_system_goals) > 0,
-            small_talk=self.small_talk,
-            out_of_scope=self.out_of_scope,
-            reasoning=self.reasoning
-        )
-
-
-@dataclass(slots=True)
-class InitialParseOutput(UserFacingOutput):
-    parse_result: InitialParseResult | None = None
 
 
 class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
@@ -243,7 +98,7 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
 
     async def run(self) -> None:
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
-        
+
         system_prompt = format_prompt(
             prompt_path=self._SYSTEM_PROMPT_PATH,
             TOOLS_NAME_DESCRIPTION=format_node_type_catalog(),
@@ -254,27 +109,60 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
             tool_models=self.tool_models,
         )
         assistant_msg = await self.run_llm_call(req)
+        tool_call = assistant_msg.tool_calls[0]
+        parse_result = tool_call.function.parsed_arguments
 
-        tool_message = await self.run_tool_call(assistant_msg.tool_calls[0])
-        parse_result = InitialParseResult.model_validate(tool_message.content)
-
+        parse_result = self.accept_system_goals(parse_result)
         system_goals = parse_result.system_goals
         await self.generate_user_response(
             parse_result.to_llm_messages(),
             prompt=load_prompt(prompt_path=self._USER_PROMPT_PATH),
         )
-        
+
         if system_goals:
             await self.sse_stream.send_chars("\n\n# System Goals:\n")
             for system_goal in system_goals:
                 await self.sse_stream.send_chars(f"- {system_goal.description}\n")
-        
-        
+
         self.finalize_result(parse_result)
 
-    def finalize_result(self, parse_result: InitialParseResult) -> None:
-        self.output.parse_result = parse_result
-        self.output.summary = parse_result.to_summary()
+    def finalize_result(self) -> None:
+        self.output.summary = "Placeholder summary"
         super().finalize_result(
-            ok=bool(parse_result.continue_pipeline and parse_result.system_goals)
+            ok=bool(self.output.continue_pipeline and self.output.system_goals)
         )
+
+    def accept_system_goals(
+        self, parse_result: InitialParseRequest, confident_tuning: float = 0.5
+    ) -> None:
+        if (
+            len(parse_result.system_goals) == 0
+            and not parse_result.small_talk
+            and not parse_result.out_of_scope
+        ):
+            logger.warning("Nothing was classified in the initial parse")
+            self.output.continue_pipeline = False
+            self.output.reasoning = "Nothing was classified in the initial parse"
+            return
+
+        count = 1
+        for goal in parse_result.system_goals:
+            if goal.confidence >= confident_tuning and count < MAX_SYSTEM_GOALS:
+                accepted_goal = AcceptedSystemGoal(
+                    id=f"goal_{count}",
+                    goal=goal,
+                )
+                count += 1
+                self.output.accepted_system_goals.append(accepted_goal)
+            else:
+                reason = (
+                    f"Rejected: confidence too low ({goal.confidence})"
+                    if goal.confidence < confident_tuning
+                    else f"Rejected: exceeded max goals ({MAX_SYSTEM_GOALS})"
+                )
+                rejected_goal = RejectedSystemGoal(
+                    id=f"goal_{len(self.output.rejected_system_goals)}",
+                    goal=goal,
+                    reason=reason,
+                )
+                self.output.rejected_system_goals.append(rejected_goal)

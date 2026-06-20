@@ -58,7 +58,7 @@ class StrategyClassificationNode(BaseModel):
         max_length=MAX_STRATEGIES,
         description="List of strategies generated from the query",
     )
-    
+
     @field_validator("strategies", mode="before")
     @classmethod
     def check_strategies(cls, value):
@@ -68,7 +68,9 @@ class StrategyClassificationNode(BaseModel):
         seen_ids: set[str] = set()
         deduped = []
         for item in value:
-            item_id = item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+            item_id = (
+                item.get("id") if isinstance(item, dict) else getattr(item, "id", None)
+            )
             if item_id is not None:
                 if item_id in seen_ids:
                     continue
@@ -139,7 +141,7 @@ class StrategyClassificationWorkflow(
             tool_models=self.tool_models,
         )
         assistant_msg = await self.run_llm_call(req)
-        
+
         # TODO:
         # Continue here
         # let call be the goal id rejection

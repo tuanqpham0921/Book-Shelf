@@ -9,7 +9,6 @@ from app.orchestration.request_context import RequestContext
 from app.orchestration.planner.parse_intent import (
     InitialParseWorkflow,
     InitialParseOutput,
-    InitialParseResult,
 )
 from app.orchestration.planner.strategy_classification import (
     StrategyClassificationWorkflow,
@@ -32,7 +31,7 @@ logger = logging.getLogger(__name__)
 @dataclass(slots=True)
 class OrchestrationOutput(UserFacingOutput):
     session_id: str | None = None
-    parse_result: InitialParseResult | None = None
+    parse_result: InitialParseOutput | None = None
     strategy_result: StrategyClassificationResult | None = None
     task_plan: TaskPlan | None = None
     diagram: str | None = None
@@ -81,7 +80,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         output = step.output
 
         if isinstance(output, InitialParseOutput):
-            self.output.parse_result = output.parse_result
+            self.output.parse_result = output
         elif isinstance(output, StrategyClassificationOutput):
             self.output.strategy_result = output.strategy_result
         elif isinstance(output, TaskPlanOutput):
@@ -107,6 +106,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
             return
 
         await self.sse_stream.send_divider()
+        return
         #------------------------------------------------------------------------------------------------
 
         system_goals = self.output.parse_result.system_goals

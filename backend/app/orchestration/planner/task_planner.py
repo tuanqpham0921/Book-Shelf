@@ -16,7 +16,9 @@ from app.common.prompt_loader import load_prompt
 from app.common.messages import AssistantMessage
 from clients import OpenAIParserRequest
 from app.orchestration.planner.parse_intent import SystemGoal
-from app.orchestration.planner.strategy_classification import StrategyClassificationResult
+from app.orchestration.planner.strategy_classification import (
+    StrategyClassificationResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +229,9 @@ class TaskPlanWorkflow(UserFacingBaseWorkflow[TaskPlanOutput]):
         self.user_message = user_message
 
     async def run(
-        self, system_goals: list[SystemGoal], strategy_result: StrategyClassificationResult
+        self,
+        system_goals: list[SystemGoal],
+        strategy_result: StrategyClassificationResult,
     ) -> None:
         """Create a task execution plan with dependency resolution."""
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
