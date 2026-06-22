@@ -1,11 +1,10 @@
-from app.domains.node_types import NodeTypeEnum
-from typing import Annotated
+from pydantic import PrivateAttr
 from pydantic import Field
 from pydantic import BaseModel
 from pydantic import field_validator
 from typing import Optional
+from app.domains.node_types import NodeTypeEnum
 
-SystemGoalDescription = Annotated[str, Field(max_length=100)]
 from app.domains.base_request import (GOAL_PLACEHOLDER, 
                                       MIN_STRING_LENGTH, 
                                       MAX_STRING_LENGTH, 
@@ -13,7 +12,6 @@ from app.domains.base_request import (GOAL_PLACEHOLDER,
                                       MAX_CONFIDENCE)
 
 MAX_SYSTEM_GOALS = 10
-from pydantic import PrivateAttr
 
 class SystemGoal(BaseModel):
     description: str = Field(
