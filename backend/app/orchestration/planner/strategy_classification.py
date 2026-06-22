@@ -4,7 +4,7 @@ from typing import List, Union
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.common.messages import AssistantMessage, UserMessage, ToolMessage
+from app.common.messages import AssistantMessage, UserMessage
 from app.common.prompt_loader import format_prompt
 from app.common.sse_stream import SSEStream
 from app.domains.registry import REQUEST_CLASSES
@@ -15,8 +15,8 @@ from config import BookConstraints, BookGuides
 from app.orchestration.planner.parse_intent import SystemGoal
 import logging
 import json
-import traceback
 from dataclasses import field
+from app.domains.base_request import BaseRequest
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +63,9 @@ class StrategyRequest(BaseModel):
 
 @dataclass(slots=True)
 class StrategyClassificationOutput(UserFacingOutput):
-    accepted: list[StrategyType] = field(default_factory=list)
-    refused: list[StrategyType] = field(default_factory=list)
-    continue_pipeline: bool = field(default=False)
+    accepted: list[BaseRequest] = field(default_factory=list)
+    refused: list[BaseRequest] = field(default_factory=list)
+    buffer: list[BaseRequest] = field(default_factory=list)
 
     def to_summary(self) -> dict[str, bool | int | list[str]]:
         return {
@@ -120,17 +120,7 @@ class StrategyClassificationWorkflow(
         tool_call = assistant_msg.tool_calls[0]
         parse_result = tool_call.function.parsed_arguments
 
-        # TODO:
-        # Continue here
-        # let call be the goal id rejection
-        # exapdn the result field to add reasoning for the rejection
-        # then you can add reasonings in there easier
-        # __call__ handle all the rejection and accepted logic and filling out
-        # the result field
-        # we might want to do the same for base requests and also the task planner
-
-        
-        self.process_classification_result(parse_result)
+        self.process_classification_result(parse_result.strategies, system_goals)
         self.finalize_result()
 
     def _format_system_goals(self, system_goals: list[SystemGoal]) -> AssistantMessage:
@@ -138,30 +128,42 @@ class StrategyClassificationWorkflow(
             {
                 "id": goal.id,
                 "description": goal.description,
-                "confidence": goal.confidence,
             }
             for goal in system_goals
         ]
         return AssistantMessage(content=json.dumps(payload))
 
-    def process_classification_result(self, parse_result: StrategyRequest, accepted_tuning: float = 0.7):
+    def process_classification_result(self, 
+                                      strategies: list[StrategyType],
+                                      system_goals: list[SystemGoal],
+                                      accepted_tuning: float = 0.7):
         """Convert to ClassificationResult format"""
-
-        for strategy in parse_result.strategies:
-            if (
-                strategy.refusal
-                or strategy.confidence < accepted_tuning
-                or not strategy.target_goal
-            ):
-                self.output.refused.append(strategy)
-            else:
-                self.output.accepted.append(strategy)
-
-        self.output.continue_pipeline = bool(len(self.output.accepted) > 0)
-        return self.output
-
-    def finalize_result(
-        self,
-    ) -> None:
+        accepted_goals_ids = set([goal.id for goal in system_goals])
         
-        super().finalize_result(ok=bool(True))
+        for strategy in strategies:
+            reason = []
+            
+            missing_goals = [goal_id for goal_id in strategy.target_goal if goal_id not in accepted_goals_ids]
+            if missing_goals:
+                strategy._refusal = True
+                reason.append(f"Missing target goals: {missing_goals}")
+            elif not strategy.target_goal:
+                strategy._refusal = True
+                reason.append("No target goals provided")
+            if strategy.confidence < accepted_tuning:
+                strategy._refusal = True
+                reason.append(f"Confidence {strategy.confidence} below accepted tuning")
+                
+            if reason or strategy._refusal:
+                strategy._refusal_reason = ",".join(reason)
+                self.output.refused.append(strategy)
+            elif len(self.output.accepted) < MAX_STRATEGIES:
+                self.output.accepted.append(strategy)
+            else:
+                self.output.buffer.append(strategy)
+    
+    def get_strategies_ids(self, strategies: list[StrategyType]) -> list[str]:
+        return set(strategy.id for strategy in strategies)
+
+    def finalize_result(self) -> None:
+        super().finalize_result(ok=bool(self.output.accepted))

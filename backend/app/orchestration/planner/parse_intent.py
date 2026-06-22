@@ -46,6 +46,7 @@ class SystemGoal(BaseModel):
         description="Available request schema to complete this goal",
     )
     
+    _refusal: bool = PrivateAttr(default=False)
     _refusal_reason: str | None = PrivateAttr(default=None)
     _id: str = PrivateAttr(default=GOAL_PLACEHOLDER)
     
@@ -139,6 +140,7 @@ class InitialParseRequest(BaseModel):
 class InitialParseOutput(UserFacingOutput):
     accepted_goals: list[SystemGoal] = field(default_factory=list)
     refused_goals:  list[SystemGoal] = field(default_factory=list)
+    buffer_goals: list[SystemGoal] = field(default_factory=list)
     
     small_talk: Optional[str] = field(default=None)
     out_of_scope: Optional[str] = field(default=None)
@@ -153,6 +155,9 @@ class InitialParseOutput(UserFacingOutput):
             "out_of_scope": self.out_of_scope,
             "reasoning": self.reasoning,
         }
+        
+    def accepted_goals_ids(self) -> list[str]:
+        return [goal.id for goal in self.accepted_goals]
 
     def to_llm_messages(self) -> list[AssistantMessage]:
         return [
@@ -256,17 +261,19 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
         for goal in parse_result.system_goals:
             reason = []
             if goal.confidence < confident_tuning:
+                goal._refusal = True
                 reason.append(f"Rejected: confidence too low ({goal.confidence})")
             if goal.target_node_types.value not in NODE_TYPE_TO_CLS.keys():
+                goal._refusal = True
                 reason.append(f"Rejected: target node type not supported ({goal.target_node_types})")
-            if len(self.output.accepted_goals) >= MAX_SYSTEM_GOALS:
-                reason.append(f"Rejected: exceeded max goals ({MAX_SYSTEM_GOALS})")
-        
+
             goal._id = f"goal_{count}"
-            if not reason:
-                self.output.accepted_goals.append(goal)
-                continue
-            else:
-                goal._refusal_reason = ", ".join(reason)
+            if reason or goal._refusal:
+                goal._refusal_reason = ",".join(reason)
                 self.output.refused_goals.append(goal)
+            elif len(self.output.accepted_goals) < MAX_SYSTEM_GOALS:
+                self.output.accepted_goals.append(goal)
+            else:
+                self.output.buffer_goals.append(goal)
+                
             count += 1

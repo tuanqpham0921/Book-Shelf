@@ -20,6 +20,11 @@ MAX_LIST_LENGTH = 10
 ID_PREFIX = "task_"
 TASK_ID_PATTERN = r"^" + ID_PREFIX + r"\d+$"
 
+GOAL_PREFIX = "goal_"
+GOAL_ID_PATTERN = r"^" + GOAL_PREFIX + r"\d+$"
+TASK_PLACEHOLDER = "task_placeholder"
+GOAL_PLACEHOLDER = "goal_placeholder"
+
 class BaseRequest(BaseModel):
     node_type: NodeTypeEnum
     id: str = Field(..., 
@@ -45,8 +50,20 @@ class BaseRequest(BaseModel):
         le=MAX_CONFIDENCE, 
         description="Confidence score for the parsed results (1.0 is highest confidence)",
     )
-    refusal: bool = Field(default=False, description="Did we refuse this node request?")
-    _details: str = PrivateAttr(default="")
+    _refusal: bool = PrivateAttr(default=False)
+    _refusal_reason: str | None = PrivateAttr(default=None)
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def refusal_reason(self) -> str | None:
+        return self._refusal_reason
+    
+    @property
+    def refusal(self) -> bool:
+        return self._refusal
     
     @field_validator("id", mode="before")
     @classmethod
@@ -86,19 +103,6 @@ class BaseRequest(BaseModel):
         if not (MIN_CONFIDENCE <= value <= MAX_CONFIDENCE):
             return MIN_CONFIDENCE
         return float(value)
-    
-    @field_validator("refusal", mode="before")
-    @classmethod
-    def check_refusal(cls, value):
-        if not isinstance(value, bool):
-            return False
-        return value
-    
-        
-GOAL_PREFIX = "goal_"
-GOAL_ID_PATTERN = r"^" + GOAL_PREFIX + r"\d+$"
-TASK_PLACEHOLDER = "task_placeholder"
-GOAL_PLACEHOLDER = "goal_placeholder"
 
 class DomainRequest(BaseRequest):
     target_goal: list[str] = Field(
