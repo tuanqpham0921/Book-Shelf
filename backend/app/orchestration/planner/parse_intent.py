@@ -12,18 +12,13 @@ from app.common.messages import UserMessage
 from clients.openai_client import OpenAIClient
 
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
-from app.common.messages import AssistantMessage, BaseMessage
+from app.common.messages import AssistantMessage
 from app.domains.registry import format_node_type_catalog
-from typing import Annotated
-from pydantic import PrivateAttr
-import uuid
 from clients.openai_requests import OpenAIChatRequest
 from app.orchestration.planner.request_context import SystemGoal, InitialParseRequest
 from app.orchestration.planner.request_context import MAX_SYSTEM_GOALS
 from dataclasses import field
 from app.domains.registry import NODE_TYPE_TO_CLS
-from app.domains.node_types import UnknownNodeTypeEnum
 logger = logging.getLogger(__name__)
 
 
@@ -122,9 +117,7 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
                 temperature=0.7,
                 top_p=1.0,
             ),
-        )
-        print(f"To LLM messages: {to_llm_messages}")
-        
+        )        
         if self.output.accepted_goals:
             await self.sse_stream.send_chars("\n\n# System Goals:\n")
             for system_goal in self.output.accepted_goals:
@@ -147,6 +140,7 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
         self.output.out_of_scope = parse_result.out_of_scope
         self.output.reasoning = parse_result.reasoning
 
+        count = 0
         for goal in parse_result.system_goals:
             reason = []
             if goal.confidence < confident_tuning:
@@ -156,10 +150,11 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
             if len(self.output.accepted_goals) >= MAX_SYSTEM_GOALS:
                 reason.append(f"Rejected: exceeded max goals ({MAX_SYSTEM_GOALS})")
         
+            goal._id = f"goal_{count}"
             if not reason:
                 self.output.accepted_goals.append(goal)
                 continue
             else:
                 goal._refusal_reason = ", ".join(reason)
-                self.output.refused_goals.append(goal)            
-        
+                self.output.refused_goals.append(goal)
+            count += 1

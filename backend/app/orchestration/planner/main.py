@@ -105,7 +105,9 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         parse_workflow = InitialParseWorkflow(
             self.sse_stream, self.user_message, self.llm_client
         )
-        parse_result = await self.run_async_step(parse_workflow(), raise_on_failure=False)
+        parse_result = await self.run_async_step(
+            parse_workflow(), raise_on_failure=False
+        )
         if not parse_result.ok:
             if parse_result.run_time_error:
                 await self.sse_stream.send_error(self.initial_parse_failure_message)
@@ -114,10 +116,10 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
             return
 
         await self.sse_stream.send_divider()
-        return
+        # return
         #------------------------------------------------------------------------------------------------
 
-        system_goals = self.output.parse_result.system_goals
+        system_goals = self.output.parse_result.accepted_goals
 
         strategy_workflow = StrategyClassificationWorkflow(
             self.sse_stream, self.user_message, self.llm_client
@@ -155,9 +157,9 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         self.output.diagram = await self.send_mermaid(
             self.output.task_plan, self.output.strategy_result
         )
+        await self.generate_summary()
         #------------------------------------------------------------------------------------------------
 
-        self.output.summary = await self.generate_summary()
         self.result.ok = True
         self.result.message = "Conversation orchestration completed successfully"
         await self.sse_stream.send_divider()
@@ -165,7 +167,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
     async def generate_summary(self) -> dict[str, Any]:
         from common.utils import remove_json_empty_values
 
-        sub_summary = remove_json_empty_values(self.output._sub_summary())
+        sub_summary = remove_json_empty_values(self.output.to_summary())
         prompt = format_prompt(
             self._SUMMARY_PROMPT_PATH,
             sub_summary=json.dumps(sub_summary, indent=2),

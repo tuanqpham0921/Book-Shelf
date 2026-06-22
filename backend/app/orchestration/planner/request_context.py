@@ -8,14 +8,13 @@ from typing import Optional, get_args
 import uuid
 
 SystemGoalDescription = Annotated[str, Field(max_length=100)]
+from app.domains.base_request import (GOAL_PLACEHOLDER, 
+                                      MIN_STRING_LENGTH, 
+                                      MAX_STRING_LENGTH, 
+                                      MIN_CONFIDENCE, 
+                                      MAX_CONFIDENCE)
 
 MAX_SYSTEM_GOALS = 10
-MIN_STRING_LENGTH = 10
-MAX_STRING_LENGTH = 500
-MIN_CONFIDENCE = 0.0
-MAX_CONFIDENCE = 1.0
-MAX_TARGET_NODE_TYPES = 10
-
 from pydantic import PrivateAttr
 
 class SystemGoal(BaseModel):
@@ -37,8 +36,8 @@ class SystemGoal(BaseModel):
         description="Available request schema to complete this goal",
     )
     
-    _refusal_reason: PrivateAttr(default=None)
-    _id: PrivateAttr(default_factory=lambda: f"goal_{uuid.uuid4()}")
+    _refusal_reason: str | None = PrivateAttr(default=None)
+    _id: str = PrivateAttr(default=GOAL_PLACEHOLDER)
     
     @property
     def id(self) -> str:

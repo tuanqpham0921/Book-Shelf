@@ -204,6 +204,14 @@ class TaskGenerationNode(BaseModel):
 class TaskPlanOutput(UserFacingOutput):
     task_plan: TaskPlan | None = None
     diagram: str | None = None
+    
+    def to_summary(self) -> dict[str, bool | int | list[str]]:
+        return {
+            "task_count": len(self.task_plan.accepted),
+            "execution_order": self.task_plan.execution_order,
+            "missing_count": len(self.task_plan.missing_ids),
+            "refused": [task.reasoning for task in self.task_plan.refused],
+        }
 
 
 class TaskPlanWorkflow(UserFacingBaseWorkflow[TaskPlanOutput]):
@@ -284,7 +292,6 @@ class TaskPlanWorkflow(UserFacingBaseWorkflow[TaskPlanOutput]):
 
     def finalize_result(self, plan_result: TaskPlan) -> None:
         self.output.task_plan = plan_result
-        self.output.summary = plan_result.to_summary()
         super().finalize_result(ok=1 <= len(plan_result.execution_order) <= MAX_TASKS)
 
     def modify_schema(self, tool_model: type, valid_ids: list[str]):

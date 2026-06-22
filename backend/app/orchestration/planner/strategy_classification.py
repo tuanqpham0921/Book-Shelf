@@ -100,6 +100,11 @@ class StrategyClassificationNode(BaseModel):
 @dataclass(slots=True)
 class StrategyClassificationOutput(UserFacingOutput):
     strategy_result: StrategyClassificationResult | None = None
+    
+    def to_summary(self) -> dict[str, bool | int | list[str]]:
+        return {
+            "strategy_ids": [strategy.id for strategy in self.strategy_result.accepted],
+        }
 
 
 class StrategyClassificationWorkflow(
@@ -135,6 +140,7 @@ class StrategyClassificationWorkflow(
             book_constraints=str(BookConstraints()),
             book_guides=str(BookGuides()),
         )
+
         req = OpenAIParserRequest(
             prompt=system_prompt,
             messages=[self._format_system_goals(system_goals)],
@@ -172,7 +178,6 @@ class StrategyClassificationWorkflow(
         self, classification_result: StrategyClassificationResult
     ) -> None:
         self.output.strategy_result = classification_result
-        self.output.summary = classification_result.to_summary()
         super().finalize_result(
             ok=bool(
                 classification_result.continue_pipeline
