@@ -132,7 +132,7 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
             and not parse_result.out_of_scope
         ):
             logger.warning("Nothing was classified in the initial parse")
-            self.output.ok = False
+            self.result.ok = False
             self.output.reasoning = "Nothing was classified in the initial parse"
             return
         
@@ -140,7 +140,7 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
         self.output.out_of_scope = parse_result.out_of_scope
         self.output.reasoning = parse_result.reasoning
 
-        count = 0
+        count = 1
         for goal in parse_result.system_goals:
             reason = []
             if goal.confidence < confident_tuning:

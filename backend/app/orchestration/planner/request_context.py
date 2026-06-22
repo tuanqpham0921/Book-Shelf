@@ -1,11 +1,9 @@
 from app.domains.node_types import NodeTypeEnum
-from app.domains.node_types import UnknownNodeTypeEnum
 from typing import Annotated
 from pydantic import Field
 from pydantic import BaseModel
 from pydantic import field_validator
-from typing import Optional, get_args
-import uuid
+from typing import Optional
 
 SystemGoalDescription = Annotated[str, Field(max_length=100)]
 from app.domains.base_request import (GOAL_PLACEHOLDER, 
