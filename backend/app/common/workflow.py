@@ -62,12 +62,6 @@ class UserFacingBaseWorkflow(Workflow[OutputT]):
 
         return step
 
-    def finalize_result(self, *, ok: bool, message: str | None = None) -> None:
-        self.result.ok = ok
-        self.result.message = message or (
-            self.success_message if ok else self.failure_message
-        )
-
     async def generate_user_response(
         self, messages: list[BaseMessage], prompt: str
     ) -> AssistantMessage:

@@ -18,9 +18,10 @@ from app.domains.registry import format_node_type_catalog
 from typing import Annotated
 from pydantic import PrivateAttr
 import uuid
-
+from clients.openai_requests import OpenAIChatRequest
 from app.orchestration.planner.request_context import SystemGoal, InitialParseRequest
 from app.orchestration.planner.request_context import MAX_SYSTEM_GOALS
+from dataclasses import field
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 @dataclass(slots=True)
 class AcceptedSystemGoal:
     id: str
-    goal: str
+    goal: SystemGoal
 
 
 @dataclass(slots=True)
@@ -38,38 +39,44 @@ class RejectedSystemGoal(AcceptedSystemGoal):
 
 @dataclass(slots=True)
 class InitialParseOutput(UserFacingOutput):
-    accepted_system_goals: list[AcceptedSystemGoal] = Field(default_factory=list)
-    rejected_system_goals: list[RejectedSystemGoal] = Field(default_factory=list)
-
-    continue_pipeline: bool = Field(default=False)
-    small_talk: Optional[str] = Field(None)
-    out_of_scope: Optional[str] = Field(None)
-    reasoning: str = Field(default="")
+    accepted_system_goals: list[AcceptedSystemGoal] = field(default_factory=list)
+    rejected_system_goals: list[RejectedSystemGoal] = field(default_factory=list)
+    
+    small_talk: Optional[str] = field(default=None)
+    out_of_scope: Optional[str] = field(default=None)
+    reasoning: Optional[str] = field(default=None)
 
     def to_summary(self) -> dict[str, str | bool | None]:
         return {
-            "continue_pipeline": self.continue_pipeline,
-            "total_system_goals": len(self.system_goals),
+            "total_system_goals": len(self.accepted_system_goals),
             "num_rejected_system": len(self.rejected_system_goals),
-            "num_accepted_system": len(self.system_goals),
-            "system_goals": [goal.description for goal in self.system_goals],
+            "num_accepted_system": len(self.accepted_system_goals),
+            "system_goals": [goal.description for goal in self.accepted_system_goals],
             "rejected_system_goals": [
-                goal.description for goal in self.rejected_system_goals
+                goal.goal.description for goal in self.rejected_system_goals
+            ],
+            "accepted_system_goals": [
+                goal.goal.description for goal in self.accepted_system_goals
             ],
             "small_talk": self.small_talk,
             "out_of_scope": self.out_of_scope,
+            "reasoning": self.reasoning,
         }
 
-    def to_llm_messages(self) -> list[BaseMessage]:
+    def to_llm_messages(self) -> list[AssistantMessage]:
+        import json
         return [
             AssistantMessage(
-                content=self.model_dump_json(
-                    include={
-                        "small_talk",
-                        "out_of_scope",
-                        "rejected_system_goals",
-                        "continue_pipeline",
-                        "reasoning",
+                content=json.dumps(
+                    {
+                        "small_talk": self.small_talk,
+                        "out_of_scope": self.out_of_scope,
+                        "rejected_system_goals": [
+                            (g.goal, g.reason)
+                            for g in self.rejected_system_goals
+                        ],
+                        "continue_pipeline": len(self.accepted_system_goals) > 0,
+                        "reasoning": self.reasoning,
                     }
                 )
             )
@@ -112,27 +119,36 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
         tool_call = assistant_msg.tool_calls[0]
         parse_result = tool_call.function.parsed_arguments
 
-        parse_result = self.accept_system_goals(parse_result)
-        system_goals = parse_result.system_goals
-        await self.generate_user_response(
-            parse_result.to_llm_messages(),
-            prompt=load_prompt(prompt_path=self._USER_PROMPT_PATH),
-        )
-
-        if system_goals:
-            await self.sse_stream.send_chars("\n\n# System Goals:\n")
-            for system_goal in system_goals:
-                await self.sse_stream.send_chars(f"- {system_goal.description}\n")
-
-        self.finalize_result(parse_result)
-
-    def finalize_result(self) -> None:
+        self.process_parse_result(parse_result)        
+        await self.finalize_result()
+        
+        
+    async def finalize_result(self) -> None:
         self.output.summary = "Placeholder summary"
         super().finalize_result(
-            ok=bool(self.output.continue_pipeline and self.output.system_goals)
+            ok=bool(self.output.accepted_system_goals)
         )
+        await self.generate_user_response()
+        
+    async def generate_user_response(self) -> None:
+        to_llm_messages = self.output.to_llm_messages()
+        await self.run_llm_call(
+            req=OpenAIChatRequest(
+                prompt=load_prompt(prompt_path=self._USER_PROMPT_PATH),
+                messages=to_llm_messages,
+                sse_stream=self.sse_stream,
+                temperature=0.7,
+                top_p=1.0,
+            ),
+        )
+        print(f"To LLM messages: {to_llm_messages}")
+        
+        if self.output.accepted_system_goals:
+            await self.sse_stream.send_chars("\n\n# System Goals:\n")
+            for system_goal in self.output.accepted_system_goals:
+                await self.sse_stream.send_chars(f"- {system_goal.goal.description}\n")
 
-    def accept_system_goals(
+    def process_parse_result(
         self, parse_result: InitialParseRequest, confident_tuning: float = 0.5
     ) -> None:
         if (
@@ -141,9 +157,13 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
             and not parse_result.out_of_scope
         ):
             logger.warning("Nothing was classified in the initial parse")
-            self.output.continue_pipeline = False
+            self.output.ok = False
             self.output.reasoning = "Nothing was classified in the initial parse"
             return
+        
+        self.output.small_talk = parse_result.small_talk
+        self.output.out_of_scope = parse_result.out_of_scope
+        self.output.reasoning = parse_result.reasoning
 
         count = 1
         for goal in parse_result.system_goals:
@@ -152,7 +172,6 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
                     id=f"goal_{count}",
                     goal=goal,
                 )
-                count += 1
                 self.output.accepted_system_goals.append(accepted_goal)
             else:
                 reason = (
@@ -161,8 +180,11 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
                     else f"Rejected: exceeded max goals ({MAX_SYSTEM_GOALS})"
                 )
                 rejected_goal = RejectedSystemGoal(
-                    id=f"goal_{len(self.output.rejected_system_goals)}",
+                    id=f"goal_{count}",
                     goal=goal,
                     reason=reason,
                 )
                 self.output.rejected_system_goals.append(rejected_goal)
+            count += 1
+            
+        

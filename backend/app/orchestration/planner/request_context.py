@@ -17,13 +17,11 @@ MAX_TARGET_NODE_TYPES = 10
 
 
 class SystemGoal(BaseModel):
-    goal_description: str = (
-        Field(  # TODO: might need to change prompt to use goal_description
-            ...,
-            min_length=MIN_STRING_LENGTH,
-            max_length=MAX_STRING_LENGTH,
-            description="Description of the system goal",
-        )
+    description: str = Field(
+        ...,
+        min_length=MIN_STRING_LENGTH,
+        max_length=MAX_STRING_LENGTH,
+        description="Description of the system goal",
     )
     confidence: float = Field(
         ...,
@@ -39,7 +37,7 @@ class SystemGoal(BaseModel):
     )
 
     # NOTE: this is important so we don't want to pad the description
-    # @field_validator("goal_description", mode="before")
+    # @field_validator("description", mode="before")
     # @classmethod
     # def check_description(cls, value):
     #     if not isinstance(value, str):
