@@ -113,6 +113,7 @@ class StrategyClassificationWorkflow(
 
         req = OpenAIParserRequest(
             prompt=system_prompt,
+            #TODO: I think there's a warning here
             messages=[self._format_system_goals(system_goals)],
             tool_models=self.tool_models,
         )
