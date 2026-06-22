@@ -15,7 +15,7 @@ from app.common.sse_stream import SSEStream
 from app.common.prompt_loader import load_prompt
 from app.common.messages import AssistantMessage
 from clients import OpenAIParserRequest
-from app.orchestration.planner.request_context import SystemGoal
+from app.orchestration.planner.parse_intent import SystemGoal
 from app.orchestration.planner.strategy_classification import (
     StrategyClassificationResult,
 )

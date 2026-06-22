@@ -1,25 +1,138 @@
+import json
 import logging
-
-from dataclasses import dataclass
-
-from app.common.prompt_loader import load_prompt, format_prompt
-
-from app.common.sse_stream import SSEStream
-from clients import OpenAIParserRequest
-
-from app.common.workflow import UserFacingBaseWorkflow, UserFacingOutput
-from app.common.messages import UserMessage
-from clients.openai_client import OpenAIClient
-
+from dataclasses import dataclass, field
 from typing import Optional
-from app.common.messages import AssistantMessage
-from app.domains.registry import format_node_type_catalog
+
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
+
+from app.common.messages import AssistantMessage, UserMessage
+from app.common.prompt_loader import format_prompt, load_prompt
+from app.common.sse_stream import SSEStream
+from app.common.workflow import UserFacingBaseWorkflow, UserFacingOutput
+from app.domains.base_request import (
+    GOAL_PLACEHOLDER,
+    MAX_CONFIDENCE,
+    MAX_STRING_LENGTH,
+    MIN_CONFIDENCE,
+    MIN_STRING_LENGTH,
+)
+from app.domains.node_types import NodeTypeEnum
+from app.domains.registry import NODE_TYPE_TO_CLS, format_node_type_catalog
+from clients import OpenAIParserRequest
+from clients.openai_client import OpenAIClient
 from clients.openai_requests import OpenAIChatRequest
-from app.orchestration.planner.request_context import SystemGoal, InitialParseRequest
-from app.orchestration.planner.request_context import MAX_SYSTEM_GOALS
-from dataclasses import field
-from app.domains.registry import NODE_TYPE_TO_CLS
+
 logger = logging.getLogger(__name__)
+
+MAX_SYSTEM_GOALS = 10
+
+
+class SystemGoal(BaseModel):
+    description: str = Field(
+        ...,
+        min_length=MIN_STRING_LENGTH,
+        max_length=MAX_STRING_LENGTH,
+        description="Description of the system goal",
+    )
+    confidence: float = Field(
+        ...,
+        ge=MIN_CONFIDENCE,
+        le=MAX_CONFIDENCE,
+        description="Confidence between 0 and 1 that the system can handle this goal",
+    )
+
+    target_node_types: NodeTypeEnum = Field(
+        ...,
+        description="Available request schema to complete this goal",
+    )
+    
+    _refusal_reason: str | None = PrivateAttr(default=None)
+    _id: str = PrivateAttr(default=GOAL_PLACEHOLDER)
+    
+    @property
+    def id(self) -> str:
+        return self._id
+    
+    @property
+    def refusal_reason(self) -> str | None:
+        return self._refusal_reason
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def check_confidence(cls, value):
+        if not isinstance(value, (float, int)):
+            return MIN_CONFIDENCE
+        if not (MIN_CONFIDENCE <= value <= MAX_CONFIDENCE):
+            return MIN_CONFIDENCE
+        return float(value)
+
+class InitialParseRequest(BaseModel):
+    """
+    Initial parse for the Book Recommender: extract system_goals with confidence,
+    and separate small_talk and out_of_scope from in-domain requests.
+    """
+
+    small_talk: Optional[str] = Field(
+        default=None,
+        max_length=MAX_STRING_LENGTH,
+        description="Small talk in the request",
+    )
+    out_of_scope: Optional[str] = Field(
+        default=None,
+        max_length=MAX_STRING_LENGTH,
+        description="Out-of-domain content",
+    )
+    system_goals: list[SystemGoal] = Field(
+        default_factory=list,
+        max_length=MAX_SYSTEM_GOALS,
+        description="System goals for the query",
+    )
+    reasoning: str = Field(
+        ...,
+        min_length=MIN_STRING_LENGTH,
+        max_length=MAX_STRING_LENGTH,
+        description="Reasoning for classification",
+    )
+
+    @field_validator("small_talk", mode="before")
+    @classmethod
+    def check_small_talk(cls, value):
+        if not isinstance(value, str):
+            return str(value)
+        if len(value) > MAX_STRING_LENGTH:
+            return value[: MAX_STRING_LENGTH - 4] + "..."
+        return value
+
+    @field_validator("out_of_scope", mode="before")
+    @classmethod
+    def check_out_of_scope(cls, value):
+        if not isinstance(value, str):
+            return str(value)
+        if len(value) > MAX_STRING_LENGTH:
+            return value[: MAX_STRING_LENGTH - 4] + "..."
+        return value
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def check_reasoning(cls, value):
+        if not isinstance(value, str):
+            return f"is not a string, padded to the reasoning"
+        if len(value) < MIN_STRING_LENGTH:
+            value += (
+                f"is less than {MIN_STRING_LENGTH} characters, padded to the reasoning"
+            )
+        if len(value) > MAX_STRING_LENGTH:
+            return value[: MAX_STRING_LENGTH - 4] + "..."
+        return value
+
+    @field_validator("system_goals", mode="before")
+    @classmethod
+    def check_system_goals(cls, value):
+        if not isinstance(value, list):
+            value = [value]
+        if len(value) > MAX_SYSTEM_GOALS:
+            value = value[:MAX_SYSTEM_GOALS]
+        return value
 
 
 @dataclass(slots=True)
@@ -42,7 +155,6 @@ class InitialParseOutput(UserFacingOutput):
         }
 
     def to_llm_messages(self) -> list[AssistantMessage]:
-        import json
         return [
             AssistantMessage(
                 content=json.dumps(

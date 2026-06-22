@@ -12,7 +12,7 @@ from clients.openai_client import OpenAIClient
 from clients import OpenAIParserRequest
 from app.common.workflow import UserFacingBaseWorkflow, UserFacingOutput
 from config import BookConstraints, BookGuides
-from app.orchestration.planner.request_context import SystemGoal
+from app.orchestration.planner.parse_intent import SystemGoal
 import logging
 import json
 import traceback
