@@ -16,6 +16,7 @@ from app.orchestration.planner.parse_intent import SystemGoal
 import logging
 import json
 import traceback
+from dataclasses import field
 
 logger = logging.getLogger(__name__)
 
@@ -26,27 +27,7 @@ MAX_STRATEGIES = 15
 StrategyType = Union[REQUEST_CLASSES]
 
 
-class StrategyClassificationResult(BaseModel):
-    """Generic classification result for any node type."""
-
-    accepted: List[StrategyType] = []
-    refused: List[StrategyType] = []
-    continue_pipeline: bool = False
-
-    def get_accepted_id_to_node(self):
-        """Return dict of node_id -> serialized node data."""
-        return {node.id: node for node in self.accepted}
-
-    def to_summary(self) -> dict[str, bool | int | list[str]]:
-        return {
-            "continue_pipeline": self.continue_pipeline,
-            "accepted_count": len(self.accepted),
-            "refused_count": len(self.refused),
-            "strategy_ids": [strategy.id for strategy in self.accepted],
-        }
-
-
-class StrategyClassificationNode(BaseModel):
+class StrategyRequest(BaseModel):
     """
     Generate a set of strategy requests to satisfy the user's request.
     Each strategy should represent a discrete unit of work.
@@ -79,32 +60,21 @@ class StrategyClassificationNode(BaseModel):
 
         return deduped[:MAX_STRATEGIES]
 
-    async def __call__(self, accepted_tuning: float = 0.7):
-        """Convert to ClassificationResult format"""
-        result = StrategyClassificationResult()
-
-        for strategy in self.strategies:
-            if (
-                strategy.refusal
-                or strategy.confidence < accepted_tuning
-                or not strategy.target_goal
-            ):
-                result.refused.append(strategy)
-            else:
-                result.accepted.append(strategy)
-
-        result.continue_pipeline = bool(len(result.accepted) > 0)
-        return result
-
 
 @dataclass(slots=True)
 class StrategyClassificationOutput(UserFacingOutput):
-    strategy_result: StrategyClassificationResult | None = None
-    
+    accepted: list[StrategyType] = field(default_factory=list)
+    refused: list[StrategyType] = field(default_factory=list)
+    continue_pipeline: bool = field(default=False)
+
     def to_summary(self) -> dict[str, bool | int | list[str]]:
         return {
-            "strategy_ids": [strategy.id for strategy in self.strategy_result.accepted],
+            "strategy_ids": [strategy.id for strategy in self.accepted],
         }
+
+    def get_accepted_id_to_node(self):
+        """Return dict of node_id -> serialized node data."""
+        return {node.id: node for node in self.accepted}
 
 
 class StrategyClassificationWorkflow(
@@ -116,7 +86,7 @@ class StrategyClassificationWorkflow(
 
     _SYSTEM_PROMPT_PATH = "orchestration/planner/prompts/2_strategy_classification.txt"
 
-    tool_models = [StrategyClassificationNode]
+    tool_models = [StrategyRequest]
 
     def __init__(
         self, sse_stream: SSEStream, user_message: UserMessage, llm_client: OpenAIClient
@@ -147,6 +117,8 @@ class StrategyClassificationWorkflow(
             tool_models=self.tool_models,
         )
         assistant_msg = await self.run_llm_call(req)
+        tool_call = assistant_msg.tool_calls[0]
+        parse_result = tool_call.function.parsed_arguments
 
         # TODO:
         # Continue here
@@ -157,11 +129,9 @@ class StrategyClassificationWorkflow(
         # the result field
         # we might want to do the same for base requests and also the task planner
 
-        tool_message = await self.run_tool_call(assistant_msg.tool_calls[0])
-        classification_result = StrategyClassificationResult.model_validate(
-            tool_message.content
-        )
-        self.finalize_result(classification_result)
+        
+        self.process_classification_result(parse_result)
+        self.finalize_result()
 
     def _format_system_goals(self, system_goals: list[SystemGoal]) -> AssistantMessage:
         payload = [
@@ -174,14 +144,24 @@ class StrategyClassificationWorkflow(
         ]
         return AssistantMessage(content=json.dumps(payload))
 
+    def process_classification_result(self, parse_result: StrategyRequest, accepted_tuning: float = 0.7):
+        """Convert to ClassificationResult format"""
+
+        for strategy in parse_result.strategies:
+            if (
+                strategy.refusal
+                or strategy.confidence < accepted_tuning
+                or not strategy.target_goal
+            ):
+                self.output.refused.append(strategy)
+            else:
+                self.output.accepted.append(strategy)
+
+        self.output.continue_pipeline = bool(len(self.output.accepted) > 0)
+        return self.output
+
     def finalize_result(
-        self, classification_result: StrategyClassificationResult
+        self,
     ) -> None:
-        self.output.strategy_result = classification_result
-        super().finalize_result(
-            ok=bool(
-                classification_result.continue_pipeline
-                and len(classification_result.accepted) > 0
-                and classification_result.get_accepted_id_to_node()
-            )
-        )
+        
+        super().finalize_result(ok=bool(True))

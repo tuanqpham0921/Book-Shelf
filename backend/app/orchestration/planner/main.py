@@ -13,7 +13,6 @@ from app.orchestration.planner.parse_intent import (
 from app.orchestration.planner.strategy_classification import (
     StrategyClassificationWorkflow,
     StrategyClassificationOutput,
-    StrategyClassificationResult,
 )
 from app.orchestration.planner.task_planner import (
     TaskPlanWorkflow,
@@ -32,7 +31,7 @@ logger = logging.getLogger(__name__)
 class OrchestrationOutput(UserFacingOutput):
     session_id: str | None = None
     parse_result: InitialParseOutput | None = None
-    strategy_result: StrategyClassificationResult | None = None
+    strategy_result: StrategyClassificationOutput | None = None
     task_plan: TaskPlan | None = None
     diagram: str | None = None
     
@@ -90,7 +89,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         if isinstance(output, InitialParseOutput):
             self.output.parse_result = output
         elif isinstance(output, StrategyClassificationOutput):
-            self.output.strategy_result = output.strategy_result
+            self.output.strategy_result = output
         elif isinstance(output, TaskPlanOutput):
             self.output.task_plan = output.task_plan
 
@@ -176,7 +175,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         return sub_summary
 
     async def send_mermaid(
-        self, task_plan: TaskPlan, strategy_result: StrategyClassificationResult
+        self, task_plan: TaskPlan, strategy_result: StrategyClassificationOutput
     ) -> str | None:
         from app.common.mermaid import get_mermaid_diagram
 
