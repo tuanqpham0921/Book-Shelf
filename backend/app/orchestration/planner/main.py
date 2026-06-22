@@ -35,6 +35,14 @@ class OrchestrationOutput(UserFacingOutput):
     strategy_result: StrategyClassificationResult | None = None
     task_plan: TaskPlan | None = None
     diagram: str | None = None
+    
+    def to_summary(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "parse_result": self.parse_result.to_summary() if self.parse_result else None,
+            "strategy_result": self.strategy_result.to_summary() if self.strategy_result else None,
+            "task_plan": self.task_plan.to_summary() if self.task_plan else None,
+        }
 
     def _sub_summary(self) -> dict[str, Any]:
         parse_summary = self.parse_result.to_summary() if self.parse_result else None

@@ -11,5 +11,5 @@ NodeTypeEnum = Union[
     BookNodeTypeEnum, 
     UserNodeTypeEnum,
     ProjectNodeTypeEnum,
-    # UnknownNodeTypeEnum,
+    UnknownNodeTypeEnum,
 ]

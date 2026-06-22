@@ -4,7 +4,8 @@ from typing import Annotated
 from pydantic import Field
 from pydantic import BaseModel
 from pydantic import field_validator
-from typing import Optional
+from typing import Optional, get_args
+import uuid
 
 SystemGoalDescription = Annotated[str, Field(max_length=100)]
 
@@ -15,6 +16,7 @@ MIN_CONFIDENCE = 0.0
 MAX_CONFIDENCE = 1.0
 MAX_TARGET_NODE_TYPES = 10
 
+from pydantic import PrivateAttr
 
 class SystemGoal(BaseModel):
     description: str = Field(
@@ -30,23 +32,21 @@ class SystemGoal(BaseModel):
         description="Confidence between 0 and 1 that the system can handle this goal",
     )
 
-    target_node_types: list[NodeTypeEnum] = Field(
+    target_node_types: NodeTypeEnum = Field(
         ...,
-        max_length=MAX_TARGET_NODE_TYPES,
-        description="List of available request schemas to complete this goal",
+        description="Available request schema to complete this goal",
     )
-
-    # NOTE: this is important so we don't want to pad the description
-    # @field_validator("description", mode="before")
-    # @classmethod
-    # def check_description(cls, value):
-    #     if not isinstance(value, str):
-    #         return f"is not a string, padded to the description"
-    #     if len(value) < MIN_STRING_LENGTH:
-    #         value += f"is less than {MIN_STRING_LENGTH} characters, padded to the description"
-    #     if len(value) > MAX_STRING_LENGTH:
-    #         return value[:MAX_STRING_LENGTH-4] + "..."
-    #     return value
+    
+    _refusal_reason: PrivateAttr(default=None)
+    _id: PrivateAttr(default_factory=lambda: f"goal_{uuid.uuid4()}")
+    
+    @property
+    def id(self) -> str:
+        return self._id
+    
+    @property
+    def refusal_reason(self) -> str | None:
+        return self._refusal_reason
 
     @field_validator("confidence", mode="before")
     @classmethod
@@ -56,16 +56,6 @@ class SystemGoal(BaseModel):
         if not (MIN_CONFIDENCE <= value <= MAX_CONFIDENCE):
             return MIN_CONFIDENCE
         return float(value)
-
-    @field_validator("target_node_types", mode="before")
-    @classmethod
-    def check_target_node_types(cls, value):
-        if not isinstance(value, list) or not value:
-            return [UnknownNodeTypeEnum.UNKNOWN]
-        if len(value) > MAX_TARGET_NODE_TYPES:
-            value = value[:MAX_TARGET_NODE_TYPES]
-        return list(dict.fromkeys(value))
-
 
 class InitialParseRequest(BaseModel):
     """

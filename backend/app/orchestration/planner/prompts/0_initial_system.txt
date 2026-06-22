@@ -29,12 +29,6 @@ When NOT to create a system_goal:
   - Analyze without a retrievable basis when one is required (e.g. compare unnamed books with no titles)
   - Ambiguous ("that one", "do it") → no goals unless context is clear
 
-Fields:
-  - system_goals — list of {{description, confidence}}; [] if none
-  - small_talk — greetings, thanks; null if none
-  - out_of_scope — unsupported or non-capability requests; null if none
-  - reasoning — short explanation
-
 Guidelines:
   - Multi-part requests → separate goals per capability (Retrieval goals before Analyze when both are needed)
   - "Recommend books like Dune" → Retrieval (find reference) + Analyze (recommend) as separate goals when both are implied

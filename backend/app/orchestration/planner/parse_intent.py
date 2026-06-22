@@ -22,25 +22,15 @@ from clients.openai_requests import OpenAIChatRequest
 from app.orchestration.planner.request_context import SystemGoal, InitialParseRequest
 from app.orchestration.planner.request_context import MAX_SYSTEM_GOALS
 from dataclasses import field
-
+from app.domains.registry import NODE_TYPE_TO_CLS
+from app.domains.node_types import UnknownNodeTypeEnum
 logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
-class AcceptedSystemGoal:
-    id: str
-    goal: SystemGoal
-
-
-@dataclass(slots=True)
-class RejectedSystemGoal(AcceptedSystemGoal):
-    reason: str
-
-
-@dataclass(slots=True)
 class InitialParseOutput(UserFacingOutput):
-    accepted_system_goals: list[AcceptedSystemGoal] = field(default_factory=list)
-    rejected_system_goals: list[RejectedSystemGoal] = field(default_factory=list)
+    accepted_goals: list[SystemGoal] = field(default_factory=list)
+    refused_goals:  list[SystemGoal] = field(default_factory=list)
     
     small_talk: Optional[str] = field(default=None)
     out_of_scope: Optional[str] = field(default=None)
@@ -48,16 +38,9 @@ class InitialParseOutput(UserFacingOutput):
 
     def to_summary(self) -> dict[str, str | bool | None]:
         return {
-            "total_system_goals": len(self.accepted_system_goals),
-            "num_rejected_system": len(self.rejected_system_goals),
-            "num_accepted_system": len(self.accepted_system_goals),
-            "system_goals": [goal.description for goal in self.accepted_system_goals],
-            "rejected_system_goals": [
-                goal.goal.description for goal in self.rejected_system_goals
-            ],
-            "accepted_system_goals": [
-                goal.goal.description for goal in self.accepted_system_goals
-            ],
+            "total_system_goals": len(self.accepted_goals) + len(self.refused_goals),
+            "num_rejected_system": len(self.refused_goals),
+            "num_accepted_system": len(self.accepted_goals),
             "small_talk": self.small_talk,
             "out_of_scope": self.out_of_scope,
             "reasoning": self.reasoning,
@@ -71,11 +54,11 @@ class InitialParseOutput(UserFacingOutput):
                     {
                         "small_talk": self.small_talk,
                         "out_of_scope": self.out_of_scope,
-                        "rejected_system_goals": [
-                            (g.goal, g.reason)
-                            for g in self.rejected_system_goals
+                        "refused_goals": [
+                            (g.description, g.refusal_reason)
+                            for g in self.refused_goals
                         ],
-                        "continue_pipeline": len(self.accepted_system_goals) > 0,
+                        "continue_pipeline": len(self.accepted_goals) > 0,
                         "reasoning": self.reasoning,
                     }
                 )
@@ -121,14 +104,13 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
 
         self.process_parse_result(parse_result)        
         await self.finalize_result()
+        await self.generate_user_response()
         
         
     async def finalize_result(self) -> None:
-        self.output.summary = "Placeholder summary"
         super().finalize_result(
-            ok=bool(self.output.accepted_system_goals)
-        )
-        await self.generate_user_response()
+            ok=bool(self.output.accepted_goals)
+        )        
         
     async def generate_user_response(self) -> None:
         to_llm_messages = self.output.to_llm_messages()
@@ -143,10 +125,10 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
         )
         print(f"To LLM messages: {to_llm_messages}")
         
-        if self.output.accepted_system_goals:
+        if self.output.accepted_goals:
             await self.sse_stream.send_chars("\n\n# System Goals:\n")
-            for system_goal in self.output.accepted_system_goals:
-                await self.sse_stream.send_chars(f"- {system_goal.goal.description}\n")
+            for system_goal in self.output.accepted_goals:
+                await self.sse_stream.send_chars(f"- {system_goal.description}\n")
 
     def process_parse_result(
         self, parse_result: InitialParseRequest, confident_tuning: float = 0.5
@@ -165,26 +147,19 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
         self.output.out_of_scope = parse_result.out_of_scope
         self.output.reasoning = parse_result.reasoning
 
-        count = 1
         for goal in parse_result.system_goals:
-            if goal.confidence >= confident_tuning and count < MAX_SYSTEM_GOALS:
-                accepted_goal = AcceptedSystemGoal(
-                    id=f"goal_{count}",
-                    goal=goal,
-                )
-                self.output.accepted_system_goals.append(accepted_goal)
+            reason = []
+            if goal.confidence < confident_tuning:
+                reason.append(f"Rejected: confidence too low ({goal.confidence})")
+            if goal.target_node_types.value not in NODE_TYPE_TO_CLS.keys():
+                reason.append(f"Rejected: target node type not supported ({goal.target_node_types})")
+            if len(self.output.accepted_goals) >= MAX_SYSTEM_GOALS:
+                reason.append(f"Rejected: exceeded max goals ({MAX_SYSTEM_GOALS})")
+        
+            if not reason:
+                self.output.accepted_goals.append(goal)
+                continue
             else:
-                reason = (
-                    f"Rejected: confidence too low ({goal.confidence})"
-                    if goal.confidence < confident_tuning
-                    else f"Rejected: exceeded max goals ({MAX_SYSTEM_GOALS})"
-                )
-                rejected_goal = RejectedSystemGoal(
-                    id=f"goal_{count}",
-                    goal=goal,
-                    reason=reason,
-                )
-                self.output.rejected_system_goals.append(rejected_goal)
-            count += 1
-            
+                goal._refusal_reason = ", ".join(reason)
+                self.output.refused_goals.append(goal)            
         
