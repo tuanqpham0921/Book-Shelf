@@ -6,7 +6,7 @@ These are the specific schemas that the LLM should generate during classificatio
 from typing import Optional, Literal, List
 from pydantic import Field
 from app.domains.base_request import DomainRequest, AnalyzeBaseRequest
-from app.domains.books.node_types import NodeTypeEnum
+from app.domains.books.node_types import BookNodeTypeEnum
 from .filter_schemas import BooksFilter
 import logging
 
@@ -18,7 +18,7 @@ class CompareStrategy(AnalyzeBaseRequest):
     Use the results of the retrieval strategies to compare.
     """
 
-    node_type: Literal[NodeTypeEnum.COMPARE] = NodeTypeEnum.COMPARE
+    node_type: Literal[BookNodeTypeEnum.COMPARE] = BookNodeTypeEnum.COMPARE
     comparison_criteria: Optional[str] = Field(
         None, description="Specific fields or aspects to compare"
     )
@@ -40,7 +40,7 @@ class RecommendationStrategy(AnalyzeBaseRequest):
     Use the results of the retrieval strategies to generate a recommendation.
     """
 
-    node_type: Literal[NodeTypeEnum.RECOMMENDATION] = NodeTypeEnum.RECOMMENDATION
+    node_type: Literal[BookNodeTypeEnum.RECOMMENDATION] = BookNodeTypeEnum.RECOMMENDATION
     semantic_input: Optional[str] = Field(
         None, description="Thematic/conceptual description from the query"
     )
@@ -62,7 +62,7 @@ class RecommendationStrategy(AnalyzeBaseRequest):
 class FindByTitleRetrieval(DomainRequest):
     """Retrieve a book by title from the database."""
 
-    node_type: Literal[NodeTypeEnum.FIND_TITLE] = NodeTypeEnum.FIND_TITLE
+    node_type: Literal[BookNodeTypeEnum.FIND_TITLE] = BookNodeTypeEnum.FIND_TITLE
     title: str = Field(..., description="Book title to search for")
     authors: Optional[list[str]] = Field(
         default=None, description="Author assoicated with this book"
@@ -72,7 +72,7 @@ class FindByTitleRetrieval(DomainRequest):
 class FindByISBN13Retrieval(DomainRequest):
     """Retrieve a book by ISBN13 from the database."""
 
-    node_type: Literal[NodeTypeEnum.FIND_ISBN13] = NodeTypeEnum.FIND_ISBN13
+    node_type: Literal[BookNodeTypeEnum.FIND_ISBN13] = BookNodeTypeEnum.FIND_ISBN13
     isbn13: str = Field(..., description="ISBN13 to search for")
 
 
@@ -81,7 +81,7 @@ class FindByTraitsRetrieval(DomainRequest):
     (trait, genre, rating, page count, or filter-based search)
     """
 
-    node_type: Literal[NodeTypeEnum.FIND_TRAITS] = NodeTypeEnum.FIND_TRAITS
+    node_type: Literal[BookNodeTypeEnum.FIND_TRAITS] = BookNodeTypeEnum.FIND_TRAITS
     search_criteria: str = Field(
         ..., description="Non-specific search criteria for traits-based search"
     )

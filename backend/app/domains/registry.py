@@ -10,18 +10,18 @@ from app.domains.books.schemas.request_schemas import (
     FindByTraitsRetrieval,
     RecommendationStrategy,
 )
-from app.domains.books.node_types import NodeTypeEnum as BookNodeTypeEnum
+from app.domains.books.node_types import BookNodeTypeEnum
 from app.domains.project.schemas.request_schemas import (
     FeedbackRequest,
     ProjectInfoRequest,
 )
-from app.domains.project.node_types import NodeTypeEnum as ProjectNodeTypeEnum
+from app.domains.project.node_types import ProjectNodeTypeEnum
 from app.domains.node_types import NodeTypeEnum
 from app.domains.users.schemas.request_schemas import (
     DeveloperInfoRequest,
     UserInfoRequest,
 )
-from app.domains.users.node_types import NodeTypeEnum as UserNodeTypeEnum
+from app.domains.users.node_types import UserNodeTypeEnum
 
 # -------------------------------------------------------------------
 # BOOK DOMAIN
@@ -99,12 +99,12 @@ def format_node_type_catalog() -> str:
 
     catalog = [
         "Supported capabilities (only these may become system_goals):",
-        *lines_for("Retrieval — lookup or fetch data", RETRIEVAL_CLASSES),
-        "",
+        # *lines_for("Retrieval — lookup or fetch data", RETRIEVAL_CLASSES),
+        # "",
         *lines_for("Analyze — interpret, compare, or recommend using retrieved data", ANALYZE_CLASSES),
     ]
 
-    listed = set(RETRIEVAL_CLASSES) | set(ANALYZE_CLASSES)
+    listed =  set(ANALYZE_CLASSES)
     extra = [cls for cls in NODE_TYPE_TO_CLS.values() if cls not in listed]
     if extra:
         catalog.extend(["", *lines_for("Other supported actions", tuple(dict.fromkeys(extra)))])
