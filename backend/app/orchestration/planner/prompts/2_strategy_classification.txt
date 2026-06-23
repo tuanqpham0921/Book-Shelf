@@ -11,8 +11,8 @@ Use both the goals and user message to generate a list schemas to send to the to
 Task and dependency rules:
   - Assign task_1, task_2, … yourself — every strategy gets a unique id
   - depends_on must only reference task ids defined in this same strategies list
-  - Retrieval strategies (lookups, UserInfo, ProjectInfo, etc.) do not use depends_on
-  - Analyze strategies (Compare, Recommendation) list the task ids of prerequisite lookups in depends_on
+  - Retrieval strategies do not use depends_on
+  - Analyze strategies list the task ids of prerequisite lookups in depends_on
   - A strategy cannot depend on itself
   - No circular dependencies
   - Do not use description text in depends_on — only task ids (e.g. ["task_1"], not ["Find Dune by title"])
@@ -27,73 +27,8 @@ General guidelines:
   - Use refusal with reasoning when a capability is unsupported
   - Follow a retrieval and analyze pattern
 
------------------------------------------------------
-Books domain
-
-Retrieval (lookup / search — no analysis):
-  - FindByTitle
-  - FindByISBN13
-  - FindByTraits
-
-Analysis (interpretation — requires prerequisite lookups where applicable):
-  - Recommendation
-  - Compare
-
-Books rules:
-  - Retrieval-only goals → retrieval strategies only, no analysis
-  - Comparison goals → Compare with depends_on listing the task ids of title lookups (e.g. ["task_1", "task_2"])
-  - Recommendation goals → Recommendation with depends_on listing task ids of reference lookups (e.g. ["task_1"])
-  - Title or ISBN in query → separate FindByTitle / FindByISBN13 per distinct reference
-  - Do not use prior knowledge to fill authors — only when the user names them
-  - semantic_input: thematic or mood text from the query only — not titles, authors, or filter criteria
-  - filters belong on FindByTraits or Recommendation, not on title/ISBN lookups
-
-Database constraints:
+Book Database constraints:
 {book_constraints}
 
-Guides:
+Book Guides:
 {book_guides}
-
------------------------------------------------------
-Users domain
-
-Available requests:
-  - UserInfo
-  - DeveloperInfo
-
-Use when a goal is about the user's account, preferences, memory, or developer profile — not book search.
-
------------------------------------------------------
-Project domain
-
-Available requests:
-  - ProjectInfo
-  - Feedback
-
-Use when a goal is about how the system works, project details, or submitting feedback.
-
------------------------------------------------------
-Examples
-
-Input goals:
-[
-  {{"id": "goal_1", "description": "Find Pride and Prejudice by title", "confidence": 1.0}},
-]
-Input user message: "Show me books similar to Pride and Prejudice"
-
-→ strategies:
-  - id: task_1, FindByTitle (title: Pride and Prejudice), target_goal: ["goal_1"]
-  - id: task_2, Recommendation (reference_books: ["Pride and Prejudice"]), target_goal: ["goal_1"], depends_on: ["task_1"]
-
-Input goals:
-[
-  {{"id": "goal_1", "description": "Find Flights by title", "confidence": 1.0}},
-  {{"id": "goal_2", "description": "Find Satantango by title", "confidence": 1.0}},
-  {{"id": "goal_3", "description": "Compare Flights and Satantango", "confidence": 1.0}}
-]
-Input user message: "Please compare Filights and Satantango books"
-
-→ strategies:
-  - id: task_1, FindByTitle (Flights), target_goal: ["goal_1", "goal_3"]
-  - id: task_2, FindByTitle (Satantango), target_goal: ["goal_2", "goal_3"]
-  - id: task_3, Compare, target_goal: ["goal_3"], depends_on: ["task_1", "task_2"]

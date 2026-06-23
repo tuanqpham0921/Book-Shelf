@@ -19,9 +19,6 @@ When to create a system_goal:
   - The request matches a listed capability (Retrieval or Analyze tier)
   - description names the task in the user's words (10–100 chars)
   - confidence reflects how clearly it maps to that capability
-      - 1.0 → direct match (e.g. "find Dune", "compare X and Y", "recommend like X")
-      - 0.5–0.9 → likely in-domain but vague
-      - below 0.5 → do not create a goal; use out_of_scope or omit
 
 When NOT to create a system_goal:
   - No listed capability covers the request (even if book-related in general)
@@ -31,7 +28,6 @@ When NOT to create a system_goal:
 
 Guidelines:
   - Multi-part requests → separate goals per capability (Retrieval goals before Analyze when both are needed)
-  - "Recommend books like Dune" → Retrieval (find reference) + Analyze (recommend) as separate goals when both are implied
   - Do not put small talk or unsupported text in system_goals
   - Use external knowledge only to recognize titles/authors — do not answer them here
   - continue_pipeline is computed by the system from goal confidence
@@ -39,34 +35,4 @@ Guidelines:
 Fields per system_goal:
   - description — task in the user's words (10–100 chars)
   - confidence — 0.0–1.0
-  - target_node_types — exactly one capability name from the catalog above (e.g. "Retrieve_by_Title")
-
-Examples:
-
-Input: "Hi! Can you recommend books like Dune?"
-→ small_talk: "Hi!", system_goals: [
-    {{description: "Find Dune by title", confidence: 1.0, target_node_types: "Retrieve_by_Title"}},
-    {{description: "Recommend books similar to Dune", confidence: 1.0, target_node_types: "Analyze_Recommend"}}
-  ]
-
-Input: "What's the weather like today?"
-→ system_goals: [], out_of_scope: "What's the weather like today?"
-
-Input: "Find sci-fi books over 300 pages"
-→ system_goals: [{{description: "Find sci-fi books over 300 pages", confidence: 1.0, target_node_types: "Retrieve_by_Traits"}}]
-
-Input: "Compare Flights and Satantango"
-→ system_goals: [
-    {{description: "Find Flights", confidence: 1.0, target_node_types: "Retrieve_by_Title"}},
-    {{description: "Find Satantango", confidence: 1.0, target_node_types: "Retrieve_by_Title"}},
-    {{description: "Compare Flights and Satantango", confidence: 1.0, target_node_types: "Analyze_Compare"}}
-  ]
-
-Input: "What's my saved memory?"
-→ system_goals: [{{description: "Retrieve user saved memory", confidence: 1.0, target_node_types: "Retrieve_User_Info"}}]
-
-Input: "Can you help me with calculus homework?"
-→ system_goals: [], out_of_scope: "Can you help me with calculus homework?"
-
-Input: "that one"
-→ system_goals: [], reasoning: "Ambiguous — no mappable capability"
+  - target_node_types — exactly one capability name from the catalog above
