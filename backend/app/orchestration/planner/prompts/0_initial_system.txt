@@ -16,7 +16,8 @@ Your job:
   4. Parse out small_talk and out_of_scope separately
 
 When to create a system_goal:
-  - The request matches a listed capability (Retrieval or Analyze tier)
+  - The request matches a listed capability (retrieval and analyze seperate goals)
+  - Create goals as small as possible. Ideally each goal will only have one target_node_type
   - description names the task in the user's words (10–100 chars)
   - confidence reflects how clearly it maps to that capability
 
@@ -35,4 +36,4 @@ Guidelines:
 Fields per system_goal:
   - description — task in the user's words (10–100 chars)
   - confidence — 0.0–1.0
-  - target_node_types — exactly one capability name from the catalog above
+  - target_node_type — exactly one capability name from the catalog above

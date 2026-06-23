@@ -41,19 +41,19 @@ class SystemGoal(BaseModel):
         description="Confidence between 0 and 1 that the system can handle this goal",
     )
 
-    target_node_types: NodeTypeEnum = Field(
+    target_node_type: NodeTypeEnum = Field(
         ...,
-        description="Available request schema to complete this goal",
+        description="the node type to complete this goal",
     )
-    
+
     _refusal: bool = PrivateAttr(default=False)
     _refusal_reason: str | None = PrivateAttr(default=None)
     _id: str = PrivateAttr(default=GOAL_PLACEHOLDER)
-    
+
     @property
     def id(self) -> str:
         return self._id
-    
+
     @property
     def refusal_reason(self) -> str | None:
         return self._refusal_reason
@@ -66,6 +66,7 @@ class SystemGoal(BaseModel):
         if not (MIN_CONFIDENCE <= value <= MAX_CONFIDENCE):
             return MIN_CONFIDENCE
         return float(value)
+
 
 class InitialParseRequest(BaseModel):
     """
@@ -139,9 +140,9 @@ class InitialParseRequest(BaseModel):
 @dataclass(slots=True)
 class InitialParseOutput(UserFacingOutput):
     accepted_goals: list[SystemGoal] = field(default_factory=list)
-    refused_goals:  list[SystemGoal] = field(default_factory=list)
+    refused_goals: list[SystemGoal] = field(default_factory=list)
     buffer_goals: list[SystemGoal] = field(default_factory=list)
-    
+
     small_talk: Optional[str] = field(default=None)
     out_of_scope: Optional[str] = field(default=None)
     reasoning: Optional[str] = field(default=None)
@@ -155,27 +156,24 @@ class InitialParseOutput(UserFacingOutput):
             "out_of_scope": self.out_of_scope,
             "reasoning": self.reasoning,
         }
-        
+
     def accepted_goals_ids(self) -> list[str]:
         return [goal.id for goal in self.accepted_goals]
 
     def to_llm_messages(self) -> list[AssistantMessage]:
-        return [
-            AssistantMessage(
-                content=json.dumps(
-                    {
-                        "small_talk": self.small_talk,
-                        "out_of_scope": self.out_of_scope,
-                        "refused_goals": [
-                            (g.description, g.refusal_reason)
-                            for g in self.refused_goals
-                        ],
-                        "continue_pipeline": len(self.accepted_goals) > 0,
-                        "reasoning": self.reasoning,
-                    }
-                )
-            )
-        ]
+        payload = {}
+        if self.small_talk:
+            payload["small_talk"] = self.small_talk
+        if self.out_of_scope:
+            payload["out_of_scope"] = self.out_of_scope
+        if self.refused_goals:
+            payload["refused_goals"] = [
+                (g.description, g.refusal_reason) for g in self.refused_goals
+            ]
+        if self.reasoning:
+            payload["reasoning"] = self.reasoning
+
+        return [AssistantMessage(content=json.dumps(payload))]
 
 
 class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
@@ -214,27 +212,28 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
         tool_call = assistant_msg.tool_calls[0]
         parse_result = tool_call.function.parsed_arguments
 
-        self.process_parse_result(parse_result)        
+        self.process_parse_result(parse_result)
         await self.finalize_result()
         await self.generate_user_response()
-        
-        
+
     async def finalize_result(self) -> None:
-        super().finalize_result(
-            ok=bool(self.output.accepted_goals)
-        )        
-        
+        super().finalize_result(ok=bool(self.output.accepted_goals))
+
     async def generate_user_response(self) -> None:
         to_llm_messages = self.output.to_llm_messages()
+        response_prompt = format_prompt(
+            prompt_path=self._USER_PROMPT_PATH,
+            TOOLS_NAME_DESCRIPTION=format_node_type_catalog(),
+        )
         await self.run_llm_call(
             req=OpenAIChatRequest(
-                prompt=load_prompt(prompt_path=self._USER_PROMPT_PATH),
+                prompt=response_prompt,
                 messages=to_llm_messages,
                 sse_stream=self.sse_stream,
                 temperature=0.7,
                 top_p=1.0,
             ),
-        )        
+        )
         if self.output.accepted_goals:
             await self.sse_stream.send_chars("\n\n# System Goals:\n")
             for system_goal in self.output.accepted_goals:
@@ -252,7 +251,7 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
             self.result.ok = False
             self.output.reasoning = "Nothing was classified in the initial parse"
             return
-        
+
         self.output.small_talk = parse_result.small_talk
         self.output.out_of_scope = parse_result.out_of_scope
         self.output.reasoning = parse_result.reasoning
@@ -263,9 +262,11 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
             if goal.confidence < confident_tuning:
                 goal._refusal = True
                 reason.append(f"Rejected: confidence too low ({goal.confidence})")
-            if goal.target_node_types.value not in NODE_TYPE_TO_CLS.keys():
+            if goal.target_node_type.value not in NODE_TYPE_TO_CLS.keys():
                 goal._refusal = True
-                reason.append(f"Rejected: target node type not supported ({goal.target_node_types})")
+                reason.append(
+                    f"Rejected: target node type not supported ({goal.target_node_type})"
+                )
 
             goal._id = f"goal_{count}"
             if reason or goal._refusal:
@@ -275,5 +276,5 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
                 self.output.accepted_goals.append(goal)
             else:
                 self.output.buffer_goals.append(goal)
-                
+
             count += 1

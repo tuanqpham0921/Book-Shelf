@@ -15,7 +15,7 @@ Task and dependency rules:
   - Analyze strategies list the task ids of prerequisite lookups in depends_on
   - A strategy cannot depend on itself
   - No circular dependencies
-  - Do not use description text in depends_on — only task ids (e.g. ["task_1"], not ["Find Dune by title"])
+  - Do not use description text in depends_on — only task ids (e.g. ["task_1"])
 
 General guidelines:
   - Select only strategies clearly supported by the goals and available schemas

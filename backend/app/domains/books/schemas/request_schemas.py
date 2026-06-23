@@ -14,8 +14,17 @@ logger = logging.getLogger(__name__)
 
 
 class CompareStrategy(AnalyzeBaseRequest):
-    """Compare two or more books based on specific criteria.
-    Use the results of the retrieval strategies to compare.
+    """Contrast two or more named books — the analyze step when the user asks how titles differ or relate.
+
+    Use when the user wants a side-by-side read on specific books, not when they want new suggestions
+    (Recommendation) or only want to find a single title (FindByTitle / FindByISBN13).
+    Common cases:
+      - Direct compare: "Compare X and Y, "how are X and Y different"
+      - Criteria-focused: "compare their themes", "which is longer / darker / more literary"
+      - Multi-book: three or more titles → separate retrieval per book; depends_on lists all of them.
+
+    comparison_criteria holds the user's comparison lens (theme, tone, length, style, etc.) when stated;
+    omit it when they only ask for a general comparison.
     """
 
     node_type: Literal[BookNodeTypeEnum.COMPARE] = BookNodeTypeEnum.COMPARE
@@ -36,8 +45,19 @@ class CompareStrategy(AnalyzeBaseRequest):
 
 
 class RecommendationStrategy(AnalyzeBaseRequest):
-    """Generate a semantic recommendation based on the results of the retrieval strategies.
-    Use the results of the retrieval strategies to generate a recommendation.
+    """Suggest books that fit the user's ask — the analyze step for most recommendation queries.
+
+    Use when the user wants new titles to read, not when they only want to look up a known book.
+    Common cases:
+      - Similarity: "books like X", "more like X or Y books" → reference_books with those
+      - Thematic / mood: "cozy mysteries", "epic sci-fi with strong world-building" → semantic_input
+        for theme, tone, or concept; optional filters for genre, length, rating, etc.
+      - Mixed: named anchor book(s) plus a twist ("like X but darker/shorter") → reference_books
+        plus semantic_input; depends_on on lookups for the named books.
+
+    semantic_input is for themes and mood only — not titles, authors, or filter fields.
+    filters constrain the recommendation result set; they do not replace retrieval when a reference
+    book must be resolved first.
     """
 
     node_type: Literal[BookNodeTypeEnum.RECOMMENDATION] = BookNodeTypeEnum.RECOMMENDATION
@@ -47,7 +67,6 @@ class RecommendationStrategy(AnalyzeBaseRequest):
     reference_books: Optional[List[str]] = Field(
         None, description="Books titles to base recommendations on"
     )
-    # recommendation_type: Literal["similar_to", "thematic", "mood_based"] = Field(..., description="Type of recommendation")
     filters: Optional[BooksFilter] = Field(
         None, description="Optional result constraints"
     )

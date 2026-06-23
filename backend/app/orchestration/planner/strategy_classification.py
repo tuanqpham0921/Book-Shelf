@@ -21,6 +21,7 @@ from pydantic import create_model, ConfigDict
 from app.domains.registry import NODE_TYPE_TO_CLS
 from functools import reduce
 from operator import or_
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,7 +43,7 @@ class StrategyRequest(BaseModel):
         max_length=MAX_STRATEGIES,
         description="List of strategies generated from the query",
     )
-    
+
     @classmethod
     def build_model(
         cls,
@@ -69,8 +70,7 @@ class StrategyRequest(BaseModel):
                 ),
             ),
         )
-    
-    
+
     @field_validator("strategies", mode="before")
     @classmethod
     def check_strategies(cls, value):
@@ -129,7 +129,9 @@ class StrategyClassificationWorkflow(
         )
         self.user_message = user_message
 
-    async def run(self, user_message: UserMessage, system_goals: list[SystemGoal]) -> None:
+    async def run(
+        self, user_message: UserMessage, system_goals: list[SystemGoal]
+    ) -> None:
         """Classify the user query into book-related strategies."""
         if not system_goals:
             raise ValueError("System goals are required")
@@ -144,49 +146,59 @@ class StrategyClassificationWorkflow(
         strategy_request = self.build_strategy_request(system_goals)
         req = OpenAIParserRequest(
             prompt=system_prompt,
-            #TODO: I think there's a warning here
+            # TODO: I think there's a warning here
             messages=[self.user_message, self._format_system_goals(system_goals)],
             tool_models=[strategy_request],
         )
-        assistant_msg = await self.run_llm_call(req, save_payload=True)
+        assistant_msg = await self.run_llm_call(req)
         tool_call = assistant_msg.tool_calls[0]
         parse_result = tool_call.function.parsed_arguments
 
         self.process_classification_result(parse_result.strategies, system_goals)
         self.finalize_result()
-        
+
     def build_strategy_request(self, system_goals: list[SystemGoal]) -> StrategyRequest:
         request_classes = set()
         for goal in system_goals:
-            if goal.target_node_types.value in NODE_TYPE_TO_CLS:
-                node_cls = NODE_TYPE_TO_CLS[goal.target_node_types.value]
+            if goal.target_node_type.value in NODE_TYPE_TO_CLS:
+                node_cls = NODE_TYPE_TO_CLS[goal.target_node_type.value]
                 request_classes.add(node_cls)
-        
+
         self._inject_book_request_classes(request_classes)
         return StrategyRequest.build_model(tuple(request_classes))
 
-    def _inject_book_request_classes(self, request_classes: set[type[BaseModel]]) -> None:
-        """ Best effort to inject missing request classes to the request classes set."""
+    def _inject_book_request_classes(
+        self, request_classes: set[type[BaseModel]]
+    ) -> None:
+        """Best effort to inject missing request classes to the request classes set."""
         from app.domains.registry import BOOK_RETRIEVAL_CLASSES, BOOK_ANALYZE_CLASSES
-        
+
         inject_classes = set()
         for request_cls in request_classes:
             # if analyze class is present, there should be at least one retrieval class
             if request_cls in BOOK_ANALYZE_CLASSES:
-                retrieval_cls = [cls for cls in request_classes if cls in BOOK_RETRIEVAL_CLASSES]
+                retrieval_cls = [
+                    cls for cls in request_classes if cls in BOOK_RETRIEVAL_CLASSES
+                ]
                 if not retrieval_cls:
-                    logger.warning(f"No retrieval class for analyze class. Injecting all retrieval classes.")
+                    logger.warning(
+                        f"No retrieval class for analyze class. Injecting all retrieval classes."
+                    )
                     inject_classes.update(BOOK_RETRIEVAL_CLASSES)
-                    
+
             # if retrieval class is present, there should be at least one analyze class
             elif request_cls in BOOK_RETRIEVAL_CLASSES:
-                analyze_cls = [cls for cls in request_classes if cls in BOOK_ANALYZE_CLASSES]
+                analyze_cls = [
+                    cls for cls in request_classes if cls in BOOK_ANALYZE_CLASSES
+                ]
                 if not analyze_cls:
-                    logger.warning(f"No analyze class for retrieval class. Injecting all analyze classes.")
+                    logger.warning(
+                        f"No analyze class for retrieval class. Injecting all analyze classes."
+                    )
                     inject_classes.update(BOOK_ANALYZE_CLASSES)
-                    
+
         request_classes.update(inject_classes)
-    
+
     def _format_system_goals(self, system_goals: list[SystemGoal]) -> AssistantMessage:
         payload = [
             {
@@ -197,17 +209,23 @@ class StrategyClassificationWorkflow(
         ]
         return AssistantMessage(content=json.dumps(payload))
 
-    def process_classification_result(self, 
-                                      strategies: list[StrategyType],
-                                      system_goals: list[SystemGoal],
-                                      accepted_tuning: float = 0.7):
+    def process_classification_result(
+        self,
+        strategies: list[StrategyType],
+        system_goals: list[SystemGoal],
+        accepted_tuning: float = 0.7,
+    ):
         """Convert to ClassificationResult format"""
         accepted_goals_ids = set([goal.id for goal in system_goals])
-        
+
         for strategy in strategies:
             reason = []
-            
-            missing_goals = [goal_id for goal_id in strategy.target_goal if goal_id not in accepted_goals_ids]
+
+            missing_goals = [
+                goal_id
+                for goal_id in strategy.target_goal
+                if goal_id not in accepted_goals_ids
+            ]
             if missing_goals:
                 strategy._refusal = True
                 reason.append(f"Missing target goals: {missing_goals}")
@@ -217,7 +235,7 @@ class StrategyClassificationWorkflow(
             if strategy.confidence < accepted_tuning:
                 strategy._refusal = True
                 reason.append(f"Confidence {strategy.confidence} below accepted tuning")
-                
+
             if reason or strategy._refusal:
                 strategy._refusal_reason = ",".join(reason)
                 self.output.refused.append(strategy)
@@ -225,7 +243,7 @@ class StrategyClassificationWorkflow(
                 self.output.accepted.append(strategy)
             else:
                 self.output.buffer.append(strategy)
-    
+
     def get_strategies_ids(self, strategies: list[StrategyType]) -> list[str]:
         return set(strategy.id for strategy in strategies)
 
