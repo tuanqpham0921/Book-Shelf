@@ -129,7 +129,7 @@ class StrategyClassificationWorkflow(
         )
         self.user_message = user_message
 
-    async def run(self, system_goals: list[SystemGoal]) -> None:
+    async def run(self, user_message: UserMessage, system_goals: list[SystemGoal]) -> None:
         """Classify the user query into book-related strategies."""
         if not system_goals:
             raise ValueError("System goals are required")
@@ -145,7 +145,7 @@ class StrategyClassificationWorkflow(
         req = OpenAIParserRequest(
             prompt=system_prompt,
             #TODO: I think there's a warning here
-            messages=[self._format_system_goals(system_goals)],
+            messages=[self.user_message, self._format_system_goals(system_goals)],
             tool_models=[strategy_request],
         )
         assistant_msg = await self.run_llm_call(req, save_payload=True)
@@ -161,7 +161,7 @@ class StrategyClassificationWorkflow(
             if goal.target_node_types.value in NODE_TYPE_TO_CLS:
                 node_cls = NODE_TYPE_TO_CLS[goal.target_node_types.value]
                 request_classes.add(node_cls)
-                
+        
         self._inject_book_request_classes(request_classes)
         return StrategyRequest.build_model(tuple(request_classes))
 
@@ -169,24 +169,23 @@ class StrategyClassificationWorkflow(
         """ Best effort to inject missing request classes to the request classes set."""
         from app.domains.registry import BOOK_RETRIEVAL_CLASSES, BOOK_ANALYZE_CLASSES
         
-        # if analyze class is present, there should be at least one retrieval class
-        # if retrieval class is present, there should be at least one analyze class
         inject_classes = set()
         for request_cls in request_classes:
+            # if analyze class is present, there should be at least one retrieval class
             if request_cls in BOOK_ANALYZE_CLASSES:
-                retrieval_cls = [cls for cls in BOOK_RETRIEVAL_CLASSES if cls in BOOK_RETRIEVAL_CLASSES]
+                retrieval_cls = [cls for cls in request_classes if cls in BOOK_RETRIEVAL_CLASSES]
                 if not retrieval_cls:
                     logger.warning(f"No retrieval class for analyze class. Injecting all retrieval classes.")
-                    inject_classes.add(cls for cls in BOOK_RETRIEVAL_CLASSES)
-            
+                    inject_classes.update(BOOK_RETRIEVAL_CLASSES)
+                    
+            # if retrieval class is present, there should be at least one analyze class
             elif request_cls in BOOK_RETRIEVAL_CLASSES:
-                analyze_cls = [cls for cls in BOOK_ANALYZE_CLASSES if cls in BOOK_ANALYZE_CLASSES]
+                analyze_cls = [cls for cls in request_classes if cls in BOOK_ANALYZE_CLASSES]
                 if not analyze_cls:
                     logger.warning(f"No analyze class for retrieval class. Injecting all analyze classes.")
-                    inject_classes.add(cls for cls in BOOK_ANALYZE_CLASSES)
+                    inject_classes.update(BOOK_ANALYZE_CLASSES)
                     
         request_classes.update(inject_classes)
-        
     
     def _format_system_goals(self, system_goals: list[SystemGoal]) -> AssistantMessage:
         payload = [

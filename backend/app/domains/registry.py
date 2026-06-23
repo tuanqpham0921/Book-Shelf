@@ -99,8 +99,8 @@ def format_node_type_catalog() -> str:
 
     catalog = [
         "Supported capabilities (only these may become system_goals):",
-        # *lines_for("Retrieval — lookup or fetch data", RETRIEVAL_CLASSES),
-        # "",
+        *lines_for("Retrieval — lookup or fetch data", RETRIEVAL_CLASSES),
+        "",
         *lines_for("Analyze — interpret, compare, or recommend using retrieved data", ANALYZE_CLASSES),
     ]
 

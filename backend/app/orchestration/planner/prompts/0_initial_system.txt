@@ -6,8 +6,8 @@ Supported capabilities (name + short description):
 {TOOLS_NAME_DESCRIPTION}
 
 Capability tiers:
-  - Retrieval — lookup or fetch (titles, ISBNs, traits/filters, user info, project info)
-  - Analyze — interpret results (compare books, recommend / similarity)
+  - Retrieval — lookup or fetch
+  - Analyze — interpret results
 
 Your job:
   1. Map each in-domain part of the message to one supported capability above
