@@ -17,7 +17,10 @@ import logging
 import json
 from dataclasses import field
 from app.domains.base_request import BaseRequest
-
+from pydantic import create_model, ConfigDict
+from app.domains.registry import NODE_TYPE_TO_CLS
+from functools import reduce
+from operator import or_
 logger = logging.getLogger(__name__)
 
 
@@ -39,7 +42,35 @@ class StrategyRequest(BaseModel):
         max_length=MAX_STRATEGIES,
         description="List of strategies generated from the query",
     )
+    
+    @classmethod
+    def build_model(
+        cls,
+        strategy_types: list[type[BaseModel]],
+    ) -> type[BaseModel]:
+        if not strategy_types:
+            logger.warning("No strategy types provided, returning base model")
+            return cls
 
+        strategy_union = reduce(or_, strategy_types)
+
+        return create_model(
+            "StrategyRequest",
+            __config__=ConfigDict(
+                title="StrategyRequest",
+                description=cls.__doc__,
+            ),
+            strategies=(
+                list[strategy_union],
+                Field(
+                    default_factory=list,
+                    max_length=MAX_STRATEGIES,
+                    description="List of strategies generated from the query",
+                ),
+            ),
+        )
+    
+    
     @field_validator("strategies", mode="before")
     @classmethod
     def check_strategies(cls, value):
@@ -110,19 +141,26 @@ class StrategyClassificationWorkflow(
             book_constraints=str(BookConstraints()),
             book_guides=str(BookGuides()),
         )
-
+        strategy_request = self.build_strategy_request(system_goals)
         req = OpenAIParserRequest(
             prompt=system_prompt,
             #TODO: I think there's a warning here
             messages=[self._format_system_goals(system_goals)],
-            tool_models=self.tool_models,
+            tool_models=[strategy_request],
         )
-        assistant_msg = await self.run_llm_call(req)
+        assistant_msg = await self.run_llm_call(req, save_payload=True)
         tool_call = assistant_msg.tool_calls[0]
         parse_result = tool_call.function.parsed_arguments
 
         self.process_classification_result(parse_result.strategies, system_goals)
         self.finalize_result()
+        
+    def build_strategy_request(self, system_goals: list[SystemGoal]) -> StrategyRequest:
+        request_classes = set()
+        for goal in system_goals:
+            if goal.target_node_types.value in NODE_TYPE_TO_CLS:
+                request_classes.add(NODE_TYPE_TO_CLS[goal.target_node_types.value])
+        return StrategyRequest.build_model(tuple(request_classes))
 
     def _format_system_goals(self, system_goals: list[SystemGoal]) -> AssistantMessage:
         payload = [
