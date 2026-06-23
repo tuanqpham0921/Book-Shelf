@@ -23,20 +23,40 @@ from app.domains.users.schemas.request_schemas import (
 )
 from app.domains.users.node_types import NodeTypeEnum as UserNodeTypeEnum
 
-# All request schema classes — add new ones here
-
-RETRIEVAL_CLASSES = (
+# -------------------------------------------------------------------
+# BOOK DOMAIN
+BOOK_RETRIEVAL_CLASSES = (
     FindByTitleRetrieval,
     FindByISBN13Retrieval,
     FindByTraitsRetrieval,
-    UserInfoRequest,
-    DeveloperInfoRequest,
-    ProjectInfoRequest,
 )
-ANALYZE_CLASSES = (
+BOOK_ANALYZE_CLASSES = (
     CompareStrategy,
     RecommendationStrategy,
 )
+BOOK_REQUEST_CLASSES = BOOK_RETRIEVAL_CLASSES + BOOK_ANALYZE_CLASSES
+
+# -------------------------------------------------------------------
+# PROJECT DOMAIN
+PROJECT_RETRIEVAL_CLASSES = (
+    ProjectInfoRequest,
+)
+
+PROJECT_REQUEST_CLASSES = PROJECT_RETRIEVAL_CLASSES
+
+# -------------------------------------------------------------------
+# USER DOMAIN
+USER_RETRIEVAL_CLASSES = (
+    UserInfoRequest,
+    DeveloperInfoRequest,
+)
+
+USER_REQUEST_CLASSES = USER_RETRIEVAL_CLASSES
+# -------------------------------------------------------------------
+# All request schema classes — add new ones here
+
+RETRIEVAL_CLASSES = BOOK_RETRIEVAL_CLASSES + USER_RETRIEVAL_CLASSES + PROJECT_RETRIEVAL_CLASSES
+ANALYZE_CLASSES = BOOK_ANALYZE_CLASSES
 
 REQUEST_CLASSES = RETRIEVAL_CLASSES + ANALYZE_CLASSES
 

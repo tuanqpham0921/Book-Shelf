@@ -54,10 +54,6 @@ class BaseRequest(BaseModel):
     _refusal_reason: str | None = PrivateAttr(default=None)
 
     @property
-    def id(self) -> str:
-        return self._id
-
-    @property
     def refusal_reason(self) -> str | None:
         return self._refusal_reason
     
@@ -149,8 +145,8 @@ class DomainRequest(BaseRequest):
     def model_post_init(self, __context) -> None:
         if self.target_goal.count(GOAL_PLACEHOLDER) == len(self.target_goal):
             self.target_goal = [GOAL_PLACEHOLDER] * MIN_LIST_LENGTH
-            self.refusal = True
-            self._details += "; No valid target goals provided"
+            self._refusal = True
+            self._refusal_reason = "No valid target goals provided"
         else:
             self.target_goal = [goal for goal in self.target_goal if goal != GOAL_PLACEHOLDER]
         super().model_post_init(__context)
@@ -200,8 +196,8 @@ class AnalyzeBaseRequest(DomainRequest):
     def model_post_init(self, __context) -> None:
         if self.depends_on.count(TASK_PLACEHOLDER) == len(self.depends_on):
             self.depends_on = [TASK_PLACEHOLDER] * MIN_LIST_LENGTH
-            self.refusal = True
-            self._details += "; No valid dependencies provided"
+            self._refusal = True
+            self._refusal_reason = "No valid dependencies provided"
         else:
             self.depends_on = [task for task in self.depends_on if task != TASK_PLACEHOLDER]
         super().model_post_init(__context)

@@ -28,7 +28,7 @@ class CompareStrategy(AnalyzeBaseRequest):
             logger.warning(
                 f"{self.__class__.__name__} ({self.id}) has less than 2 dependencies, refusing the request"
             )
-            self.refusal = True
+            self._refusal = True
             self.reasoning = (
                 "Less than 2 dependencies provided for a request with dependencies"
             )

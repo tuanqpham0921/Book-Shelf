@@ -159,9 +159,35 @@ class StrategyClassificationWorkflow(
         request_classes = set()
         for goal in system_goals:
             if goal.target_node_types.value in NODE_TYPE_TO_CLS:
-                request_classes.add(NODE_TYPE_TO_CLS[goal.target_node_types.value])
+                node_cls = NODE_TYPE_TO_CLS[goal.target_node_types.value]
+                request_classes.add(node_cls)
+                
+        self._inject_book_request_classes(request_classes)
         return StrategyRequest.build_model(tuple(request_classes))
 
+    def _inject_book_request_classes(self, request_classes: set[type[BaseModel]]) -> None:
+        """ Best effort to inject missing request classes to the request classes set."""
+        from app.domains.registry import BOOK_RETRIEVAL_CLASSES, BOOK_ANALYZE_CLASSES
+        
+        # if analyze class is present, there should be at least one retrieval class
+        # if retrieval class is present, there should be at least one analyze class
+        inject_classes = set()
+        for request_cls in request_classes:
+            if request_cls in BOOK_ANALYZE_CLASSES:
+                retrieval_cls = [cls for cls in BOOK_RETRIEVAL_CLASSES if cls in BOOK_RETRIEVAL_CLASSES]
+                if not retrieval_cls:
+                    logger.warning(f"No retrieval class for analyze class. Injecting all retrieval classes.")
+                    inject_classes.add(cls for cls in BOOK_RETRIEVAL_CLASSES)
+            
+            elif request_cls in BOOK_RETRIEVAL_CLASSES:
+                analyze_cls = [cls for cls in BOOK_ANALYZE_CLASSES if cls in BOOK_ANALYZE_CLASSES]
+                if not analyze_cls:
+                    logger.warning(f"No analyze class for retrieval class. Injecting all analyze classes.")
+                    inject_classes.add(cls for cls in BOOK_ANALYZE_CLASSES)
+                    
+        request_classes.update(inject_classes)
+        
+    
     def _format_system_goals(self, system_goals: list[SystemGoal]) -> AssistantMessage:
         payload = [
             {
