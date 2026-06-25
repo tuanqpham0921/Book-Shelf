@@ -133,13 +133,7 @@ class DomainRequest(BaseRequest):
         if not isinstance(data, dict):
             return data
         
-        refusal = data.get("refusal", None)
-        if refusal is None or not isinstance(refusal, bool):
-            data['refusal'] = False
-            return data
-        
         if  data.get("target_goal", None) is None:
-            data['refusal'] = True
             data["target_goal"] = [GOAL_PLACEHOLDER] * MIN_LIST_LENGTH
         return data
     
@@ -147,7 +141,7 @@ class DomainRequest(BaseRequest):
         if self.target_goal.count(GOAL_PLACEHOLDER) == len(self.target_goal):
             self.target_goal = [GOAL_PLACEHOLDER] * MIN_LIST_LENGTH
             self._refusal = True
-            self._refusal_reason = "No valid target goals provided"
+            self._refusal_reasons.append("No valid target goals provided")
         else:
             self.target_goal = [goal for goal in self.target_goal if goal != GOAL_PLACEHOLDER]
         super().model_post_init(__context)
@@ -184,13 +178,7 @@ class AnalyzeBaseRequest(DomainRequest):
         if not isinstance(data, dict):
             return data
 
-        refusal = data.get("refusal", None)
-        if refusal is None or not isinstance(refusal, bool):
-            data["refusal"] = False
-            return data
-
         if data.get("depends_on", None) is None:
-            data["refusal"] = True
             data["depends_on"] = [TASK_PLACEHOLDER] * MIN_LIST_LENGTH
         return data
 
@@ -198,7 +186,7 @@ class AnalyzeBaseRequest(DomainRequest):
         if self.depends_on.count(TASK_PLACEHOLDER) == len(self.depends_on):
             self.depends_on = [TASK_PLACEHOLDER] * MIN_LIST_LENGTH
             self._refusal = True
-            self._refusal_reason = "No valid dependencies provided"
+            self._refusal_reasons.append("No valid dependencies provided")
         else:
             self.depends_on = [task for task in self.depends_on if task != TASK_PLACEHOLDER]
         super().model_post_init(__context)
