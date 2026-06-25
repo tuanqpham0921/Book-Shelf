@@ -30,26 +30,10 @@ class OrchestrationOutput(UserFacingOutput):
     strategy_result: StrategyClassificationOutput | None = None
     diagram: str | None = None
     
+    # TODO: implement this
     def to_summary(self) -> dict[str, Any]:
-        return {
-            "session_id": self.session_id,
-            "parse_result": self.parse_result.to_summary() if self.parse_result else None,
-            "strategy_result": self.strategy_result.to_summary() if self.strategy_result else None,
-        }
-
-    def _sub_summary(self) -> dict[str, Any]:
-        parse_summary = self.parse_result.to_summary() if self.parse_result else None
-        strategy_summary = (
-            self.strategy_result.to_summary() if self.strategy_result else None
-        )
-
-        return {
-            "session_id": self.session_id,
-            "parse_result": parse_summary,
-            "strategy_result": strategy_summary,
-        }
-
-
+        pass
+    
 class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
     initial_parse_failure_message = (
         "I couldn't understand your request. Please try again."
@@ -144,17 +128,6 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         self.save_chat_messages()
         self.save_conversation_result()
 
-    async def generate_summary(self) -> dict[str, Any]:
-        from common.utils import remove_json_empty_values
-
-        sub_summary = remove_json_empty_values(self.output.to_summary())
-        prompt = format_prompt(
-            self._SUMMARY_PROMPT_PATH,
-            sub_summary=json.dumps(sub_summary, indent=2),
-        )
-        await self.generate_user_response([self.user_message], prompt=prompt)
-        return sub_summary
-
     async def send_mermaid(
         self, strategy_result: StrategyClassificationOutput
     ) -> str | None:
@@ -166,7 +139,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
                 strategy_result.get_accepted_id_to_node()
             )
         except Exception as e:
-            logger.warning(f"⚠️ Error generating Mermaid diagram: {e}")
+            logger.warning(f"Error generating Mermaid diagram: {e}")
             return None
 
         await self.sse_stream.send_chars("# My Plan for Your Request")
