@@ -51,7 +51,8 @@ class BaseRequest(BaseModel):
         description="Confidence score for the parsed results (1.0 is highest confidence)",
     )
     _refusal: bool = PrivateAttr(default=False)
-    _refusal_reason: str | None = PrivateAttr(default=None)
+    _refusal_reasons: list[str] = PrivateAttr(default_factory=list)
+    _llm_id: str = PrivateAttr(default=None)
 
     @property
     def refusal_reason(self) -> str | None:
@@ -66,7 +67,7 @@ class BaseRequest(BaseModel):
     def check_id(cls, value):
         if (not isinstance(value, str) 
             or not re.match(TASK_ID_PATTERN, value)):
-            return f"{ID_PREFIX}{uuid4()[:8]}"
+            return f"{ID_PREFIX}{str(uuid4())[:8]}"
         return value
     
     @field_validator("description", mode="before")
@@ -157,7 +158,7 @@ class AnalyzeBaseRequest(DomainRequest):
         min_length=MIN_LIST_LENGTH,
         max_length=MAX_LIST_LENGTH,
         description="Task ids from the previous steps must complete first",
-        example=["task_1", "task_2"]
+        example=[["task_1", "task_2"]]
     )
     
     @field_validator("depends_on", mode="before")

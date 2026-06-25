@@ -21,7 +21,7 @@ from pydantic import create_model, ConfigDict
 from app.domains.registry import NODE_TYPE_TO_CLS
 from functools import reduce
 from operator import or_
-
+from uuid import uuid4
 logger = logging.getLogger(__name__)
 
 
@@ -154,8 +154,40 @@ class StrategyClassificationWorkflow(
         tool_call = assistant_msg.tool_calls[0]
         parse_result = tool_call.function.parsed_arguments
 
+        llm_to_internal_id = self.set_llm_id(parse_result.strategies)
+        self.map_dependencies_to_internal_ids(parse_result.strategies, llm_to_internal_id)
         self.process_classification_result(parse_result.strategies, system_goals)
         self.finalize_result()
+        
+    def set_llm_id(self, strategies: list[StrategyType]) -> None:
+        llm_to_internal_id = {}
+        for strategy in strategies:
+            llm_id = strategy.id
+            strategy._llm_id = llm_id
+            strategy.id = f"task_{str(uuid4())[:8]}"
+            llm_to_internal_id[llm_id] = strategy.id
+        return llm_to_internal_id
+
+    def map_dependencies_to_internal_ids(self, 
+                                         strategies: list[StrategyType], 
+                                         llm_to_internal_id: dict[str, str]) -> None:
+        for strategy in strategies:
+            if not hasattr(strategy, "depends_on"):
+                continue
+            if strategy.depends_on is None:
+                strategy._refusal = True
+                strategy._refusal_reasons.append("No dependencies provided")
+                continue
+            
+            dependency_ids = []
+            for dependency in strategy.depends_on:
+                if dependency in llm_to_internal_id:
+                    dependency_ids.append(llm_to_internal_id[dependency])
+                else:
+                    strategy._refusal = True
+                    strategy._refusal_reasons.append(f"Dependency {dependency} not found")
+                    break
+            strategy.depends_on = dependency_ids
 
     def build_strategy_request(self, system_goals: list[SystemGoal]) -> StrategyRequest:
         request_classes = set()
@@ -175,6 +207,7 @@ class StrategyClassificationWorkflow(
 
         inject_classes = set()
         for request_cls in request_classes:
+            # if analyze class is present, there should be at least one retrieval class
             if request_cls in BOOK_ANALYZE_CLASSES:
                 retrieval_cls = [
                     cls for cls in request_classes if cls in BOOK_RETRIEVAL_CLASSES
@@ -225,7 +258,7 @@ class StrategyClassificationWorkflow(
                 reason.append(f"Confidence {strategy.confidence} below accepted tuning")
 
             if reason or strategy._refusal:
-                strategy._refusal_reason = ",".join(reason)
+                strategy._refusal_reasons.extend(reason)
                 self.output.refused.append(strategy)
             elif len(self.output.accepted) < MAX_STRATEGIES:
                 self.output.accepted.append(strategy)
