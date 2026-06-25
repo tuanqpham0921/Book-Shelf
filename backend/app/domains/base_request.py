@@ -155,6 +155,8 @@ class AnalyzeBaseRequest(DomainRequest):
         example=[["task_1", "task_2"]]
     )
     
+    _llm_depends_on: list[str] = PrivateAttr(default_factory=list)
+    
     @field_validator("depends_on", mode="before")
     @classmethod
     def check_depends_on(cls, value):
@@ -183,6 +185,8 @@ class AnalyzeBaseRequest(DomainRequest):
         return data
 
     def model_post_init(self, __context) -> None:
+        self._llm_depends_on = self.depends_on.copy()
+        
         if self.id in self.depends_on:
             self.depends_on.remove(self.id)
         if not self.depends_on or self.depends_on.count(TASK_PLACEHOLDER) == len(self.depends_on):
