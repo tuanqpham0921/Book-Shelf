@@ -46,7 +46,7 @@ class SystemGoal(BaseModel):
     )
 
     _refusal: bool = PrivateAttr(default=False)
-    _refusal_reason: str | None = PrivateAttr(default=None)
+    _refusal_reasons: list[str] = PrivateAttr(default_factory=list)
     _id: str = PrivateAttr(default=f"goal_{str(uuid4())[:8]}")
 
     @property
@@ -54,8 +54,8 @@ class SystemGoal(BaseModel):
         return self._id
 
     @property
-    def refusal_reason(self) -> str | None:
-        return self._refusal_reason
+    def refusal_reasons(self) -> list[str]:
+        return self._refusal_reasons
 
     @field_validator("confidence", mode="before")
     @classmethod
@@ -264,7 +264,6 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
         self.output.out_of_scope = parse_result.out_of_scope
         self.output.reasoning = parse_result.reasoning
 
-        count = 1
         for goal in parse_result.system_goals:
             reason = []
             if goal.confidence < confident_tuning:
@@ -277,11 +276,9 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
                 )
 
             if reason or goal._refusal:
-                goal._refusal_reason = ",".join(reason)
+                goal._refusal_reasons.extend(reason)
                 self.output.refused_goals.append(goal)
             elif len(self.output.accepted_goals) < MAX_SYSTEM_GOALS:
                 self.output.accepted_goals.append(goal)
             else:
                 self.output.buffer_goals.append(goal)
-
-            count += 1
