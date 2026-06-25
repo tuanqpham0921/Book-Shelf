@@ -218,11 +218,6 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
         self.process_parse_result(parse_result)
         await self.finalize_result()
         await self.generate_user_response()
-        
-        if self.output.accepted_goals:
-            await self.sse_stream.send_chars("\n\n# System Goals:\n")
-            for system_goal in self.output.accepted_goals:
-                await self.sse_stream.send_chars(f"- {system_goal.description}\n")
 
     async def finalize_result(self) -> None:
         super().finalize_result(ok=bool(self.output.accepted_goals))

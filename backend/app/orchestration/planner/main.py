@@ -14,11 +14,7 @@ from app.orchestration.planner.strategy_classification import (
     StrategyClassificationWorkflow,
     StrategyClassificationOutput,
 )
-from app.orchestration.planner.task_planner import (
-    TaskPlanWorkflow,
-    TaskPlanOutput,
-    TaskPlan,
-)
+
 from app.common.workflow import UserFacingBaseWorkflow, UserFacingOutput
 from common.operation import OperationResult
 from app.common.prompt_loader import format_prompt
@@ -32,7 +28,6 @@ class OrchestrationOutput(UserFacingOutput):
     session_id: str | None = None
     parse_result: InitialParseOutput | None = None
     strategy_result: StrategyClassificationOutput | None = None
-    task_plan: TaskPlan | None = None
     diagram: str | None = None
     
     def to_summary(self) -> dict[str, Any]:
@@ -40,7 +35,6 @@ class OrchestrationOutput(UserFacingOutput):
             "session_id": self.session_id,
             "parse_result": self.parse_result.to_summary() if self.parse_result else None,
             "strategy_result": self.strategy_result.to_summary() if self.strategy_result else None,
-            "task_plan": self.task_plan.to_summary() if self.task_plan else None,
         }
 
     def _sub_summary(self) -> dict[str, Any]:
@@ -48,13 +42,11 @@ class OrchestrationOutput(UserFacingOutput):
         strategy_summary = (
             self.strategy_result.to_summary() if self.strategy_result else None
         )
-        task_plan_summary = self.task_plan.to_summary() if self.task_plan else None
 
         return {
             "session_id": self.session_id,
             "parse_result": parse_summary,
             "strategy_result": strategy_summary,
-            "task_plan": task_plan_summary,
         }
 
 
@@ -67,7 +59,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
     task_planner_failure_message = "I tried to create a plan, but it was too large or invalid. Try narrowing your request."
 
     _SUMMARY_PROMPT_PATH = (
-        "orchestration/planner/prompts/4_conversation_orchestration_summary.txt"
+        "orchestration/planner/prompts/3_conversation_orchestration_summary.txt"
     )
 
     def __init__(
@@ -90,8 +82,6 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
             self.output.parse_result = output
         elif isinstance(output, StrategyClassificationOutput):
             self.output.strategy_result = output
-        elif isinstance(output, TaskPlanOutput):
-            self.output.task_plan = output.task_plan
 
         return step
 
@@ -114,7 +104,6 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
             self.result.message = self.initial_parse_failure_message
             return
 
-        await self.sse_stream.send_divider()
         # return
         #------------------------------------------------------------------------------------------------
 
@@ -135,33 +124,22 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
             self.result.message = self.strategy_classification_failure_message
             return
         
-        #------------------------------------------------------------------------------------------------
-
-        task_workflow = TaskPlanWorkflow(
-            self.sse_stream, self.user_message, self.llm_client
-        )
-        plan_result = await self.run_async_step(
-            task_workflow(system_goals, self.output.strategy_result),
-            raise_on_failure=False,
-        )
-        if not plan_result.ok:
-            if plan_result.run_time_error:
-                await self.sse_stream.send_error(self.task_planner_failure_message)
-            self.result.ok = False
-            self.result.message = self.task_planner_failure_message
-            return
-
-        #------------------------------------------------------------------------------------------------
-
         self.output.diagram = await self.send_mermaid(
-            self.output.task_plan, self.output.strategy_result
+            self.output.strategy_result
         )
+        await self.sse_stream.send_chars("\n\n# System Goals:\n")
+        for system_goal in self.output.parse_result.accepted_goals:
+            await self.sse_stream.send_chars(f"- {system_goal.description}\n")
+            
+        await self.sse_stream.send_divider()
+        #------------------------------------------------------------------------------------------------
+        # Final response
+        
         await self.generate_summary()
         #------------------------------------------------------------------------------------------------
 
         self.result.ok = True
         self.result.message = "Conversation orchestration completed successfully"
-        await self.sse_stream.send_divider()
         
         self.save_chat_messages()
         self.save_conversation_result()
@@ -178,17 +156,17 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         return sub_summary
 
     async def send_mermaid(
-        self, task_plan: TaskPlan, strategy_result: StrategyClassificationOutput
+        self, strategy_result: StrategyClassificationOutput
     ) -> str | None:
         from app.common.mermaid import get_mermaid_diagram
 
         try:
             diagram = get_mermaid_diagram(
-                task_plan, strategy_result.get_accepted_id_to_node()
+                strategy_result.execution_order, 
+                strategy_result.get_accepted_id_to_node()
             )
         except Exception as e:
             logger.warning(f"⚠️ Error generating Mermaid diagram: {e}")
-            await self.sse_stream.send_error(self.task_planner_failure_message)
             return None
 
         await self.sse_stream.send_chars("# My Plan for Your Request")

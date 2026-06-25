@@ -97,6 +97,7 @@ class StrategyClassificationOutput(UserFacingOutput):
     accepted: list[BaseRequest] = field(default_factory=list)
     refused: list[BaseRequest] = field(default_factory=list)
     buffer: list[BaseRequest] = field(default_factory=list)
+    execution_order: list[str] = field(default_factory=list)
 
     def to_summary(self) -> dict[str, bool | int | list[str]]:
         return {
@@ -157,6 +158,7 @@ class StrategyClassificationWorkflow(
         llm_to_internal_id = self.set_llm_id(parse_result.strategies)
         self.map_dependencies_to_internal_ids(parse_result.strategies, llm_to_internal_id)
         self.process_classification_result(parse_result.strategies, system_goals)
+        self.create_execution_order()
         self.finalize_result()
         
     def set_llm_id(self, strategies: list[StrategyType]) -> None:
@@ -269,4 +271,61 @@ class StrategyClassificationWorkflow(
         return set(strategy.id for strategy in strategies)
 
     def finalize_result(self) -> None:
-        super().finalize_result(ok=bool(self.output.accepted))
+        super().finalize_result(
+            ok=bool(self.output.execution_order and self.output.accepted)
+        )
+
+    def create_execution_order(self) -> list[str]:
+        # Build adjacency list and indegree map
+        from collections import defaultdict, deque
+
+        tasks = self.output.accepted
+
+        graph = defaultdict(list)
+        indegree = defaultdict(int)
+
+        for task in tasks:
+            task_id = task.id
+            if not hasattr(task, "depends_on"):
+                indegree[task_id] = 0
+                continue
+            
+            for dep in task.depends_on:
+                graph[dep].append(task_id)
+                indegree[task_id] += 1
+        
+        # Start with nodes that have no dependencies
+        queue = deque([t for t, d in indegree.items() if d == 0])
+        order = []
+
+        while queue:
+            node = queue.popleft()
+            order.append(node)
+            for neighbor in graph[node]:
+                indegree[neighbor] -= 1
+                if indegree[neighbor] == 0:
+                    queue.append(neighbor)
+
+        self.output.execution_order = order
+        if order:
+            logger.info(
+                f"📋 Task execution order: {' -> '.join(order) if order else 'No tasks'}"
+            )
+        else:
+            logger.warning("No execution order created")
+        
+        # Check for cycles in the dependency graph
+        if len(order) != len(indegree):
+            excepted_nodes = self.output.get_accepted_id_to_node()
+            logger.warning("Cycle detected in dependency graph")
+            remaining_nodes = [node_id for node_id, degree in indegree.items() if degree > 0]
+            for node_id in remaining_nodes:
+                logger.warning(f"Removing node {node_id} from accepted list")
+                if node_id not in excepted_nodes:
+                    continue
+                node = excepted_nodes[node_id]
+                self.output.accepted.remove(node)
+                excepted_nodes.remove(node_id)
+                node._refusal = True
+                node._refusal_reasons.append("Cycle detected in dependency graph")
+                self.output.refused.append(node)
