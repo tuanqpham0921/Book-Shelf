@@ -135,7 +135,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         #------------------------------------------------------------------------------------------------
         # Final response
         
-        await self.generate_summary()
+        # await self.generate_summary()
         #------------------------------------------------------------------------------------------------
 
         self.result.ok = True
