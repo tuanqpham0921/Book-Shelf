@@ -15,8 +15,6 @@ def get_mermaid_diagram(
     execution_order: list[str], id_to_node: dict[str, BaseRequest]
 ) -> str:
     
-    print(execution_order)
-    print(id_to_node)
     lines = ["flowchart LR"]
 
     for task in execution_order:
