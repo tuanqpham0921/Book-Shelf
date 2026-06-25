@@ -133,7 +133,7 @@ class DomainRequest(BaseRequest):
         if not isinstance(data, dict):
             return data
         
-        if  data.get("target_goal", None) is None:
+        if not data.get("target_goal", None):
             data["target_goal"] = [GOAL_PLACEHOLDER] * MIN_LIST_LENGTH
         return data
     
@@ -178,12 +178,14 @@ class AnalyzeBaseRequest(DomainRequest):
         if not isinstance(data, dict):
             return data
 
-        if data.get("depends_on", None) is None:
+        if not data.get("depends_on", None):
             data["depends_on"] = [TASK_PLACEHOLDER] * MIN_LIST_LENGTH
         return data
 
     def model_post_init(self, __context) -> None:
-        if self.depends_on.count(TASK_PLACEHOLDER) == len(self.depends_on):
+        if self.id in self.depends_on:
+            self.depends_on.remove(self.id)
+        if not self.depends_on or self.depends_on.count(TASK_PLACEHOLDER) == len(self.depends_on):
             self.depends_on = [TASK_PLACEHOLDER] * MIN_LIST_LENGTH
             self._refusal = True
             self._refusal_reasons.append("No valid dependencies provided")
