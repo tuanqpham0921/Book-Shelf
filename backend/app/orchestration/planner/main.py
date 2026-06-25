@@ -162,6 +162,8 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         self.result.ok = True
         self.result.message = "Conversation orchestration completed successfully"
         await self.sse_stream.send_divider()
+        
+        self.save_chat_messages()
 
     async def generate_summary(self) -> dict[str, Any]:
         from common.utils import remove_json_empty_values
@@ -191,3 +193,14 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         await self.sse_stream.send_chars("# My Plan for Your Request")
         await self.sse_stream.send_mermaid(diagram)
         return diagram
+
+    def save_chat_messages(self, name: str = "dev") -> None:
+        from common.utils.save_file import save_file
+        if not self.output.chat_messages:
+            return
+        logger.info(f"Saving chat messages to {name}.json")
+        data = {
+            "chat_messages": self.output.chat_messages,
+            "token_usage": self.output.token_usage
+        }
+        save_file(data, f"chat_messages_{name}.json")
