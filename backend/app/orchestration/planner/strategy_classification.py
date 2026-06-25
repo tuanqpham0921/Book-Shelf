@@ -175,7 +175,6 @@ class StrategyClassificationWorkflow(
 
         inject_classes = set()
         for request_cls in request_classes:
-            # if analyze class is present, there should be at least one retrieval class
             if request_cls in BOOK_ANALYZE_CLASSES:
                 retrieval_cls = [
                     cls for cls in request_classes if cls in BOOK_RETRIEVAL_CLASSES
@@ -185,17 +184,6 @@ class StrategyClassificationWorkflow(
                         f"No retrieval class for analyze class. Injecting all retrieval classes."
                     )
                     inject_classes.update(BOOK_RETRIEVAL_CLASSES)
-
-            # if retrieval class is present, there should be at least one analyze class
-            elif request_cls in BOOK_RETRIEVAL_CLASSES:
-                analyze_cls = [
-                    cls for cls in request_classes if cls in BOOK_ANALYZE_CLASSES
-                ]
-                if not analyze_cls:
-                    logger.warning(
-                        f"No analyze class for retrieval class. Injecting all analyze classes."
-                    )
-                    inject_classes.update(BOOK_ANALYZE_CLASSES)
 
         request_classes.update(inject_classes)
 
