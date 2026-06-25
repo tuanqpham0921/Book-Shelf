@@ -21,7 +21,7 @@ ID_PREFIX = "task_"
 TASK_ID_PATTERN = r"^" + ID_PREFIX + r"\d+$"
 
 GOAL_PREFIX = "goal_"
-GOAL_ID_PATTERN = r"^" + GOAL_PREFIX + r"\d+$"
+GOAL_ID_PATTERN = r"^" + GOAL_PREFIX + r"[a-f0-9]{8}$"
 TASK_PLACEHOLDER = "task_placeholder"
 GOAL_PLACEHOLDER = "goal_placeholder"
 

@@ -21,7 +21,7 @@ from app.domains.registry import NODE_TYPE_TO_CLS, format_node_type_catalog
 from clients import OpenAIParserRequest
 from clients.openai_client import OpenAIClient
 from clients.openai_requests import OpenAIChatRequest
-
+from uuid import uuid4
 logger = logging.getLogger(__name__)
 
 MAX_SYSTEM_GOALS = 10
@@ -99,6 +99,8 @@ class InitialParseRequest(BaseModel):
     @field_validator("small_talk", mode="before")
     @classmethod
     def check_small_talk(cls, value):
+        if value is None:
+            return None
         if not isinstance(value, str):
             return str(value)
         if len(value) > MAX_STRING_LENGTH:
@@ -108,6 +110,8 @@ class InitialParseRequest(BaseModel):
     @field_validator("out_of_scope", mode="before")
     @classmethod
     def check_out_of_scope(cls, value):
+        if value is None:
+            return None
         if not isinstance(value, str):
             return str(value)
         if len(value) > MAX_STRING_LENGTH:
@@ -170,10 +174,10 @@ class InitialParseOutput(UserFacingOutput):
             payload["refused_goals"] = [
                 (g.description, g.refusal_reason) for g in self.refused_goals
             ]
-        if self.reasoning:
+        if len(payload) > 0 and self.reasoning:
             payload["reasoning"] = self.reasoning
 
-        return [AssistantMessage(content=json.dumps(payload))]
+        return payload
 
 
 class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
@@ -215,12 +219,23 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
         self.process_parse_result(parse_result)
         await self.finalize_result()
         await self.generate_user_response()
+        
+        if self.output.accepted_goals:
+            await self.sse_stream.send_chars("\n\n# System Goals:\n")
+            for system_goal in self.output.accepted_goals:
+                await self.sse_stream.send_chars(f"- {system_goal.description}\n")
 
     async def finalize_result(self) -> None:
         super().finalize_result(ok=bool(self.output.accepted_goals))
 
     async def generate_user_response(self) -> None:
-        to_llm_messages = self.output.to_llm_messages()
+        payload = self.output.to_llm_messages()
+        from common.utils.print_json import print_json
+        print_json(payload, "Payload")
+        if not payload:
+            return
+        
+        messages = [AssistantMessage(content=json.dumps(payload))]
         response_prompt = format_prompt(
             prompt_path=self._USER_PROMPT_PATH,
             TOOLS_NAME_DESCRIPTION=format_node_type_catalog(),
@@ -228,16 +243,12 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
         await self.run_llm_call(
             req=OpenAIChatRequest(
                 prompt=response_prompt,
-                messages=to_llm_messages,
+                messages=messages,
                 sse_stream=self.sse_stream,
                 temperature=0.7,
                 top_p=1.0,
             ),
         )
-        if self.output.accepted_goals:
-            await self.sse_stream.send_chars("\n\n# System Goals:\n")
-            for system_goal in self.output.accepted_goals:
-                await self.sse_stream.send_chars(f"- {system_goal.description}\n")
 
     def process_parse_result(
         self, parse_result: InitialParseRequest, confident_tuning: float = 0.5
@@ -268,7 +279,7 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
                     f"Rejected: target node type not supported ({goal.target_node_type})"
                 )
 
-            goal._id = f"goal_{count}"
+            goal._id = f"goal_{str(uuid4())[:8]}"
             if reason or goal._refusal:
                 goal._refusal_reason = ",".join(reason)
                 self.output.refused_goals.append(goal)
