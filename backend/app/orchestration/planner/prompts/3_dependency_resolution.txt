@@ -40,3 +40,13 @@ When to refuse a task:
   - depends_on references a task id not in the input map
   - Required prerequisites are missing
   - Input strategy already has refusal = true
+
+Example:
+
+Input strategies:
+  task_1: FindByTitle (Dune), depends_on: []
+  task_2: Recommendation, depends_on: ["task_1"]
+
+→ tasks:
+  - id: task_1, depends_on: []
+  - id: task_2, depends_on: ["task_1"]
