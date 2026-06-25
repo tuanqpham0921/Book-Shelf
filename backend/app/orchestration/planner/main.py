@@ -164,6 +164,7 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         await self.sse_stream.send_divider()
         
         self.save_chat_messages()
+        self.save_conversation_result()
 
     async def generate_summary(self) -> dict[str, Any]:
         from common.utils import remove_json_empty_values
@@ -193,6 +194,21 @@ class ConversationOrchestrator(UserFacingBaseWorkflow[OrchestrationOutput]):
         await self.sse_stream.send_chars("# My Plan for Your Request")
         await self.sse_stream.send_mermaid(diagram)
         return diagram
+    
+    def save_conversation_result(self, name: str = "dev") -> None:
+        from common.utils.save_file import save_file
+        from dataclasses import asdict
+        data = asdict(self.result)
+        del data["steps"]
+        del data["output"]["chat_messages"]
+        for children in data["output"]:
+            if not isinstance(data['output'][children], dict):
+                continue
+
+            if "chat_messages" in data['output'][children]:
+                del data['output'][children]["chat_messages"]
+        
+        save_file(data, file_name=f"conversation_result_{name}.json")
 
     def save_chat_messages(self, name: str = "dev") -> None:
         from common.utils.save_file import save_file
