@@ -241,6 +241,7 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
                 top_p=1.0,
             ),
         )
+        await self.sse_stream.send_divider()
 
     def process_parse_result(
         self, parse_result: InitialParseRequest, confident_tuning: float = 0.5
