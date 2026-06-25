@@ -230,8 +230,6 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
 
     async def generate_user_response(self) -> None:
         payload = self.output.to_llm_messages()
-        from common.utils.print_json import print_json
-        print_json(payload, "Payload")
         if not payload:
             return
         
