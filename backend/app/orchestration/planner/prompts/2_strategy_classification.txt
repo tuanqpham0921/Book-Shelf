@@ -27,52 +27,13 @@ General guidelines:
   - Use refusal with reasoning when a capability is unsupported
   - Follow a retrieval and analyze pattern
 
------------------------------------------------------
-Books domain
-
-Retrieval (lookup / search — no analysis):
-  - FindByTitle
-  - FindByISBN13
-  - FindByTraits
-
-Analysis (interpretation — requires prerequisite lookups where applicable):
-  - Recommendation
-  - Compare
-
-Books rules:
-  - Retrieval-only goals → retrieval strategies only, no analysis
-  - Comparison goals → Compare with depends_on listing the task ids of title lookups (e.g. ["task_1", "task_2"])
-  - Recommendation goals → Recommendation with depends_on listing task ids of reference lookups (e.g. ["task_1"])
-  - Title or ISBN in query → separate FindByTitle / FindByISBN13 per distinct reference
-  - Do not use prior knowledge to fill authors — only when the user names them
-  - semantic_input: thematic or mood text from the query only — not titles, authors, or filter criteria
-  - filters belong on FindByTraits or Recommendation, not on title/ISBN lookups
-
-Database constraints:
+Book Database constraints:
 {book_constraints}
 
-Guides:
+Book Guides:
 {book_guides}
 
------------------------------------------------------
-Users domain
 
-Available requests:
-  - UserInfo
-  - DeveloperInfo
-
-Use when a goal is about the user's account, preferences, memory, or developer profile — not book search.
-
------------------------------------------------------
-Project domain
-
-Available requests:
-  - ProjectInfo
-  - Feedback
-
-Use when a goal is about how the system works, project details, or submitting feedback.
-
------------------------------------------------------
 Examples
 
 Input goals:
