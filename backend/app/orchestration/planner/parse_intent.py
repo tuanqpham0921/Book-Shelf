@@ -10,7 +10,6 @@ from app.common.prompt_loader import format_prompt, load_prompt
 from app.common.sse_stream import SSEStream
 from app.common.workflow import UserFacingBaseWorkflow, UserFacingOutput
 from app.domains.base_request import (
-    GOAL_PLACEHOLDER,
     MAX_CONFIDENCE,
     MAX_STRING_LENGTH,
     MIN_CONFIDENCE,
@@ -48,7 +47,7 @@ class SystemGoal(BaseModel):
 
     _refusal: bool = PrivateAttr(default=False)
     _refusal_reason: str | None = PrivateAttr(default=None)
-    _id: str = PrivateAttr(default=GOAL_PLACEHOLDER)
+    _id: str = PrivateAttr(default=f"goal_{str(uuid4())[:8]}")
 
     @property
     def id(self) -> str:
@@ -277,7 +276,6 @@ class InitialParseWorkflow(UserFacingBaseWorkflow[InitialParseOutput]):
                     f"Rejected: target node type not supported ({goal.target_node_type})"
                 )
 
-            goal._id = f"goal_{str(uuid4())[:8]}"
             if reason or goal._refusal:
                 goal._refusal_reason = ",".join(reason)
                 self.output.refused_goals.append(goal)
