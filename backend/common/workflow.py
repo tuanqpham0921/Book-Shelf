@@ -80,6 +80,7 @@ class Workflow(ABC, Generic[OutputT]):
         #     raise ValueError(f"Step is of type {type(step)} not OperationResult")
         
         self.result.steps.append(step)
+        self.result.token_usage += step.token_usage
 
         if step.ok:
             return step

@@ -72,7 +72,7 @@ def task(
                 # custom operation result retuned from the task
                 # the task must validate ok and message
                 if isinstance(output, OperationResult):
-                    output.name = func_ref
+                    output.name = output.name or func_ref
                     output.duration = round(time.perf_counter() - time_start, 2)
                     return output
 

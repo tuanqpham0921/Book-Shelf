@@ -9,6 +9,7 @@ from db.schema.extensions import REQUIRED_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 from common.operation import OperationResult, task
+from common.workflow import Workflow
 from pydantic import BaseModel, Field
 from db.stores.book_store import BookStore
 
@@ -115,14 +116,72 @@ class ReadinessResult(BaseModel):
 
     missing_extensions: list[str] = Field(default_factory=list)
     
-@task
+class ReadinessWorkflow(Workflow[ReadinessResult]):
+    """Runs each readiness check as a step and aggregates them into a report."""
+
+    def __init__(self):
+        super().__init__(output_type=ReadinessResult)
+
+    async def run(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        schema: str,
+        table: str,
+        *,
+        min_rows: int,
+    ) -> None:
+        if not await check_connection(session_factory):
+            raise ValueError("Database connection failed")
+        self.output.database_connected = True
+
+        async with session_factory() as session:
+            table_check = await self.run_async_step(
+                _check_table(session, schema=schema, table=table),
+                raise_on_failure=False,
+            )
+            self.output.need_db_bootstrap = not table_check.ok
+
+        async with session_factory() as session:
+            rows = await self.run_async_step(
+                _check_table_rows(session, schema=schema, table=table, min_rows=min_rows),
+                raise_on_failure=False,
+            )
+            self.output.enough_rows = rows.ok
+
+        async with session_factory() as session:
+            extensions = await self.run_async_step(
+                _check_table_extensions(session),
+                raise_on_failure=False,
+            )
+            self.output.need_extensions = not extensions.ok
+            self.output.missing_extensions = extensions.output["missing"]
+
+        async with session_factory() as session:
+            # check if embeddings are present
+            book_store = BookStore(session)
+            # TODO: we can change this when book store implement @task decorator
+            num_missing = await book_store.get_num_book_missing_embeddings()
+            self.add_step(
+                OperationResult(
+                    name="num_missing_embeddings",
+                    ok=num_missing == 0,
+                    message="No books missing embeddings." if num_missing == 0 else f"Found {num_missing} books missing embeddings.",
+                    output=num_missing,
+                ),
+                raise_on_failure=False,
+            )
+            self.output.num_missing_embeddings = num_missing
+
+        self.result.message = "Database is ready." if self.result.ok else "Database is not ready."
+
+
 async def is_ready(
     session_factory: async_sessionmaker[AsyncSession],
     schema: str,
     table: str,
     *,
     min_rows: int,
-) -> OperationResult:
+) -> OperationResult[ReadinessResult]:
     """Run database readiness checks and return a structured report.
 
     Args:
@@ -131,58 +190,8 @@ async def is_ready(
         table: The table to check.
         min_rows: The minimum number of rows the table should have.
     """
-    checks: list[OperationResult] = []
-    result = ReadinessResult()
-    
-    if not await check_connection(session_factory):
-        raise ValueError("Database connection failed")
-    result.database_connected = True
-
-    async with session_factory() as session:
-        # check if table exists and schema is correct
-        table_check = await _check_table(session, schema=schema, table=table)
-        checks.append(table_check)
-        
-        result.need_db_bootstrap = not table_check.ok
-        
-    async with session_factory() as session:
-        # check if table has rows
-        rows = await _check_table_rows(
-            session,
-            schema=schema,
-            table=table,
-            min_rows=min_rows,
-        )
-        checks.append(rows)
-        result.enough_rows = rows.ok
-    
-    async with session_factory() as session:
-        # check if required extensions are installed
-        extensions = await _check_table_extensions(session)
-        checks.append(extensions)
-        result.need_extensions = not extensions.ok
-        result.missing_extensions = extensions.output["missing"]
-        
-    
-    async with session_factory() as session:
-        # check if embeddings are present
-        book_store = BookStore(session)
-        # TODO: we can change this when book store implement @task decorator
-        num_missing = await book_store.get_num_book_missing_embeddings()
-        checks.append(OperationResult(
-            name="num_missing_embeddings",
-            ok=num_missing == 0,
-            message="No books missing embeddings." if num_missing == 0 else f"Found {num_missing} books missing embeddings.",
-            output=num_missing,
-        ))
-        result.num_missing_embeddings = num_missing
-        
-    ok = all(check.ok for check in checks)
-    return OperationResult(
-        ok=ok, 
-        message="Database is ready." if ok else "Database is not ready.", 
-        steps=checks,
-        output=result,
+    return await ReadinessWorkflow()(
+        session_factory, schema=schema, table=table, min_rows=min_rows
     )
 
 
@@ -211,7 +220,7 @@ async def main() -> None:
         report = await is_ready(
             session_factory, schema=schema, table=table, min_rows=min_rows
         )
-        report.log()
+        logger.info(report.model_dump_json(indent=2))
     finally:
         if engine:
             await close_async_engine(engine)

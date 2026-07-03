@@ -11,6 +11,7 @@ from config.constants import FilesLocationConstants
 from db.readiness import ReadinessResult
 
 from common.operation import OperationResult, task
+from common.workflow import Workflow
 
 logger = logging.getLogger(__name__)
 
@@ -71,28 +72,33 @@ async def create_indexes(session_factory: async_sessionmaker[AsyncSession]) -> O
         message="Indexes created successfully."
     )
 
-@task
-async def bootstrap_schema(session_factory: async_sessionmaker[AsyncSession], readiness: ReadinessResult | None = None) -> OperationResult:
-    """Apply extensions, tables, and indexes in order (idempotent and safe to call multiple times)."""
-    if readiness and not readiness.need_db_bootstrap:
-        return OperationResult(
-            ok=True, 
-            message="No actions required.", 
-            steps=[]
+class BootstrapWorkflow(Workflow):
+    """Applies extensions, tables, and indexes in order as tracked steps."""
+
+    async def run(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        readiness: ReadinessResult | None = None,
+    ) -> None:
+        if readiness and not readiness.need_db_bootstrap:
+            self.result.message = "No actions required."
+            return
+
+        await self.run_async_step(enable_extensions(session_factory), raise_on_failure=False)
+        await self.run_async_step(init_tables(session_factory), raise_on_failure=False)
+        await self.run_async_step(create_indexes(session_factory), raise_on_failure=False)
+
+        self.result.message = (
+            "Bootstrap schema completed." if self.result.ok else "Bootstrap schema failed."
         )
-    
-    checks: list[OperationResult] = []
-    
-    checks.append(await enable_extensions(session_factory))
-    checks.append(await init_tables(session_factory))
-    checks.append(await create_indexes(session_factory))
-    
-    return OperationResult(
-        name="bootstrap_schema", 
-        ok=all(check.ok for check in checks), 
-        message="Bootstrap schema completed.", 
-        steps=checks
-    )
+
+
+async def bootstrap_schema(
+    session_factory: async_sessionmaker[AsyncSession],
+    readiness: ReadinessResult | None = None,
+) -> OperationResult:
+    """Apply extensions, tables, and indexes in order (idempotent and safe to call multiple times)."""
+    return await BootstrapWorkflow()(session_factory, readiness=readiness)
 
 # -----------------------------------------------------------------------------
 # For testing purposes

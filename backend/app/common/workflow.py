@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 from typing import Any, Generic, TypeVar
 
-from common.operation import OperationResult, TokenUsage
 from common.workflow import Workflow
 from app.common.messages import (
     APIMessage,
@@ -46,13 +45,6 @@ class UserFacingBaseWorkflow(Workflow[OutputT]):
         self.result.message = message or (
             self.success_message if ok else self.failure_message
         )
-
-    def add_step(
-        self, step: OperationResult[Any], *, raise_on_failure: bool = True
-    ) -> OperationResult[Any]:
-        step = super().add_step(step, raise_on_failure=raise_on_failure)
-        self.result.token_usage += step.token_usage
-        return step
 
     async def run_llm_call(self, req: BaseLLMRequest, save_payload: bool = False) -> AssistantMessage:
         result = await self.run_async_step(
