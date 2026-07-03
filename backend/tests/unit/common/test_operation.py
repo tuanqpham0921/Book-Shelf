@@ -22,6 +22,11 @@ async def _returns_none():
     return None
 
 
+@task
+async def _returns_result_with_explicit_name():
+    return OperationResult(name="custom_step_name", ok=True)
+
+
 class TestTask:
     async def test_plain_value_wraps_in_operation_result(self):
         result = await _returns_plain_value()
@@ -56,6 +61,10 @@ class TestTask:
         result = await _returns_none()
         assert result.ok is True
         assert result.output is None
+
+    async def test_preserves_explicit_name_on_operation_result(self):
+        result = await _returns_result_with_explicit_name()
+        assert result.name == "custom_step_name"
 
 
 class TestOperationResult:

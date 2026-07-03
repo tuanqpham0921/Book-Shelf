@@ -1,6 +1,6 @@
 import pytest
 from common.workflow import Workflow
-from common.operation import OperationResult
+from common.operation import OperationResult, TokenUsage
 
 
 class _SuccessWorkflow(Workflow):
@@ -121,6 +121,22 @@ class TestRunStep:
         result = await _RunStepWorkflow(step, raise_on_failure=True)()
         assert result.ok is False
         assert result.run_time_error is not None
+
+
+class TestTokenUsage:
+    async def test_token_usage_summed_across_steps(self):
+        steps = [
+            OperationResult(ok=True, name="step_1", token_usage=TokenUsage(total=10, prompt=6, completion=4)),
+            OperationResult(ok=True, name="step_2", token_usage=TokenUsage(total=5, prompt=2, completion=3)),
+        ]
+        result = await _MultiStepWorkflow(steps)()
+        assert result.token_usage.total == 15
+        assert result.token_usage.prompt == 8
+        assert result.token_usage.completion == 7
+
+    async def test_token_usage_defaults_to_zero_with_no_steps(self):
+        result = await _SuccessWorkflow()()
+        assert result.token_usage.total == 0
 
 
 class TestWorkflowProperties:
