@@ -7,28 +7,40 @@ How this slice is laid out (the reading rule):
   methods in the order `run` calls them. Pure helpers whose input needs no
   rendering are module-level functions here, also in flow order.
 - **A satellite module is one LLM call's pure half** — `analyze_references.py`
-  holds the rendering, the tool model and the request builder for the node's
-  one LLM call, and nothing that runs.
+  and `generate_response.py` each hold the rendering, the tool model and the
+  request builder for one of the node's two LLM calls, and nothing that runs.
 - **`dependents.py` is step 1's interpretation** — what the node makes of the
   anchors its input contract selected.
 
-The node does one thing: fold the books the user named into a description of
-what to look for next, and hand back a query for the pool nearest that
-description. It does not rank the pool, drop books from it, or write the reply —
-those are a later node's, and none of them exists yet. Handing on the *query*
-rather than the rows is what leaves room for them: `Combine_Intersect` can bound
-the pool in SQL and cosine order survives the narrowing.
+The node folds the books the user named into a description of what to look for
+next, shows the books nearest that description, and writes the note above them.
+It does not rank the pool or drop books from it — the deleted picker (re-rank,
+exclusions, `num_requested`) stays deleted, see node-taxonomy-v1.md. It still
+hands on the *query* rather than the rows, which is what lets
+`Combine_Intersect` bound the pool in SQL with cosine order intact.
+
+**Writing the reply came back here on 2026-09-08**, when the separate
+`Generate_Recommendations` slice (`books/write_recommendations/`) was removed: a
+similarity search is the only chain in the app that produces prose, so it owns
+its own note again the way `analyze_recommend/` did before 2026-08-22. The cost
+of that is recorded in docs/design/execution-pipeline-v1.md — a plan that
+narrows this pool afterwards writes its note about the pool, not the narrowing.
 """
 
 from app.domains.books.base_workflow import BookWorkflow
 from app.domains.books.schemas import Book
-from config import BookConstraints
 from db.stores import DeferredBookQuery, compile_sql, embedding_search_stmt
 from .dependents import ParsedDependents
 from .analyze_references import (
     IdealBookDescription,
     build_analysis_request,
     render_documents,
+)
+from .generate_response import (
+    build_response_request,
+    render_summaries,
+    summarize_references,
+    summarize_shown,
 )
 from .external import ScoreStats, SimilarBooksInput, SimilarBooksOutput
 from airglider import task
@@ -48,10 +60,18 @@ MAX_ANCHOR_BOOKS = 5
 # is an answer about the request rather than an artifact of the cap.
 CANDIDATE_POOL_SIZE = 250
 
+# How many of the pool are shown and written about. Not
+# `BookConstraints.default_limit` (3), which sizes a preview in a collapsed
+# section nobody expands — these cards are the answer, and the note above them
+# can only be true about a set big enough to have a shape.
+MAX_SHOWN_BOOKS = 10
+
 
 class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
     ui_loading_message = "Finding similar books..."
     ui_section_title = "Similar books"
+    # this node owns the answer — folding it away would hide the reply
+    ui_section_collapsible = False
 
     async def run(self, node_input: SimilarBooksInput) -> None:
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
@@ -102,14 +122,22 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
         # is any good, and one aggregate answers both.
         total = (await self.pool_stats(pool)).unwrap()
 
-        # 6. cards for the section: a preview, the same handful every other node
-        # shows. The pool itself travels as `query` for a later node to narrow
-        # — an empty one is a real answer, not a failure.
+        # 6. cards for the section — the answer, not a preview, which is why
+        # the fetch is `MAX_SHOWN_BOOKS` rather than a preview's handful. The
+        # rows are shown and dropped: `BookRetrievalOutput` has no field for
+        # them and the pool itself travels as `query` for a later node to
+        # narrow. An empty pool is a real answer, not a failure.
+        shown: list[Book] = []
         if total:
-            preview = await self.fetch_books(pool, BookConstraints.default_limit)
-            await self.stream_books(preview.unwrap())
+            shown = (await self.fetch_books(pool, MAX_SHOWN_BOOKS)).unwrap()
+            await self.stream_books(shown)
 
-        # 7. last: ok is read off the output
+        # 7. show, then tell — and tell even when there is nothing to show. A
+        # search that came back empty is a sentence the user is owed ("nothing
+        # in the catalog sits near those books"), not a silence.
+        await self.response_to_user(shown, node_input.instruction, found=total)
+
+        # 8. last: ok is read off the output
         self.finalize_result()
 
     def check_anchors(self, parsed: ParsedDependents) -> None:
@@ -248,6 +276,40 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
                 f"{self.result.score.min:.3f}–{self.result.score.max:.3f}"
             )
         return self.result.num_books
+
+    @task
+    async def response_to_user(
+        self, shown: list[Book], asked_for: str = "", found: int = 0
+    ) -> None:
+        """Write the note above the book cards, streamed as it is generated.
+
+        The model gets two summaries and no book descriptions (see
+        generate_response.py). `self.result.search_text` is assembled anchor
+        prose and is deliberately not sent; the account of the ask is the
+        goal's own instruction, which is the only one this node has.
+
+        `found` is the search's account of itself — how big the pool was before
+        `MAX_SHOWN_BOOKS` cut it — and is what lets the reply be honest when it
+        is thin. Zero books shown is a reply this writes rather than an error,
+        which is why both arguments are passed in rather than read off
+        `self.result`, whose `num_books` is the pool and not the cards.
+
+        A `@task`, and deliberately not unwrapped by `run`: the pool is a real
+        artifact a downstream `Combine_Intersect` can still compose against, so
+        a writer that fails costs the turn its note, not its search.
+        """
+        input_summary = summarize_references(
+            self.result.references, asked_for=asked_for, found=found
+        )
+        summary_text = render_summaries(input_summary, summarize_shown(shown))
+
+        await self.sse_stream.send_ui_loading("writing up your recommendations...")
+        req = build_response_request(summary_text, self.sse_stream)
+        message = await self.run_llm_call(req)
+        self.add_details(
+            f"Wrote a {len((message.content or '').split())} word reply from "
+            f"{len(self.result.references)} references and {len(shown)} books shown"
+        )
 
     def finalize_result(self):
         # ok means "the anchors were folded and the search ran", not "books

@@ -14,7 +14,6 @@ from app.domains.books import (
     find_by_title,
     find_similar_books,
     intersect_books,
-    write_recommendations,
 )
 from app.domains.node_spec import NodeSpec
 
@@ -30,8 +29,8 @@ BOOK_SPECS: tuple[NodeSpec, ...] = (
     find_by_numeric_traits.SPEC,
     find_similar_books.SPEC,
     intersect_books.SPEC,
-    # `write_recommendations` (Generate_Recommendations) registered 2026-09-07:
-    # the first NodeTier.GENERATE slice — the planner ends every recommendation
-    # chain with it. See docs/design/execution-pipeline-v1.md.
-    write_recommendations.SPEC,
+    # `write_recommendations` (Generate_Recommendations) was registered
+    # 2026-09-07 and deleted 2026-09-08, taking `NodeTier.GENERATE` with it:
+    # writing the reply went back inside `find_similar_books`, which is the
+    # only chain that produces prose. See docs/design/execution-pipeline-v1.md.
 )

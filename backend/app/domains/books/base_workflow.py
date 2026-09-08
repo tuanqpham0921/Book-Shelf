@@ -22,16 +22,13 @@ anchors, checks its own cap and calls `fetch_books` once, which is what a
 Living below `AppWorkflow` is what puts `Book` and `BookOut` in normal import
 reach here.
 
-**Two classes, split on whether the output is book-shaped.** `count_books` writes
-fields only `BookRetrievalOutput` has, so anything calling it must produce one —
-that is what `BookWorkflow`'s type bound says, and it stays said. But `store`,
-`fetch_books` and `stream_books` write to no output field at all: they read the
-database and send cards, which the generation node does too while producing
-prose rather than a count. `BookReaderWorkflow` is that half, bound only to
-`NodeWorkflowOutput`; `BookWorkflow` is it plus the counting move, and is what
-every book-*producing* node subclasses. The split is not a new layer for its own
-sake — it is the line `count_books` was already drawing, made reachable from one
-side.
+**One class, bound to `BookRetrievalOutput`.** It was two between 2026-09-07 and
+2026-09-08: `count_books` writes fields only `BookRetrievalOutput` has, so a
+`BookReaderWorkflow` held `store`/`fetch_books`/`stream_books` — which write to
+no output field — under the looser `NodeWorkflowOutput` bound for the generation
+node's sake. That node is gone and nothing else produces prose, so the split had
+one subclass and came back out. Recover it from git history if a non-retrieval
+book node returns.
 """
 
 from abc import ABC
@@ -40,7 +37,7 @@ from typing import Any, Sequence, TypeVar, List
 from app.api.schemas import BookOut
 from app.domains.books.external import BookRequestContext, BookRetrievalOutput
 from app.domains.books.schemas import Book
-from app.domains.base_workflow import AppWorkflow, NodeWorkflowOutput
+from app.domains.base_workflow import AppWorkflow
 from config import BookConstraints
 from db.stores import DeferredBookQuery, compile_sql
 from db.stores.book_store import BookStore
@@ -48,19 +45,15 @@ import asyncio
 
 from airglider import task
 
-ReaderOutputT = TypeVar("ReaderOutputT", bound=NodeWorkflowOutput)
 BookOutputT = TypeVar("BookOutputT", bound=BookRetrievalOutput)
 
 
-class BookReaderWorkflow(AppWorkflow[ReaderOutputT], ABC):
-    """Reads and shows books, whatever it produces.
+class BookWorkflow(AppWorkflow[BookOutputT], ABC):
+    """Base for every node executor in the books domain.
 
-    Everything here touches the database or the wire and writes to no output
-    field, which is why the bound is `NodeWorkflowOutput` rather than
-    `BookRetrievalOutput`: a workflow can need rows and cards without being a
-    retrieval. Two subclasses — `BookWorkflow` (every book-producing node) and
-    the generation node, which materializes what its sources found and writes
-    prose.
+    The counts-first opening move plus everything that reads the database or
+    sends cards. The bound is the point: `count_books` writes fields only
+    `BookRetrievalOutput` has, so every node subclassing this produces one.
     """
 
     # Narrows the inherited attribute for type checkers — a pure annotation.
@@ -122,16 +115,6 @@ class BookReaderWorkflow(AppWorkflow[ReaderOutputT], ABC):
             if delay:
                 await asyncio.sleep(delay)
             sent_isbn.add(card.isbn13)
-
-
-class BookWorkflow(BookReaderWorkflow[BookOutputT], ABC):
-    """Base for every node executor in the books domain.
-
-    The reader plus the counting half of the counts-first opening move. The
-    tighter bound is the point: `count_books` writes fields only
-    `BookRetrievalOutput` has, so a node whose output is not book-shaped cannot
-    subclass this — it subclasses `BookReaderWorkflow` and does not count.
-    """
 
     @task
     async def count_books(self, query: DeferredBookQuery) -> int:

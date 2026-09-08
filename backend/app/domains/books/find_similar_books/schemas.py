@@ -8,11 +8,14 @@ from .labels import SimilarBooksNodeTypeEnum
 class SimilarBooksSearch(BaseRequest):
     """Purpose: Find the books most similar in meaning to a book the user named.
 
-    Args: none — this node reads nothing out of the goal description. What it
-        searches for is built from the anchor books themselves.
+    Args: none — what it searches for is built from the anchor books
+        themselves. It does read this goal's description, but only as the
+        account of the ask that goes into the reply it writes.
 
     Returns: BookCandidateOutput — the books nearest the anchor, nearest first.
-    A pool to choose from, not a final answer.
+    This node shows those books and writes the note above them, so a
+    recommendation chain ends here: do not add a goal for presenting or
+    explaining its results.
 
     depends_on: 1+ nodes returning BookAnchorOutput — Retrieve_by_Title, the
     node for a book the user named. A bibliography, a subject search or a

@@ -31,8 +31,10 @@ to the flow, to one call's pure half, or to the input, and naming the file for
 that is the point.
 
 - `node_spec.py` — `NodeSpec` (node_type, tier, request, output, executor) and
-  `NodeTier` (`RETRIEVAL` → `COMBINE` → `ANALYZE` → `GENERATE`, in the order
-  `format_catalog` renders them, which is also the order a plan runs in). One
+  `NodeTier` (`RETRIEVAL` → `COMBINE` → `ANALYZE`, in the order
+  `format_catalog` renders them, which is also the order a plan runs in). A
+  fourth, `GENERATE`, existed 2026-09-07 to 2026-09-08 for one member and went
+  out with it; writing the reply is back inside `find_similar_books/`. One
   spec per node; it is the **only** thing a slice has to export. Its
   `__post_init__` checks the spec's name against the request schema's `Literal`
   default, so the two cannot drift apart silently.
@@ -52,14 +54,14 @@ that is the point.
   don't add a narrower variant for a single consumer — narrow at the point of
   use instead (see `Book`'s docstring).
 - `<domain>/base_workflow.py` — the domain's base, holding what every node in it
-  repeats. `books/base_workflow.py` holds **two** classes, split on whether the
-  output is book-shaped: `BookReaderWorkflow` (`store`, `fetch_books`,
-  `stream_books` — everything that reads the database or sends cards and writes
-  to no output field, so its bound is `NodeWorkflowOutput`) and `BookWorkflow`,
-  which is that plus `count_books` and is bound to `BookRetrievalOutput`. Every
-  book-*producing* node subclasses the second; the generation node
-  (`write_recommendations/`) is the one subclass of the reader alone, because it
-  needs rows and cards while producing prose. `BookWorkflow` exposes `self.store`
+  repeats. `books/base_workflow.py` holds **one** class, `BookWorkflow`, bound to
+  `BookRetrievalOutput` — the bound is what `count_books` needs, and every node
+  in the domain produces one. It was two between 2026-09-07 and 2026-09-08: a
+  `BookReaderWorkflow` held `store`/`fetch_books`/`stream_books` under the looser
+  `NodeWorkflowOutput` bound so the generation node (`write_recommendations/`)
+  could read rows and send cards while producing prose. That node was deleted, the
+  split had one subclass, and it came back out — recover it from git history if a
+  non-retrieval book node returns. `BookWorkflow` exposes `self.store`
   (a property off the request context), and adds two `@task`s —
   `count_books()` (stamp a deferred query on the output and record the match
   size — no rows) and `fetch_books()` (rows off a query, handed back rather

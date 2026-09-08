@@ -45,9 +45,11 @@ class NodeInput(WorkflowInput):
 
     For a node it is the *only* thing it is told about the ask — no node reads
     `ctx.user_message`, which is why the goal text is shipped to an argument
-    parser as an `AssistantMessage` rather than as a user turn. The one
-    exception is the generation node, which reads the user's message
-    deliberately, as the untrusted half of a trust split.
+    parser as an `AssistantMessage` rather than as a user turn. That held for
+    every node except `write_recommendations`, which read the user's message as
+    the untrusted half of a trust split; with that slice deleted (2026-09-08)
+    the rule has no exceptions again, and `find_similar_books` writes its reply
+    from this field alone.
 
     Named for what it is rather than `query`, which in this codebase already
     means a `DeferredBookQuery` on every book-shaped output.

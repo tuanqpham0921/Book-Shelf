@@ -595,19 +595,22 @@ an oversight: the section's cards are the whole answer until a picker node exist
 
 > **Closed for recommendations 2026-09-07 by `Generate_Recommendations`** — the picker's
 > first piece, as its own slice (`books/write_recommendations/`) in a new
-> `NodeTier.GENERATE` rather than as fields returning to this node. It takes the pool as a
-> `BookCandidateOutput` dependency, materializes it, streams the cards and writes the
-> reply; `ui_section_collapsible` moves with the answer, so this node's section is now
-> collapsible and the generation node's is not.
+> `NodeTier.GENERATE` rather than as fields returning to this node. It took the pool as a
+> `BookCandidateOutput` dependency, materialized it, streamed the cards and wrote the
+> reply; `ui_section_collapsible` moved with the answer.
 >
-> **What it does NOT take back is the rest of the table above**: no `keywords`, no
-> `bounds`, no `exclude`, no `num_requested`, and no re-ranking — it presents the pool in
-> the order it arrives (cosine, via `materialize_stmt`) and explains it. Splitting the
-> picker that way is deliberate: writing the reply needs no argument parse at all, so it
-> ships without one, and whatever eventually re-ranks or trims is a separate decision that
-> a separate node makes before this one. The gap is closed only for turns whose plan
-> contains a recommendation — a plain lookup still gets cards and no prose. See
-> [execution-pipeline-v1.md](execution-pipeline-v1.md).
+> **Reversed 2026-09-08 — the slice and its tier are deleted, and only the third row of
+> the table above comes back.** `generate_response.py` and `prompts/response_prompt.txt`
+> are restored into `find_similar_books/`, so the node shows `MAX_SHOWN_BOOKS` (10) of its
+> own pool and writes the note above them, and `ui_section_collapsible` is `False` here
+> again. **Rows 1 and 2 stay gone**: no `keywords`, no `bounds`, no `exclude`, no
+> `num_requested`, no re-ranking — the pool is presented in the order it arrives (cosine,
+> via `materialize_stmt`). Writing the reply needs no argument parse, which is the whole
+> reason it can live here without dragging the picker back with it.
+>
+> The gap is closed only for turns whose plan contains a similarity search — a plain
+> lookup still gets cards and no prose, and a failed chain now gets neither. See
+> [execution-pipeline-v1.md](execution-pipeline-v1.md) for what the reversal costs.
 
 **Anchors only, enforced by type.** `SimilarBooksInput.anchors` is
 `list[BookAnchorOutput] = Field(..., min_length=1)`, so only `Retrieve_by_Title` (and

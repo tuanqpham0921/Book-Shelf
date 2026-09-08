@@ -30,9 +30,9 @@ class NodeTier(str, Enum):
     # NOTE: combine is different wording from eval (might be okay)
     COMBINE = "Combine — narrow or merge what earlier goals found, without searching again"
     ANALYZE = "Analyze — interpret, compare, or recommend using retrieved data"
-    # declared last on purpose: format_catalog walks members in this order, so
-    # the reply-writing tier closes the catalog the way it closes a plan
-    GENERATE = "Generate — write the user-facing reply from what earlier goals found"
+    # No GENERATE tier: it held one member (`Generate_Recommendations`) between
+    # 2026-09-07 and 2026-09-08, and writing the reply is back inside
+    # `find_similar_books`. See docs/design/execution-pipeline-v1.md.
 
 
 @dataclass(frozen=True)

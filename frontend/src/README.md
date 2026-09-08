@@ -47,12 +47,14 @@ before the node knows how many books it matched. Sections open expanded and fold
 themselves on `task.end`, so the finished turn shows the answer rather than the
 work; `collapsible: false` stays open, and a user click pins the state.
 
-**One section per turn sets `collapsible: false`: the generation node's.** Every
+**One section per turn sets `collapsible: false`: the similarity node's.** Every
 other node's cards are working material, and the prose written from them is what
-the turn is for — so the recommendation section folds like the rest now that
-something downstream writes a reply about it. A turn whose plan has no
-generation goal (a plain lookup) folds everything, which is a real gap rather
-than a styling choice: see `backend/app/domains/books/write_recommendations/`.
+the turn is for — so those sections fold and the one carrying the reply stays
+open. It was briefly a separate `Generate_Recommendations` section (2026-09-07 to
+2026-09-08); that node was deleted and `Analyze_Similar_Books` writes its own
+note again. A turn whose plan has no similarity goal (a plain lookup) folds
+everything and gets no prose at all, which is a real gap rather than a styling
+choice: see `backend/app/domains/books/find_similar_books/`.
 
 ## Conventions
 

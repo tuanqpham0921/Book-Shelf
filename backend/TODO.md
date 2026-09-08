@@ -59,10 +59,24 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 ## In flight
 
-- **What the generation node feeds its writer.** `write_recommendations/render.py` currently
-  sends full book entries — title, author, year, rating, 400-char blurb, up to 12k chars.
-  The alternative is the old `analyze_recommend` shape: counts and ranges only (authors,
-  shelves, page span), with the books reaching the user as cards and never reaching the LLM.
-  Recoverable at `git show 8b03c8e^:backend/app/domains/books/analyze_recommend/generate_response.py`
-  and its `prompts/response_prompt.txt`. The tradeoff is per-book "why this fits" (needs
-  blurbs) against a reply that cannot invent a plot (needs their absence). Undecided.
+- ~~**What the generation node feeds its writer.**~~ **Decided 2026-09-08, and the node
+  it was about is gone.** `write_recommendations/` was deleted and writing the reply went
+  back inside `find_similar_books/`, in the old `analyze_recommend` shape: counts and
+  ranges only (authors, shelves, page span), with the books reaching the user as cards and
+  never reaching the LLM. So the tradeoff resolved toward "a reply that cannot invent a
+  plot" over per-book "why this fits" — the blurbs the alternative needed are exactly what
+  let a writer describe a book it was only shown the metadata of. The slice's renderer,
+  which sent full entries up to 12k chars, is recoverable from git history.
+
+- **Nothing narrates a failed chain now.** The `FailedGoalOutput` artifacts and
+  `_upstream_context` still compose the reason, but `write_recommendations` was the only
+  input declaring a `failures` slot, and `find_similar_books` cannot take it over — its
+  `anchors` field is required, so a similarity goal whose title lookup found nothing is
+  skipped before it could say so. "I don't have Dune" reaches the user as the generic
+  error. Open: give the similarity node a failure-narrating path of its own, or bring back
+  a stage that owns the reply. See `docs/design/execution-pipeline-v1.md`.
+
+- **A chain that continues past the similarity search writes its note too early.** The
+  node writes about its 250-book pool; a `Combine_Intersect` after it then shows a
+  narrower set of cards with no prose about them. The one plan shape where the deleted
+  generation goal was strictly better.

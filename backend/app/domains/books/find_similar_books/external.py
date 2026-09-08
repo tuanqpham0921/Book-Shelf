@@ -77,7 +77,12 @@ class SimilarBooksOutput(BookCandidateOutput):
     `references` and `search_text` are kept because "why these books" is only
     answerable against what was pointed at and what was embedded. `search_text`
     is the synthesized ideal-book description — what the embedding actually saw
-    — not anything the user typed.
+    — not anything the user typed. `references` feeds the reply the node writes;
+    `search_text` deliberately does not (see generate_response.py).
+
+    The reply itself is not a field here. It reaches the browser as it is
+    written and lands in `chat_runs` on the turn's message trace, which is where
+    `run_llm_call` puts every completion — so a field would store it twice.
     """
 
     references: list[Book] = Field(default_factory=list)

@@ -2,9 +2,10 @@
 
 **Date:** 2026-07-24 · **Status:** counts-only retrieval and CTE composition are **built**
 (2026-08-04) on `minimal_end_to_end_v1`, for the nodes registered there. The combine tier
-is half unparked (`Combine_Intersect`, 2026-08-24), and the generation tier now exists —
-`Generate_Recommendations`, registered 2026-09-07 as a planner goal; see the second
-attempt below.
+is half unparked (`Combine_Intersect`, 2026-08-24). The generation tier existed for one
+day — `Generate_Recommendations`, registered 2026-09-07 and deleted 2026-09-08; writing
+the reply is back inside `Analyze_Similar_Books`. See the second attempt and its reversal
+below.
 
 Graduated from `backend/TODO.md`. This is the shape execution is expected to take once
 [roadmap Phase 3](../roadmap.md) starts, and it defines three nodes that do not exist
@@ -411,7 +412,16 @@ cross-section framing or reports a failure that spans branches; one-per-turn mea
 compound message's unrelated answers get merged by a single writer. Most plans have
 exactly one sink, so the two agree except on compound messages.
 
-### Generation node, second attempt — **`Generate_Recommendations`, registered 2026-09-07**
+### Generation node, second attempt — **`Generate_Recommendations`, registered 2026-09-07, removed 2026-09-08**
+
+> **Status: reverted after one day.** The slice (`books/write_recommendations/`),
+> `NodeTier.GENERATE`, the `BookReaderWorkflow`/`BookWorkflow` split and the two test
+> modules are deleted; the planner prompt, its few-shot examples and 49 golden
+> `expected_nodes` entries no longer carry the goal. Writing the reply went back inside
+> `find_similar_books/` in the pre-2026-08-22 `analyze_recommend` shape — a
+> `generate_response.py` satellite and a `response_prompt.txt`, fed counts and ranges
+> rather than book entries. The section below is kept as the record of what was decided
+> and why; **what the reversal costs is at the end of it.**
 
 **A planner goal after all, reversing 2026-07-28** — but for one intent rather than for
 every turn, which is what makes the reversal not a re-run of the argument that removed it.
@@ -477,6 +487,30 @@ stored output is stamped with its `goal_description`. Three consequences:
 **Not built, deliberately:** the rest of the deleted picker (re-rank, exclusions,
 `num_requested`), and any pause — the taxonomy names this node as the HITL point, and the
 seams it leaves for one are the named-input-field skip and these artifacts.
+
+#### What the 2026-09-08 reversal costs
+
+The reply now lives on `FindSimilarBooksExecutor` (step 7, `response_to_user`), which
+fetches `MAX_SHOWN_BOOKS` (10) off its own pool, streams them as the section's cards and
+writes the note above them from two summaries — the anchor books it folded and the shape
+of the rows it showed. The catalog dropped from 7 tools to 6 and from ~3,263 to 2,864
+tokens. Three things are worse, and each is the price of the goal that is gone:
+
+| lost | why it followed the node |
+|---|---|
+| **A failed chain is not narrated.** "I don't have Dune, so I couldn't line anything up against it" is not written by anyone; the similarity goal is skipped and the turn shows the generic error | `RecommendationsInput.failures` was the only declared slot for a `FailedGoalOutput`. `SimilarBooksInput.anchors` is required (`min_length=1`), so the similarity node is skipped *before* it could narrate its own missing dependency. The artifacts and `_upstream_context` still compose the reason — nobody reads it aloud |
+| **A chain that continues past the search writes its note too early.** `Combine_Intersect` narrowing the pool means a note about 250 books above one set of cards, then a second, narrower set with no prose | the reply is written by the node that *found* the books rather than by the last goal in the chain, which is exactly the coupling attaching it by dependency avoided |
+| **"…and explain why each fits" is heard, but thinly.** The goal instruction reaches the writer as the `asked for:` line rather than as a brief for the reply | there is no goal whose whole purpose is the prose, so no instruction is written for it. The similarity goal's instruction is about the *search* |
+
+**What is deliberately not carried back with it**: the reply is written from counts and
+ranges (authors, shelves, page span) and never sees a blurb, which is the older shape and
+resolves the standing `backend/TODO.md` question the other way from
+`write_recommendations/render.py`. A writer shown 400-char blurbs can say why one book
+fits; a writer shown only metadata cannot invent a plot. The second was judged worth more.
+
+**Both alternatives remain built and recoverable** — the registered goal in this branch's
+history, the per-sink `AnswerWorkflow` on `generation_node_sink` (`b35592f`) — so the
+decision that reverses this one has two shapes to choose between rather than a blank file.
 
 ## Open questions
 

@@ -45,9 +45,10 @@ class NodeWorkflowOutput(BaseModel, ABC):
     `goal_instruction` is stamped by the task runner when the output lands in
     its results map — what the plan told this step to do, in the planner's
     words. It lives here rather than on each shape because it is provenance,
-    not payload: a generation node renders "what was asked → what came of it"
-    from its typed sources alone, without knowing the planner's types. None on
-    outputs that never travelled through the runner (triage, the planner's own).
+    not payload: a node writing prose about what earlier goals produced renders
+    "what was asked → what came of it" from its typed sources alone, without
+    knowing the planner's types. None on outputs that never travelled through
+    the runner (triage, the planner's own).
     """
 
     goal_instruction: str | None = None
@@ -61,11 +62,19 @@ class FailedGoalOutput(NodeWorkflowOutput):
     skipped in `_prepare`, or never reachable.
 
     A typed artifact, not a sentinel: it flows through `build_input` like any
-    dependency output, so a node that *declares* a slot for failures (the
-    generation node's `failures` field) hears about them, and every other
-    node's typed fields simply never match it — the skip cascade is unchanged.
-    `reason` is prose for a writer to relay, already composed with the failed
-    dependencies' instructions where the cause sits upstream.
+    dependency output, so a node that *declares* a slot for failures would hear
+    about them, and every other node's typed fields simply never match it — the
+    skip cascade is unchanged. `reason` is prose for a writer to relay, already
+    composed with the failed dependencies' instructions where the cause sits
+    upstream.
+
+    **No node declares that slot today.** `write_recommendations` did, and was
+    deleted 2026-09-08; `find_similar_books` cannot take its place because its
+    `anchors` field is required, so a similarity goal whose only dependency
+    failed is skipped before it could narrate anything. What the runner still
+    needs this for is `_upstream_context`, which reads these artifacts to
+    compose the *next* goal's reason — so the cause travels even with nobody
+    left to read it aloud.
     """
 
     reason: str = ""
@@ -95,9 +104,10 @@ class AppWorkflow(Workflow[OutputT], ABC):
     # these off the *class*, and a @property would silently title every section
     # "<property object at 0x…>" rather than raise.
     ui_section_title: str | None = None
-    # A generation node owns the reply, so its section is not folded away.
-    # Every other node's is: its cards are working material, and the prose
-    # written from them is what the user is meant to read.
+    # A node that writes the reply owns the answer, so its section is not
+    # folded away (`find_similar_books`). Every other node's is: its cards are
+    # working material, and the prose written from them is what the user is
+    # meant to read.
     ui_section_collapsible: bool = True
 
     @classmethod
