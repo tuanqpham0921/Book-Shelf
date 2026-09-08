@@ -29,6 +29,32 @@ planner_example: dict[str, Any] = {
             },
         },
         {
+            "query": "Do you have Dune, and can you recommend something like it?",
+            "request": {
+                "system_goals": [
+                    {
+                        "id": "1",
+                        "instruction": "Find the book Dune by title",
+                        "generation_instruction": "Confirm whether Dune is in the catalogue",
+                        "reasoning": "The user asked whether we have it, so this lookup answers",
+                        "confidence": 1.0,
+                        "target_node_type": "Retrieve_by_Title",
+                        "depends_on": [],
+                    },
+                    {
+                        "id": "2",
+                        "instruction": "Find books similar to Dune",
+                        "generation_instruction": None,
+                        "reasoning": "Similarity search seeded by the retrieved title",
+                        "confidence": 1.0,
+                        "target_node_type": "Analyze_Similar_Books",
+                        "depends_on": ["1"],
+                    },
+                ],
+                "reasoning": "The same two goals as a plain recommendation ask — 'do you have it' adds no goal, it asks the lookup to answer in words, which is its generation_instruction; the similarity goal writes its own reply, so nothing special is asked of it",
+            },
+        },
+        {
             "query": "What's the weather like today?",
             "request": {
                 "system_goals": [],

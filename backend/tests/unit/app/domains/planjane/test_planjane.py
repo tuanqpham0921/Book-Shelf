@@ -42,6 +42,7 @@ def _make_goal(
     confidence=0.9,
     node_type=FindTitleNodeTypeEnum.REQUEST,
     depends_on=None,
+    **fields,
 ):
     return SystemGoal(
         id=goal_id,
@@ -50,6 +51,7 @@ def _make_goal(
         confidence=confidence,
         target_node_type=node_type,
         depends_on=depends_on if depends_on is not None else [],
+        **fields,
     )
 
 
@@ -129,8 +131,36 @@ class TestInstructionBound:
     def test_a_blank_instruction_gets_the_fallback(self):
         # a goal with no brief still runs — losing the whole plan to one
         # malformed field would be worse — so the placeholder is what a node
-        # sees, and the generation node is the one that filters it
+        # sees, and the node's own argument parse is what refuses it
         assert _make_goal(instruction="  ").instruction == INSTRUCTION_FALLBACK
+
+
+class TestGenerationInstruction:
+    """The second brief: what a goal is asked to *say*, as opposed to do.
+
+    Bounded like `instruction` because it is a direction and not a label, but
+    optional in the way `instruction` is not — the planner leaves it out on
+    almost every goal, so "absent" has to stay absent rather than become a
+    fallback string a node would later read as an ask.
+    """
+
+    def test_absent_by_default(self):
+        assert _make_goal().generation_instruction is None
+
+    def test_a_brief_survives_intact(self):
+        brief = "Confirm whether Dune is in the catalogue"
+        goal = _make_goal(generation_instruction=brief)
+        assert goal.generation_instruction == brief
+
+    def test_blank_stays_none_rather_than_becoming_a_fallback(self):
+        # the difference from `instruction`: an empty ask is no ask, and a
+        # placeholder here would read as a request for prose about nothing
+        assert _make_goal(generation_instruction="  ").generation_instruction is None
+
+    def test_bounded_like_an_instruction_not_like_a_label(self):
+        goal = _make_goal(generation_instruction="x" * (MAX_INSTRUCTION_LENGTH + 50))
+        assert MAX_STRING_LENGTH < len(goal.generation_instruction) <= MAX_INSTRUCTION_LENGTH
+        assert goal.generation_instruction.endswith("...")
 
 
 class TestProcessParseResult:

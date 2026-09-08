@@ -316,7 +316,11 @@ assumed, not restated, here.
 4. **Nodes hear natural language and typed artifacts, nothing else.** The
    planner's brief for this goal is `node_input.instruction` — the *only* thing
    the node is told about the ask, since no node reads `ctx.user_message`; upstream output arrives only through declared
-   input fields, filled by type. The input contract does *selection*;
+   input fields, filled by type. (A goal also carries
+   `generation_instruction`, the brief for what it should *say* back rather
+   than do. As of 2026-09-08 it reaches no node — no input field claims it —
+   so don't write an executor that expects it; `app/domains/node_input.py`
+   records what carrying it would take.) The input contract does *selection*;
    interpretation is the executor's own job (`ParsedDependents`). Duck-type
    (`getattr`) only shapes that are still reserved names — the moment a shape
    has a class, read the typed field.

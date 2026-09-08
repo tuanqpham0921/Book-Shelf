@@ -27,6 +27,7 @@ from app.common.field_types import (
     MAX_STRING_LENGTH,
     ConfidenceFloat,
     InstructionStr,
+    OptionalInstructionStr,
     ReasoningStr,
 )
 from app.registry import NodeTypeEnum
@@ -50,6 +51,13 @@ class SystemGoal(BaseModel):
             every literal the node needs (titles, author names, numbers,
             bounds) as the user wrote them, carry no work belonging to another
             goal, and drop the parts of the message this node is not for.
+        generation_instruction: What this goal is to *say* back to the user,
+            or null — which is what almost every goal carries. Set it when the
+            message asks a step to report in words rather than in book cards
+            ("do you have Dune?" → "Confirm whether Dune is in the catalogue"),
+            or to steer what an analyze goal's reply covers. It is the ask for
+            prose, never the prose: null does not silence a node that writes a
+            reply anyway.
         confidence: How confident the system is that it can fulfill this goal.
         reasoning: A short justification for choosing this goal (up to 100
             characters).
@@ -83,6 +91,17 @@ class SystemGoal(BaseModel):
         max_length=MAX_INSTRUCTION_LENGTH,
         json_schema_extra={"example": "Find the book Dune by Frank Herbert by title"},
     )
+    # The second brief: what this goal says back, when the message asked for
+    # words and not only cards. Optional because it is the exception — most
+    # goals only do work — and bounded like `instruction` rather than like
+    # `reasoning` because it is a direction to a writer, so a silent trim
+    # changes what gets written rather than costing a label its tail.
+    generation_instruction: OptionalInstructionStr = Field(
+        default=None,
+        max_length=MAX_INSTRUCTION_LENGTH,
+        json_schema_extra={"example": "Confirm whether Dune is in the catalogue"},
+    )
+
     reasoning: ReasoningStr = Field(
         ...,
         max_length=MAX_STRING_LENGTH,

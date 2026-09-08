@@ -53,6 +53,14 @@ class NodeInput(WorkflowInput):
 
     Named for what it is rather than `query`, which in this codebase already
     means a `DeferredBookQuery` on every book-shaped output.
+
+    A goal can also carry a second brief — `SystemGoal.generation_instruction`,
+    what this step is to *say* back — and it deliberately stops at the planner
+    for now (2026-09-08): no node reads it, so no field claims it here. Adding
+    one is not a one-liner, because `build_input` fills every field but
+    `instruction` by type, and a `str | None` slot would be handed the first
+    string artifact that happens to be upstream. It needs the same by-name
+    branch `instruction` gets, from a `build_input` that is passed the goal.
     """
 
     instruction: str

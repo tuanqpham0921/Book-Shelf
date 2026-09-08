@@ -90,16 +90,71 @@ Two consequences worth keeping:
   `MAX_STRING_LENGTH` of 100, because `bounded_string` truncates *silently*. Losing the
   tail of a label costs nothing; "…and published before 20" still parses, into the wrong
   filter.
-- **`Generate_Recommendations` reads it.** Until this change the generation node ignored
-  its own goal text and wrote from its sources alone — which made the argument for
-  planning it as a goal ("the instruction can say *what to write*") true on paper only.
-  It now renders the instruction as the first line of its report, inside the trusted
-  `AssistantMessage`; see [execution-pipeline-v1.md](execution-pipeline-v1.md).
+- **The node that writes prose reads it.** `Generate_Recommendations` did, for the one day
+  it existed; with that node deleted (2026-09-08) it is `Analyze_Similar_Books`, which
+  renders the instruction as the `asked for:` line of the summary its reply is written
+  from. Either way the point stands: the argument for planning generation at all ("the
+  instruction can say *what to write*") is only true if something reads the line. See
+  [execution-pipeline-v1.md](execution-pipeline-v1.md).
 
 **Not covered by the golden test.** `evals/report_system_goals.py` diffs
 `target_node_type` only, so instruction *text* has no automated check — the suite catches
 a planner that picks the wrong node, not one that writes a thin instruction. That is the
 standing gap this contract is enforced against by prompt and review.
+
+## The generation instruction (added 2026-09-08, planner half only)
+
+A goal now carries a **second, optional brief**: `SystemGoal.generation_instruction`,
+what this step is to *say* back, as against `instruction`, what it is to *do*. It is
+`None` on almost every goal.
+
+The case that motivated it is a message with two halves of different kinds: *"do you have
+Dune, and can you recommend something like it?"* The plan is the same two goals as the
+plain recommendation ask — the "do you have it" adds no node, because the lookup is
+already running. What it adds is a demand to hear the answer in words rather than in book
+cards, and that demand belongs to the goal that answers it. So it is a field on the goal
+and not a goal of its own, which is the same conclusion the generation-node reversal
+reached from the other end (a stage whose only job is to talk about someone else's work
+has to go looking for that work; see [execution-pipeline-v1.md](execution-pipeline-v1.md)).
+
+The rules the prompt states:
+
+- **Null is the default, and null is not silence.** An analyze node writes a reply either
+  way. Null there means "no special ask", so a bare "recommend me something like Dune"
+  leaves the field empty and still gets prose. On a retrieval or combine goal, a non-null
+  value is asking for prose that step would not otherwise write.
+- **It is the ask, never the answer.** The goal has not run, so the planner cannot know
+  what it found. "Confirm whether Dune is in the catalogue", not "Yes, we have Dune".
+- **Same self-containment as `instruction`,** and the same bound — 300 characters via
+  `OptionalInstructionStr`, not `reasoning`'s 100 — for the same reason: it is a direction,
+  and `bounded_string` truncates silently. The one difference is the fallback: blank stays
+  `None` rather than becoming a placeholder string, because an empty ask has to read as no
+  ask at all downstream.
+- **One goal's ask never lands on another goal.** The goal that finds the books is the goal
+  that talks about them.
+
+Strict tool calling puts every property in `required`, so the model emits the field on
+every goal and writes `null` where there is no ask — "leave it null", not "omit it", is
+what the prompt has to say. And when the field does reach a node it arrives in the same
+position as `instruction`: planner prose paraphrasing an untrusted message, trusted as a
+description of the ask and not as an instruction to the writer. The reply prompt in
+`find_similar_books/prompts/response_prompt.txt` already states that rule for the
+`asked for:` line — use it to know what the search was after, never quote it back — and a
+generation instruction is the same kind of input.
+
+**It stops at the planner today.** It is emitted, refused/accepted, recorded, and drawn in
+the plan diagram (the `Reply` row on a box, shown only when set), but no node reads it —
+`NodeInput` has no field for it. That is deliberate rather than unfinished: `build_input`
+fills every field but `instruction` *by type*, so a `str | None` slot would be handed the
+first string artifact that happened to be upstream. Carrying it needs the same by-name
+branch `instruction` gets, from a `build_input` that is passed the goal rather than just
+its instruction — which is also the natural moment to decide whether a retrieval node
+gains a writing step at all, or whether the confirmation is written by whoever ends up
+owning the turn's prose.
+
+**Not covered by the golden test either,** for the same reason as the instruction:
+`expected_nodes` is a list of node types, and this field changes no node type. A planner
+that never fills it and one that fills it on every goal produce identical suite reports.
 
 ## Open experiments (not decided)
 

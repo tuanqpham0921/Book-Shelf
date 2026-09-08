@@ -26,5 +26,9 @@ InstructionStr = Annotated[str, bounded_string(
     max_length=MAX_INSTRUCTION_LENGTH,
     fallback=INSTRUCTION_FALLBACK)]
 
-OptionalStr = Annotated[str | None, bounded_string(
-    max_length=MAX_STRING_LENGTH)]
+# An instruction the emitter may leave out entirely (`SystemGoal.
+# generation_instruction`). Bounded like `InstructionStr` and for the same
+# reason — it is a direction, not a label — but with `bounded_string`'s default
+# `fallback=None`, so an absent brief stays absent instead of becoming a string.
+OptionalInstructionStr = Annotated[str | None, bounded_string(
+    max_length=MAX_INSTRUCTION_LENGTH)]

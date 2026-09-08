@@ -76,6 +76,15 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
   error. Open: give the similarity node a failure-narrating path of its own, or bring back
   a stage that owns the reply. See `docs/design/execution-pipeline-v1.md`.
 
+- **The generation instruction is planned but not delivered.** `SystemGoal.
+  generation_instruction` landed 2026-09-08 — the planner emits it, the diagram shows it,
+  nothing reads it. The node half is the open part, and it is two decisions, not one:
+  where `build_input` gets the goal (it is passed `goal.instruction` today, and fills
+  every other field by *type*, so a `str | None` slot would swallow any upstream string),
+  and what a retrieval node does with an ask to speak — a writing step of its own, or a
+  line handed to whoever ends up owning the turn's prose. The second question is the same
+  one as the two items above; answering it once would answer all three.
+
 - **A chain that continues past the similarity search writes its note too early.** The
   node writes about its 250-book pool; a `Combine_Intersect` after it then shows a
   narrower set of cards with no prose about them. The one plan shape where the deleted

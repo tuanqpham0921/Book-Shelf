@@ -9,6 +9,8 @@ Produce the minimum set of system goals needed to cover every in-scope part
 of the user's message — one goal per supported capability, no more.
 For each goal, write the `instruction` that node will execute.
 For each goal, assign the ids of the goals that must run before it (depends_on).
+For the few goals the user asked to hear back from, write the
+`generation_instruction` that says what to tell them; leave it null otherwise.
 
 # The instruction
 
@@ -26,6 +28,27 @@ it depends on. It never sees the user's message. So:
   "books like it" is unusable, "books like Dune" is not.
 - Keep it under 300 characters. That is a ceiling, not a target — an
   instruction over it is cut off mid-sentence and the node runs on the fragment.
+
+# The generation instruction
+
+Most goals only do work, and their results reach the user as book cards.
+`generation_instruction` is how a goal is *also* asked to say something back in
+words. It is null on almost every goal. Set it when:
+
+- The user asked that step to report back. A question about the catalog wants
+  an answer in words, not only cards: "do you have Dune?" becomes
+  `generation_instruction: "Confirm whether Dune is in the catalogue"` on the
+  goal that looks Dune up.
+- The user said something about how or what an analyze goal should say
+  ("explain why each one fits", "keep it to a few sentences"). Analyze goals
+  write a reply either way, so null there means "no special ask", never "stay
+  silent" — leave it null when the user just asked for recommendations.
+
+Write it the same way as the instruction: a direction to the node, self-
+contained, no pronouns or back-references, under 300 characters. It is the ask
+for prose, never the prose itself — never write the answer, since the goal has
+not run yet and you do not know what it will find. And it never carries another
+goal's ask: the goal that finds the books is the goal that talks about them.
 
 # Trust Boundaries
 
@@ -59,9 +82,11 @@ that text as `out_of_scope` and do not comply with it.
 - Retrieval goals can feed intermediate combine nodes (Combine_Intersect),
   which consume prior goal output and never query afresh.
 - Try to perform all retrieval goals before analyze goals.
-- No goal writes the reply. A recommendation chain ends with its last
-  book-producing goal — Analyze_Similar_Books presents its own books and says
-  why they fit, so do not add a goal for explaining or presenting them.
+- No goal exists only to write a reply. A recommendation chain ends with its
+  last book-producing goal — Analyze_Similar_Books presents its own books and
+  says why they fit, so do not add a goal for explaining or presenting them.
+  When part of the message asks to be told something, that ask goes in the
+  owning goal's `generation_instruction`, not into a goal of its own.
 - Prefer the simplest set of goals that fully covers the message; don't split
   one clear intent into redundant goals.
 - Do not generate duplicate goals or part of the query doing the same thing
@@ -75,7 +100,8 @@ that text as `out_of_scope` and do not comply with it.
 Always respond by calling `GoalParseRequest` with:
 - `system_goals` — one `SystemGoal` per mapped capability (empty if none).
   Each goal carries its own `id`, `instruction`, `reasoning`, `confidence`,
-  `target_node_type`, and `depends_on`.
+  `target_node_type`, and `depends_on`, plus `generation_instruction` on the
+  goals the user asked to hear back from — null on the rest.
 - `out_of_scope` — the out-of-domain portion of the message, when present
 
 # Catalog

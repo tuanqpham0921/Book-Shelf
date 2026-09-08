@@ -15,10 +15,17 @@ from app.domains.planjane.dial.format import mermaid_id
 from app.domains.planjane import SystemGoal
 
 
-def _make_goal(id_str, target_node_type, depends_on=None, instruction="A goal instruction"):
+def _make_goal(
+    id_str,
+    target_node_type,
+    depends_on=None,
+    instruction="A goal instruction",
+    generation_instruction=None,
+):
     return SystemGoal(
         id=id_str,
         instruction=instruction,
+        generation_instruction=generation_instruction,
         reasoning="A sufficiently long reasoning",
         confidence=1.0,
         target_node_type=target_node_type,
@@ -54,6 +61,27 @@ class TestGoalsDiagram:
 
         assert "Find Dune" in diagram
         assert "A sufficiently long reasoning" in diagram
+
+    def test_a_goal_asked_to_reply_shows_what_it_was_asked_to_say(self):
+        diagram = get_goals_mermaid_diagram(
+            [
+                _make_goal(
+                    "1",
+                    "Retrieve_by_Title",
+                    generation_instruction="Confirm whether Dune is in the catalogue",
+                )
+            ]
+        )
+
+        assert "Reply" in diagram
+        assert "Confirm whether Dune is in the catalogue" in diagram
+
+    def test_a_goal_with_no_reply_ask_gets_no_reply_row(self):
+        # null on almost every goal — a row reading "Reply:" with nothing after
+        # it would suggest the plan says something it does not
+        diagram = get_goals_mermaid_diagram([_make_goal("1", "Retrieve_by_Title")])
+
+        assert "Reply" not in diagram
 
     def test_depends_on_is_inverted_into_the_arrow_direction(self):
         # goal 3 depends on 1 and 2, so the arrows must point *into* 3
