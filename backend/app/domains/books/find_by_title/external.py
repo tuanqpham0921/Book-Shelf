@@ -5,14 +5,23 @@ from .schemas import FindByTitleArgs
 
 
 class FindByTitleInput(NodeInput):
-    """The goal text and nothing else.
+    """The goal's briefs and nothing else.
 
     Retrieval is single-dimension and reads the title out of its own goal, so
     this node has no field for upstream output — it *structurally* cannot
-    consume one, which is the contract the empty subclass states. An artifact
-    routed here would be logged as unclaimed by `build_input` rather than
-    silently shaping the query.
+    consume one, which is the contract the subclass states. An artifact routed
+    here would be logged as unclaimed by `build_input` rather than silently
+    shaping the query.
+
+    `generation_instruction` is the one field it does add, and declaring it is
+    the claim that this node can be asked to answer in words — "do you have
+    Dune?" is a lookup whose result is a sentence, not a card. Null on almost
+    every turn, and the node stays silent when it is: a title lookup is usually
+    working material for the goal after it. Filled by name, like `instruction`,
+    so it can never be matched from an upstream artifact.
     """
+
+    generation_instruction: str | None = None
 
 
 class FindByTitleOutput(BookAnchorOutput):

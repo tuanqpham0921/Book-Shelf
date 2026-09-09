@@ -1,4 +1,4 @@
-"""The reply-writing call's pure half: this node's own work in, a request out.
+"""The reply-writing call's pure half: this node's own work in, its brief out.
 
 The books it chose are already on screen as cards, so the reply is not a list —
 it is the one thing the cards cannot say: why this set, given what was asked
@@ -16,20 +16,19 @@ things — the anchor books the fold consumed, and the rows the browser was sent
 Neither is `SimilarBooksOutput.to_summary()`, which describes the *pool* (a
 count and a cosine spread) for the record rather than the set on screen.
 
-Unlike the analysis call next door this is a plain streaming chat request, not a
-tool call: the output *is* the reply, so `OpenAIChatRequest` carries the SSE
-stream and the text reaches the client as it is written. The step that runs it is
+Unlike the analysis call next door this is not a tool call and this module
+builds no request: the output *is* the reply, so it goes out through
+`AppWorkflow.run_llm_reply`, which owns the streaming request and the half of
+the prompt every reply in the app shares. What stays here is this node's half —
+the summarizers above, and the guidance below. The step that runs it is
 `FindSimilarBooksExecutor.response_to_user`, next door.
 """
 
 from typing import Any, Iterable
 
 from app.common.prompt_loader import load_prompt
-from app.common.sse_stream import SSEStream
-from app.common.utils import count_values
+from app.common.utils import count_values, render_counts
 from app.domains.books.schemas import Book
-from clients import OpenAIChatRequest
-from clients.messages import AssistantMessage
 
 RESPONSE_PROMPT_PATH = "domains/books/find_similar_books/prompts/response_prompt.txt"
 
@@ -82,7 +81,7 @@ def summarize_shown(books: list[Book]) -> dict[str, Any]:
     already show.
 
     Read off the rows that were streamed rather than off the output, which
-    carries the pool's size and cosine spread instead: the note sits above the
+    carries the pool's size and cosine spread instead: the note goes with the
     cards, so it has to describe the cards.
     """
     pages = [book.num_pages for book in books if book.num_pages]
@@ -94,14 +93,6 @@ def summarize_shown(books: list[Book]) -> dict[str, Any]:
         "min_pages": min(pages) if pages else None,
         "max_pages": max(pages) if pages else None,
     }
-
-
-def _render_counts(counts: dict[str, int]) -> str:
-    """`A (2), B` — the count only where it exceeds one, since "(1)" after
-    every name reads as data to report rather than context."""
-    return ", ".join(
-        name if n == 1 else f"{name} ({n})" for name, n in counts.items()
-    )
 
 
 def render_summaries(
@@ -122,11 +113,11 @@ def render_summaries(
 
     authors = input_summary.get("reference_authors") or {}
     if authors:
-        lines.append(f"- by: {_render_counts(authors)}")
+        lines.append(f"- by: {render_counts(authors)}")
 
     genres = input_summary.get("reference_genres") or {}
     if genres:
-        lines.append(f"- shelved as: {_render_counts(genres)}")
+        lines.append(f"- shelved as: {render_counts(genres)}")
 
     asked_for = input_summary.get("asked_for")
     if asked_for:
@@ -151,11 +142,11 @@ def render_summaries(
 
     out_authors = output_summary.get("authors") or {}
     if out_authors:
-        lines.append(f"- by: {_render_counts(out_authors)}")
+        lines.append(f"- by: {render_counts(out_authors)}")
 
     out_genres = output_summary.get("genres") or {}
     if out_genres:
-        lines.append(f"- shelved as: {_render_counts(out_genres)}")
+        lines.append(f"- shelved as: {render_counts(out_genres)}")
 
     min_pages, max_pages = (
         output_summary.get("min_pages"),
@@ -167,32 +158,14 @@ def render_summaries(
     return "\n".join(lines)
 
 
-def build_response_request(
-    summary_text: str, sse_stream: SSEStream
-) -> OpenAIChatRequest:
-    """Ask the LLM for the user-facing reply, streamed as it is written.
+def response_guidance() -> str:
+    """This node's half of the reply prompt — what the note is for, what the
+    two summaries mean, what to do when the pool came back empty, and a worked
+    example.
 
-    `sse_stream` is required by `OpenAIChatRequest` and is the whole delivery
-    mechanism: `OpenAIClient._chat_stream` pushes each `content.delta` to it, so
-    the reply reaches the browser as it is written and the assembled text still
-    comes back for the record.
-
-    One `AssistantMessage` and no user turn: the summaries are this node's own
-    work, not something the user typed — the same split `build_analysis_request`
-    makes next door.
-
-    A cheap model on purpose: this call writes prose from facts it was handed,
-    which is not the job accuracy was bought for on the planner.
+    The other half — the role, the trust boundary, the voice, and what
+    `asked for` and `asked to say` mean — is `domains/prompts/reply.txt` and is
+    shared with every other node that writes prose. `run_llm_reply` joins them,
+    so nothing about tone or trust is restated here.
     """
-    if not summary_text.strip():
-        raise ValueError("No recommendation summary to write a response from")
-
-    return OpenAIChatRequest(
-        prompt=load_prompt(prompt_path=RESPONSE_PROMPT_PATH),
-        model="gpt-5-mini",
-        reasoning_effort="minimal",
-        messages=[AssistantMessage(content=summary_text)],
-        # what makes this call stream to the client rather than return a string
-        sse_stream=sse_stream,
-        max_complete_chat_tokens=MAX_RESPONSE_TOKENS,
-    )
+    return load_prompt(prompt_path=RESPONSE_PROMPT_PATH)

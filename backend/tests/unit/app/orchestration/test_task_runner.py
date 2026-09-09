@@ -107,10 +107,22 @@ def _spec(executor: type | None, **overrides) -> NodeSpec:
     )
 
 
-def _goal(goal_id: str = "1", depends_on: list[str] | None = None) -> SystemGoal:
+class _SpeakingInput(_Input):
+    """A node that declares it can be asked to answer in words — the claim a
+    retrieval node makes by declaring the field at all."""
+
+    generation_instruction: str | None = None
+
+
+def _goal(
+    goal_id: str = "1",
+    depends_on: list[str] | None = None,
+    generation_instruction: str | None = None,
+) -> SystemGoal:
     return SystemGoal(
         id=goal_id,
         instruction="Find a book about machine learning topics",
+        generation_instruction=generation_instruction,
         reasoning="A sufficiently long reasoning for the test",
         confidence=0.9,
         target_node_type=NODE_TYPE,
@@ -300,6 +312,34 @@ class TestTaskSectionBracketing:
         await drive(runner, [_goal()], _spec(_UntitledExecutor))
 
         assert of_type(events, "task.start")[0]["title"] == "Retrieve by Title"
+
+    async def test_a_goal_asked_to_speak_opens_its_section(self, runner, events):
+        """The reply is the answer, so it cannot arrive folded away."""
+        await drive(
+            runner,
+            [_goal(generation_instruction="Confirm we have it")],
+            _spec(_OkExecutor, input=_SpeakingInput),
+        )
+
+        assert of_type(events, "task.start")[0]["collapsible"] is False
+
+    async def test_a_node_that_cannot_speak_stays_folded(self, runner, events):
+        """Read off the input, not the goal: an input with no field for the
+        brief cannot turn it into prose, so expanding its section would leave
+        an open panel with nothing in it but cards."""
+        await drive(
+            runner,
+            [_goal(generation_instruction="Confirm we have it")],
+            _spec(_OkExecutor),
+        )
+
+        assert of_type(events, "task.start")[0]["collapsible"] is True
+
+    async def test_a_speaking_node_stays_folded_when_not_asked(self, runner, events):
+        """The same node on a turn it says nothing — most title lookups."""
+        await drive(runner, [_goal()], _spec(_OkExecutor, input=_SpeakingInput))
+
+        assert of_type(events, "task.start")[0]["collapsible"] is True
 
     async def test_a_failing_node_still_closes_its_section(self, runner, events):
         await drive(runner, [_goal()], _spec(_FailingExecutor))

@@ -20,11 +20,18 @@ hands on the *query* rather than the rows, which is what lets
 `Combine_Intersect` bound the pool in SQL with cosine order intact.
 
 **Writing the reply came back here on 2026-09-08**, when the separate
-`Generate_Recommendations` slice (`books/write_recommendations/`) was removed: a
-similarity search is the only chain in the app that produces prose, so it owns
-its own note again the way `analyze_recommend/` did before 2026-08-22. The cost
-of that is recorded in docs/design/execution-pipeline-v1.md — a plan that
-narrows this pool afterwards writes its note about the pool, not the narrowing.
+`Generate_Recommendations` slice (`books/write_recommendations/`) was removed:
+the node that finds the books owns the note about them, the way
+`analyze_recommend/` did before 2026-08-22. The cost of that is recorded in
+docs/design/execution-pipeline-v1.md — a plan that narrows this pool afterwards
+writes its note about the pool, not the narrowing.
+
+The call itself is shared since 2026-09-09 (`AppWorkflow.run_llm_reply`), so
+this node is no longer the only one that can speak — `find_by_title` answers
+"do you have Dune?" through the same seam. What stays here is this node's own
+half: the two summarizers in `generate_response.py` and the guidance beside
+them. Unlike a retrieval node it does not gate on `generation_instruction` — it
+writes either way, and a brief only steers what the note covers.
 """
 
 from app.domains.books.base_workflow import BookWorkflow
@@ -37,8 +44,9 @@ from .analyze_references import (
     render_documents,
 )
 from .generate_response import (
-    build_response_request,
+    MAX_RESPONSE_TOKENS,
     render_summaries,
+    response_guidance,
     summarize_references,
     summarize_shown,
 )
@@ -135,7 +143,12 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
         # 7. show, then tell — and tell even when there is nothing to show. A
         # search that came back empty is a sentence the user is owed ("nothing
         # in the catalog sits near those books"), not a silence.
-        await self.response_to_user(shown, node_input.instruction, found=total)
+        await self.response_to_user(
+            shown,
+            node_input.instruction,
+            found=total,
+            asked_to_say=node_input.generation_instruction,
+        )
 
         # 8. last: ok is read off the output
         self.finalize_result()
@@ -279,14 +292,23 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
 
     @task
     async def response_to_user(
-        self, shown: list[Book], asked_for: str = "", found: int = 0
+        self,
+        shown: list[Book],
+        asked_for: str = "",
+        found: int = 0,
+        asked_to_say: str | None = None,
     ) -> None:
-        """Write the note above the book cards, streamed as it is generated.
+        """Write the note that goes with the book cards, streamed as generated.
 
         The model gets two summaries and no book descriptions (see
         generate_response.py). `self.result.search_text` is assembled anchor
         prose and is deliberately not sent; the account of the ask is the
         goal's own instruction, which is the only one this node has.
+
+        `asked_to_say` is the goal's second brief, when the plan had one for
+        this step. It steers what the note covers and never gates it — this node
+        writes either way, so null here means "no special ask" rather than
+        "stay quiet". `run_llm_reply` places it and states the rule for it.
 
         `found` is the search's account of itself — how big the pool was before
         `MAX_SHOWN_BOOKS` cut it — and is what lets the reply be honest when it
@@ -304,8 +326,12 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
         summary_text = render_summaries(input_summary, summarize_shown(shown))
 
         await self.sse_stream.send_ui_loading("writing up your recommendations...")
-        req = build_response_request(summary_text, self.sse_stream)
-        message = await self.run_llm_call(req)
+        message = await self.run_llm_reply(
+            facts=summary_text,
+            guidance=response_guidance(),
+            asked_to_say=asked_to_say,
+            max_tokens=MAX_RESPONSE_TOKENS,
+        )
         self.add_details(
             f"Wrote a {len((message.content or '').split())} word reply from "
             f"{len(self.result.references)} references and {len(shown)} books shown"

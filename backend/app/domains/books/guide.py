@@ -31,6 +31,9 @@ BOOK_SPECS: tuple[NodeSpec, ...] = (
     intersect_books.SPEC,
     # `write_recommendations` (Generate_Recommendations) was registered
     # 2026-09-07 and deleted 2026-09-08, taking `NodeTier.GENERATE` with it:
-    # writing the reply went back inside `find_similar_books`, which is the
-    # only chain that produces prose. See docs/design/execution-pipeline-v1.md.
+    # writing the reply went back inside `find_similar_books`, and on 2026-09-09
+    # became something any node can do when the plan asks it to
+    # (`AppWorkflow.run_llm_reply`) rather than a tier of its own. Nothing is
+    # registered here for it — a writer is a capability, not a capability's
+    # node. See docs/design/execution-pipeline-v1.md.
 )

@@ -68,22 +68,45 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
   let a writer describe a book it was only shown the metadata of. The slice's renderer,
   which sent full entries up to 12k chars, is recoverable from git history.
 
-- **Nothing narrates a failed chain now.** The `FailedGoalOutput` artifacts and
-  `_upstream_context` still compose the reason, but `write_recommendations` was the only
-  input declaring a `failures` slot, and `find_similar_books` cannot take it over — its
-  `anchors` field is required, so a similarity goal whose title lookup found nothing is
-  skipped before it could say so. "I don't have Dune" reaches the user as the generic
-  error. Open: give the similarity node a failure-narrating path of its own, or bring back
-  a stage that owns the reply. See `docs/design/execution-pipeline-v1.md`.
+- **Nothing narrates a *failed* chain.** Narrowed 2026-09-09 but not closed. The
+  `FailedGoalOutput` artifacts and `_upstream_context` still compose the reason, and no
+  input declares a slot for one — `write_recommendations` was the only one that did.
+  `Retrieve_by_Title` can now say "I don't have Dune" when the plan asks it to, which
+  covers the common shape; what it does not cover is the goal *after* it. A title lookup
+  that matched nothing **succeeds** (zero matches is a real answer), so `anchors` is
+  filled, the similarity goal dispatches and dies in `check_anchors`, and "so I couldn't
+  line anything up against it" is still said by nobody. A goal that fails in `_prepare`
+  opens no UI section at all, so it stays silent whatever brief it carried. Open: a
+  failure-narrating path on the similarity node, or a stage that owns the reply. See
+  `docs/design/execution-pipeline-v1.md`.
 
-- **The generation instruction is planned but not delivered.** `SystemGoal.
-  generation_instruction` landed 2026-09-08 — the planner emits it, the diagram shows it,
-  nothing reads it. The node half is the open part, and it is two decisions, not one:
-  where `build_input` gets the goal (it is passed `goal.instruction` today, and fills
-  every other field by *type*, so a `str | None` slot would swallow any upstream string),
-  and what a retrieval node does with an ask to speak — a writing step of its own, or a
-  line handed to whoever ends up owning the turn's prose. The second question is the same
-  one as the two items above; answering it once would answer all three.
+- ~~**The generation instruction is planned but not delivered.**~~ **Delivered
+  2026-09-09.** `build_input` fills both of the goal's briefs by name and leaves
+  everything else by type; the field is declared per-slice (`FindByTitleInput`,
+  `SimilarBooksInput`) rather than on `NodeInput`, so declaring it *is* a node's claim
+  that it can be asked to speak. `AppWorkflow.run_llm_reply` is what turns one into
+  prose, over `domains/prompts/reply.txt`. The two open questions in this item both
+  resolved toward the node: the reply is a writing step of the node's own, and the runner
+  reads the brief off the assembled input to decide whether the section folds.
+
+- **The other three retrieval nodes cannot speak yet.** `find_by_author`,
+  `find_by_lexical_traits` and `find_by_numeric_traits` have no `generation_instruction`
+  field, so "anything by Sanderson?" still answers in cards alone. Deliberately left:
+  their facts blocks will look near-identical to `render_title_facts`, and whether that
+  becomes a third method on `BookWorkflow` is a call worth making after seeing it twice
+  rather than by writing it four times.
+
+- **Nothing records what the user was actually shown.** Every node that writes prose
+  renders its own facts block beside the SSE calls, because `send_chars`,
+  `send_book_card` and `send_divider` write to the queue and retain nothing, and
+  `self.messages` is a *model* trace (completions, tool results, one `AssistantMessage`
+  per goal brief), not a transcript. That reconstruction is where the wording hazards
+  come from — `render_title_facts` has to say `3 of them on screen` by hand, and a writer
+  handed only the rows would describe forty editions as three. A `ui_messages`
+  accumulator — the prose and the preview rows exactly as sent, separate from pipeline
+  context — would let a reply be written from the screen instead. `run_llm_reply` takes
+  `facts` as one opaque string partly so that when this exists the base can render it
+  without every slice changing shape.
 
 - **A chain that continues past the similarity search writes its note too early.** The
   node writes about its 250-book pool; a `Combine_Intersect` after it then shows a

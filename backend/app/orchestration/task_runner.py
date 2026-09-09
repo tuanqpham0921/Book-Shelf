@@ -147,7 +147,13 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
 
         try:
             node_input = build_input(
-                spec.input, goal.instruction, self._dependency_outputs(goal, results)
+                spec.input,
+                goal.instruction,
+                self._dependency_outputs(goal, results),
+                # the goal's second brief, delivered only to inputs that declare
+                # a field for it — which is how a node claims it can be asked to
+                # answer in words. Most never see it.
+                generation_instruction=goal.generation_instruction,
             )
         except ValidationError as e:
             missing = ", ".join(
@@ -257,7 +263,14 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
             task_id=goal.id,
             title=executor_cls.ui_section_title
             or goal.target_node_type.value.replace("_", " "),
-            collapsible=executor_cls.ui_section_collapsible,
+            # A section that is about to be answered in prose is not folded
+            # away, or the answer arrives hidden. Read off the *input* rather
+            # than the goal: only an input that declares the field can turn the
+            # brief into a reply, so a planner that attaches one to a node with
+            # no reply path does not open an empty section. Same duck-typing as
+            # the `num_books` count below.
+            collapsible=executor_cls.ui_section_collapsible
+            and not getattr(node_input, "generation_instruction", None),
         )
         # An `AssistantMessage` because the planner wrote it — the same shape
         # every slice already ships its instruction to its argument parser as

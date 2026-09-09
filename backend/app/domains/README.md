@@ -93,16 +93,27 @@ that is the point.
   It pins the **`run(node_input)`** signature *every* unit of work in the
   app answers to, and resolves the output type from `AppWorkflow[SomeOutput]`,
   so a slice's executor needs no `__init__`. Nothing about one domain goes in
-  here — that is what the domain base above is for. It also holds no
-  LLM-request building: a slice writes its own `build_arg_parser_request(query)`
-  and passes the result to `AppWorkflow.run_llm_args_parse`, which is the one
-  shared seam. Only the prompt path (`ARG_PARSER_PROMPT_PATH`) is shared.
+  here — that is what the domain base above is for. It builds no **tool**
+  request: a slice writes its own `build_arg_parser_request(query)` and passes
+  the result to `AppWorkflow.run_llm_args_parse`, which is the one shared seam.
+  Only the prompt path (`ARG_PARSER_PROMPT_PATH`) is shared.
   `run_llm_args_parse` returns the first tool call's parsed arguments and
   records the tool result immediately — too early to wrap in a retry, and the
-  reason `run_llm_tool_calls` exists beside it: it hands back the calls
-  themselves, so a node that cares can close the [tool_call, tool result] pair
+  reason `run_llm_tool_calls` sits beside it: it hands back the calls
+  themselves, so a node that cares could close the [tool_call, tool result] pair
   *after* processing (and on the failure path, which is what keeps the message
-  list valid for the rest of the turn).
+  list valid for the rest of the turn). No node does that yet, so
+  `run_llm_args_parse` is still its only caller.
+
+  **The reply is the exception, and it does build its request here**
+  (`run_llm_reply`, 2026-09-09). It is the one call whose output *is* the answer
+  rather than an input to more work, so it streams to the browser, and every
+  node writing one is bound by the same voice and the same trust rules —
+  `domains/prompts/reply.txt` holds that shared half, with one `{GUIDANCE}` slot
+  at the end. The slice still owns the content: it renders its own `facts` and
+  supplies its own `guidance`, and picks its own `model`/`max_tokens`. Two nodes
+  use it — `find_similar_books` always, `find_by_title` only when the goal
+  carried a `generation_instruction`.
 
 ## One call shape: `run(node_input)`
 
@@ -304,9 +315,14 @@ assumed, not restated, here.
      I/O, testable without a workflow;
    - the **`run_llm_*` helpers** for LLM calls — `AppWorkflow`'s thin `@task`
      wrappers (`llm_execute`, `get_embeddings`, `execute_tool_call`) are the
-     steps. **clients/ itself is tracing-free**: a client method raises and
-     returns its payload, and never grows a `@task` — the app decides what is
-     a step;
+     steps. `run_llm_args_parse` for a filled schema, `run_llm_reply` for the
+     turn's prose. **clients/ itself is tracing-free**: a client method raises
+     and returns its payload, and never grows a `@task` — the app decides what
+     is a step;
+   - a node whose reply must not take the node down with it wraps
+     `run_llm_reply` in its own `@task` and declines to unwrap it — a failed
+     writer costs the turn its note, not its search (`response_to_user`,
+     `reply_to_user`);
    - a **`@task` method** for an async unit that returns a payload
      (`count_books`, `fetch_books`, `similarity_search`);
    - a **`Workflow`** only when the sub-work needs its own declared output
@@ -318,9 +334,12 @@ assumed, not restated, here.
    the node is told about the ask, since no node reads `ctx.user_message`; upstream output arrives only through declared
    input fields, filled by type. (A goal also carries
    `generation_instruction`, the brief for what it should *say* back rather
-   than do. As of 2026-09-08 it reaches no node — no input field claims it —
-   so don't write an executor that expects it; `app/domains/node_input.py`
-   records what carrying it would take.) The input contract does *selection*;
+   than do. Since 2026-09-09 it reaches the node — but **only one that declares
+   a field for it**, because declaring it is how a node claims it can answer in
+   words. Both briefs are filled *by name*; a `str | None` matched by type would
+   be handed any upstream string. A retrieval node gates its reply on the field
+   and stays silent when it is null; `find_similar_books` writes either way and
+   only lets it steer what the note covers.) The input contract does *selection*;
    interpretation is the executor's own job (`ParsedDependents`). Duck-type
    (`getattr`) only shapes that are still reserved names — the moment a shape
    has a class, read the typed field.

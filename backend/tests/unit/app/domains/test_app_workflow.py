@@ -182,6 +182,88 @@ class TestClientBoundaryWrappers:
         assert step.unwrap().token_usage is None
 
 
+class TestReplyCall:
+    """`run_llm_reply` — the one call whose output is the answer itself.
+
+    The base owns delivery and voice; the caller owns the facts and its own
+    half of the prompt. These pin the seam between the two, plus the trust
+    placement of the goal's second brief.
+    """
+
+    async def reply(self, request_context, **kwargs) -> AssistantMessage:
+        """Run a reply with the client stubbed, and hand back the request."""
+        wf = _Workflow(request_context)
+        wf.run_llm_call = AsyncMock(return_value=AssistantMessage(content="ok"))
+        await wf.run_llm_reply(**kwargs)
+        return wf.run_llm_call.await_args.args[0]
+
+    async def test_the_shared_prompt_and_the_node_guidance_are_joined(
+        self, request_context
+    ):
+        req = await self.reply(
+            request_context, facts="- 3 found", guidance="# Objective\n\nSay hello."
+        )
+
+        # the node's half, verbatim
+        assert "Say hello." in req.prompt
+        # and the half no node restates
+        assert "Trust Boundaries" in req.prompt
+
+    async def test_the_facts_are_the_only_message(self, request_context):
+        """One assistant turn and no user turn. Never `self.messages`, which
+        holds open [tool_call, tool result] pairs `check_tool_message_linkage`
+        would reject."""
+        req = await self.reply(request_context, facts="- 3 found", guidance="g")
+
+        assert len(req.messages) == 1
+        assert req.messages[0].content == "- 3 found"
+
+    async def test_the_second_brief_rides_in_the_facts_not_the_prompt(
+        self, request_context
+    ):
+        """It is planner prose paraphrasing an untrusted message, so it sits
+        where `asked for` sits — in the data half."""
+        req = await self.reply(
+            request_context,
+            facts="- 3 found",
+            guidance="g",
+            asked_to_say="Confirm we have Dune",
+        )
+
+        assert "- asked to say: Confirm we have Dune" in req.messages[0].content
+        assert "Confirm we have Dune" not in req.prompt
+
+    async def test_no_brief_adds_no_line(self, request_context):
+        req = await self.reply(request_context, facts="- 3 found", guidance="g")
+
+        assert "asked to say" not in req.messages[0].content
+
+    async def test_it_carries_the_stream_that_delivers_it(self, request_context):
+        """`sse_stream` is the whole delivery mechanism — the client pushes
+        each `content.delta` onto it, so a reply without one is undeliverable
+        rather than merely unrecorded."""
+        req = await self.reply(request_context, facts="- 3 found", guidance="g")
+
+        assert req.sse_stream is request_context.sse_stream
+
+    async def test_the_budget_is_per_call(self, request_context):
+        """A one-line confirmation and a note about ten books want different
+        budgets — and `max_complete_chat_tokens` is the field the payload
+        actually reads."""
+        req = await self.reply(
+            request_context, facts="- 3 found", guidance="g", max_tokens=150
+        )
+
+        assert req.to_payload()["max_completion_tokens"] == 150
+
+    async def test_empty_facts_raise_rather_than_invent(self, request_context):
+        wf = _Workflow(request_context)
+        wf.run_llm_call = AsyncMock()
+
+        with pytest.raises(ValueError, match="No facts"):
+            await wf.run_llm_reply(facts="   ", guidance="g")
+
+
 class TestExecuteToolCall:
     """Moved from `ToolMessage.execute` when clients/ went tracing-free;
     the dispatch contract is unchanged."""

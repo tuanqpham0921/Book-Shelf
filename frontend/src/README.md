@@ -47,14 +47,21 @@ before the node knows how many books it matched. Sections open expanded and fold
 themselves on `task.end`, so the finished turn shows the answer rather than the
 work; `collapsible: false` stays open, and a user click pins the state.
 
-**One section per turn sets `collapsible: false`: the similarity node's.** Every
-other node's cards are working material, and the prose written from them is what
-the turn is for — so those sections fold and the one carrying the reply stays
-open. It was briefly a separate `Generate_Recommendations` section (2026-09-07 to
-2026-09-08); that node was deleted and `Analyze_Similar_Books` writes its own
-note again. A turn whose plan has no similarity goal (a plain lookup) folds
-everything and gets no prose at all, which is a real gap rather than a styling
-choice: see `backend/app/domains/books/find_similar_books/`.
+**A section stays open when it carries prose.** Every other node's cards are
+working material, and the prose written from them is what the turn is for — so
+those sections fold and the ones carrying a reply stay open. Two things set
+`collapsible: false`, and the backend ands them: the executor class (the
+similarity node always writes, so its section never folds) and the *dispatch*
+(since 2026-09-09, a goal the planner asked to answer in words — "do you have
+Dune?" — opens the section of whichever node answers it, `Retrieve_by_Title`
+today). It was briefly a separate `Generate_Recommendations` section (2026-09-07
+to 2026-09-08); that node was deleted.
+
+A plain lookup nobody asked to speak still folds everything and gets no prose,
+which is intended — it is a step in someone else's chain. What is still a real
+gap rather than a styling choice: a goal that *fails* opens no section at all,
+so nothing explains it. See `backend/app/orchestration/task_runner.py` and
+`docs/design/execution-pipeline-v1.md`.
 
 ## Conventions
 

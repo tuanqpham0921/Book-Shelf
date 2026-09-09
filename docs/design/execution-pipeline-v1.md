@@ -4,8 +4,9 @@
 (2026-08-04) on `minimal_end_to_end_v1`, for the nodes registered there. The combine tier
 is half unparked (`Combine_Intersect`, 2026-08-24). The generation tier existed for one
 day — `Generate_Recommendations`, registered 2026-09-07 and deleted 2026-09-08; writing
-the reply is back inside `Analyze_Similar_Books`. See the second attempt and its reversal
-below.
+the reply went back inside `Analyze_Similar_Books`, and on 2026-09-09 became a capability
+any node can opt into (`AppWorkflow.run_llm_reply`) rather than a tier. See the second
+attempt, its reversal, and the third shape below.
 
 Graduated from `backend/TODO.md`. This is the shape execution is expected to take once
 [roadmap Phase 3](../roadmap.md) starts, and it defines three nodes that do not exist
@@ -511,6 +512,38 @@ fits; a writer shown only metadata cannot invent a plot. The second was judged w
 **Both alternatives remain built and recoverable** — the registered goal in this branch's
 history, the per-sink `AnswerWorkflow` on `generation_node_sink` (`b35592f`) — so the
 decision that reverses this one has two shapes to choose between rather than a blank file.
+
+### The third shape — **any node can write, when asked (2026-09-09)**
+
+The row above about *"…and explain why each fits" being heard thinly* is the one that
+moved, and it moved without bringing the goal back. `SystemGoal.generation_instruction`
+(see [planner-shape.md](planner-shape.md)) is the brief for the reply that the search
+goal's own instruction was never about; `AppWorkflow.run_llm_reply` is the shared call
+that turns one into prose. So writing is no longer a *tier* or a *node* — it is a
+capability any executor can opt into by declaring one input field, and the shared half of
+the prompt (`app/domains/prompts/reply.txt`) is what keeps two writers from drifting into
+two voices.
+
+`Retrieve_by_Title` is the first node besides the similarity search to use it, which is
+what makes "do you have Dune?" answerable at all. **The other two rows in that table are
+untouched.** A chain continuing past the search still writes its note too early — the
+brief is attached to a goal, and the goal that finds the books is still not the last goal
+in the chain. And a failed chain is still not narrated: nothing declares a
+`FailedGoalOutput` slot, and worse, a title lookup that matches nothing *succeeds*, so the
+similarity goal after it dispatches and dies in `check_anchors` rather than being handed a
+reason it could read aloud. A goal that fails in `_prepare` opens no UI section at all, so
+it stays silent whatever brief it carried.
+
+**What this shape needs next is a record of what the user was shown.** Every writer today
+reconstructs its facts beside the SSE calls — `send_chars` and `send_book_card` retain
+nothing, and `self.messages` is a model trace, not a transcript. That is why
+`render_title_facts` has to state `3 of them on screen` by hand: a preview is capped, and
+a writer handed three rows will describe forty editions as three. A `ui_messages`
+accumulator, separate from pipeline context and holding the prose and preview rows exactly
+as sent, would let a reply be written from the screen instead of from a summary
+reconstructed next to it. `run_llm_reply` takes `facts` as one opaque string partly so
+that the day it exists, the base can render facts from it without every slice changing
+shape.
 
 ## Open questions
 

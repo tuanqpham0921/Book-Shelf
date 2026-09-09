@@ -69,6 +69,19 @@ class _NoQuery(WorkflowInput):
     anchor: _Books
 
 
+class _CanSpeak(NodeInput):
+    """Declaring the field is a node's claim that it can be asked to reply."""
+
+    generation_instruction: str | None = None
+
+
+class _CanSpeakAndTakesText(_CanSpeak):
+    """The trap the by-name rule exists for: two `str | None` slots, one of
+    which must *not* be filled from an upstream artifact."""
+
+    label: str | None = None
+
+
 class TestQuery:
     def test_query_is_filled_from_the_goal_text(self):
         assert build_input(_TakesNothing, "find dune", {}).instruction == "find dune"
@@ -78,6 +91,42 @@ class TestQuery:
         and a `query` it would never read has no business being set."""
         built = build_input(_NoQuery, "ignored", {"1": _Books()})
         assert not hasattr(built, "query")
+
+
+class TestTheSecondBrief:
+    """`generation_instruction` — what a goal was asked to *say* back.
+
+    Filled by name like `instruction`, and only onto inputs that declare it:
+    the declaration is how a node claims it can answer in words, so a node with
+    no reply path never receives one.
+    """
+
+    def test_it_is_filled_by_name(self):
+        built = build_input(
+            _CanSpeak, "find dune", {}, generation_instruction="Confirm we have Dune"
+        )
+        assert built.generation_instruction == "Confirm we have Dune"
+
+    def test_it_is_none_when_the_goal_carried_none(self):
+        """Null on almost every goal — most steps only do work."""
+        assert build_input(_CanSpeak, "find dune", {}).generation_instruction is None
+
+    def test_an_input_that_does_not_declare_it_never_sees_it(self):
+        built = build_input(
+            _TakesNothing, "find dune", {}, generation_instruction="Confirm we have it"
+        )
+        assert not hasattr(built, "generation_instruction")
+
+    def test_it_is_never_matched_from_an_upstream_string(self):
+        """The whole reason for the by-name branch. `label` is the same
+        annotation and *is* filled from the artifact; the brief is not, so an
+        arbitrary upstream string can never end up being read aloud."""
+        built = build_input(
+            _CanSpeakAndTakesText, "find dune", {"1": "an upstream string"}
+        )
+
+        assert built.label == "an upstream string"
+        assert built.generation_instruction is None
 
 
 class TestSelectionByType:

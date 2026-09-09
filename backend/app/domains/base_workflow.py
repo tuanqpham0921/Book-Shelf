@@ -15,7 +15,12 @@ resolved from the generic parameter, so a subclass needs no `__init__`.
 Domain-specific behaviour belongs in that domain's own base (`BookWorkflow`),
 which is what keeps this module free of book models and wire schemas. Building
 LLM requests is likewise a slice's job, so one node can use a different model or
-prompt without a flag on a base class.
+prompt without a flag on a base class — **with one exception, the reply**
+(`run_llm_reply`). What is shared there is the *delivery mechanism*: a reply is
+the only call whose output is the answer itself, so it streams to the browser,
+and every node that writes one is bound by the same voice and the same trust
+rules. The model, the budget, the facts and the node's own half of the prompt
+all still arrive as arguments from the slice.
 """
 
 import inspect
@@ -29,13 +34,28 @@ from clients.messages import (
     ToolMessage,
     UserMessage,
 )
+from app.common.prompt_loader import format_prompt
 from app.common.sse_stream import SSEStream
 from app.domains.node_input import WorkflowInput
 from app.common.request_context import RequestContext
+from clients import OpenAIChatRequest
 from clients.base import BaseLLMRequest
 from clients.openai_client import EmbeddingsResult, OpenAIClient
 from openai.types.chat import ParsedFunctionToolCall
 from airglider import OperationResult, Workflow, task
+
+# The half of a reply prompt that is true of every reply: the role, the trust
+# boundary, the voice, and what `asked for` / `asked to say` mean. Its one
+# `{GUIDANCE}` placeholder sits at the end, where the calling node's own brief
+# goes — so the composed prompt reads general rules first, this node second.
+REPLY_PROMPT_PATH = "domains/prompts/reply.txt"
+
+# A cheap model on purpose: a reply writes prose from facts it was handed, which
+# is not the job accuracy was bought for on the planner. Both are per-call
+# arguments rather than settings — a one-sentence confirmation and a note about
+# ten books want genuinely different budgets.
+REPLY_MODEL = "gpt-5-mini"
+MAX_REPLY_TOKENS = 600
 
 
 class NodeWorkflowOutput(BaseModel, ABC):
@@ -104,10 +124,16 @@ class AppWorkflow(Workflow[OutputT], ABC):
     # these off the *class*, and a @property would silently title every section
     # "<property object at 0x…>" rather than raise.
     ui_section_title: str | None = None
-    # A node that writes the reply owns the answer, so its section is not
+    # A node that always writes the reply owns the answer, so its section is not
     # folded away (`find_similar_books`). Every other node's is: its cards are
     # working material, and the prose written from them is what the user is
     # meant to read.
+    #
+    # False here is "never fold this node"; True is "fold it unless this
+    # *dispatch* speaks". The runner ands this with whether the assembled input
+    # carries a `generation_instruction`, so a node that replies only when asked
+    # to (`find_by_title`) is folded on the turns it stays silent and open on
+    # the turns it does not. See `task_runner._run_in_task_section`.
     ui_section_collapsible: bool = True
 
     @classmethod
@@ -273,12 +299,85 @@ class AppWorkflow(Workflow[OutputT], ABC):
 
         NOTE: recorded too early — the tool result should be appended *after*
         processing, as a [tool_call, tool result] pair, so the whole thing can
-        be wrapped in a retry. A node that cares takes `run_llm_tool_calls` and
-        records the pair itself; `PlanJaneExecutor` is the first to do so.
+        be wrapped in a retry. A node that cares would take `run_llm_tool_calls`
+        and record the pair itself; none does yet, which is why that helper has
+        no caller but this one.
         """
         tool_calls = await self.run_llm_tool_calls(req, save_payload=save_payload)
         self.record_tool_call(tool_call=tool_calls[0])
         return tool_calls[0].function.parsed_arguments
+
+    async def run_llm_reply(
+        self,
+        *,
+        facts: str,
+        guidance: str,
+        asked_to_say: str | None = None,
+        model: str = REPLY_MODEL,
+        max_tokens: int = MAX_REPLY_TOKENS,
+    ) -> AssistantMessage:
+        """The turn's prose, streamed to the browser as it is written.
+
+        The sibling of `run_llm_args_parse` for the other kind of call: that one
+        wants a filled schema back, this one *is* the output. `OpenAIChatRequest`
+        requires an `sse_stream` and `OpenAIClient._chat_stream` pushes each
+        `content.delta` onto it, so the reply reaches the user as it is written
+        and the assembled text still comes back for the record.
+
+        The split of labour, which is the whole reason this is here rather than
+        in each slice:
+
+        - **this method** owns delivery and voice — the streaming request, the
+          shared prompt (role, trust boundary, tone, what `asked for` and
+          `asked to say` mean), and the budget's shape;
+        - **the caller** owns content — `facts` is a block it rendered from its
+          own artifacts, and `guidance` is its own half of the prompt (what this
+          reply is for, what its fact lines mean, an example). Nothing here
+          knows what a book is.
+
+        Args:
+            facts: The rendered block the reply is written from, as labelled
+                lines. The node renders it; a line that does not apply is left
+                out rather than emitted empty.
+            guidance: This node's half of the prompt, dropped in at the end of
+                the shared one. Load it from the slice's own `prompts/*.txt`.
+            asked_to_say: The goal's `generation_instruction`, when it carries
+                one. Appended to `facts` rather than to the prompt, deliberately:
+                it is planner prose paraphrasing an untrusted message, so it sits
+                in the data half where `asked for` already sits, and the shared
+                prompt states once how to treat it.
+            model, max_tokens: Per call, not per class. A one-line confirmation
+                and a note about ten books want different budgets, and
+                `max_tokens` is the latency knob as much as the spend one —
+                `SSEStream.send_chars` paces output per character.
+
+        Not a `@task`: `run_llm_call` already opens the `llm_execute` step. A
+        node that wants a failed writer to cost it only the note wraps this in
+        its own `@task` and declines to unwrap it (`response_to_user`).
+
+        Never hand this `self.messages`. It builds its own one-message request:
+        the shared trace holds open [tool_call, tool result] pairs, and
+        `OpenAIBaseRequest.check_tool_message_linkage` rejects those.
+        """
+        if not facts.strip():
+            raise ValueError("No facts to write a reply from")
+
+        if asked_to_say:
+            facts = f"{facts}\n- asked to say: {asked_to_say}"
+
+        req = OpenAIChatRequest(
+            prompt=format_prompt(prompt_path=REPLY_PROMPT_PATH, GUIDANCE=guidance),
+            model=model,
+            reasoning_effort="minimal",
+            # one assistant turn and no user turn: the facts are the system's
+            # own work, not something the user typed — the same split every
+            # slice makes when it ships an instruction to its argument parser
+            messages=[AssistantMessage(content=facts)],
+            # what makes this call stream to the client rather than return a string
+            sse_stream=self.sse_stream,
+            max_complete_chat_tokens=max_tokens,
+        )
+        return await self.run_llm_call(req)
 
     def record_tool_call(self, tool_call: ParsedFunctionToolCall) -> None:
         self.messages.append(

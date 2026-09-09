@@ -11,7 +11,10 @@ empty and what shape would fill it — the seam an agentic node needs to ask the
 planner for one. So default a field whenever the node has a real fallback, and
 require it only when the node cannot proceed without it.
 
-Fields are filled by type, never by name — a key in `artifacts` is provenance.
+What fills a field is decided by where it comes from: the **goal's briefs** are
+filled by name — there are exactly two, `instruction` and
+`generation_instruction` — and everything else is filled **by type** from the
+artifacts, where a key is provenance and nothing more.
 
 Imports nothing else from `app/domains/`: `base_workflow` imports *it*.
 """
@@ -55,12 +58,16 @@ class NodeInput(WorkflowInput):
     means a `DeferredBookQuery` on every book-shaped output.
 
     A goal can also carry a second brief — `SystemGoal.generation_instruction`,
-    what this step is to *say* back — and it deliberately stops at the planner
-    for now (2026-09-08): no node reads it, so no field claims it here. Adding
-    one is not a one-liner, because `build_input` fills every field but
-    `instruction` by type, and a `str | None` slot would be handed the first
-    string artifact that happens to be upstream. It needs the same by-name
-    branch `instruction` gets, from a `build_input` that is passed the goal.
+    what this step is to *say* back rather than do. It is **not declared here**
+    (2026-09-09), and that is the point: it is filled by name like `instruction`
+    is, but only on the inputs that declare it, so declaring it is a node's claim
+    that it can be asked to speak. `SimilarBooksInput` and `FindByTitleInput` do;
+    `IntersectBooksInput` makes no LLM call at all and cannot. On this base it
+    would be permanently None for most of them, which is the lie the paragraph
+    at the top of this module warns about.
+
+    Declare it as `generation_instruction: str | None = None` and read it in
+    `run`; `AppWorkflow.run_llm_reply` is what turns it into prose.
     """
 
     instruction: str
@@ -111,20 +118,36 @@ def build_input(
     input_cls: type[WorkflowInput],
     instruction: str,
     artifacts: Mapping[str, Any],
+    *,
+    generation_instruction: str | None = None,
 ) -> WorkflowInput:
-    """Assemble a node's declared input from the planner's instruction and its
+    """Assemble a node's declared input from the goal's briefs and its
     dependencies' outputs.
+
+    The briefs are filled **by name** and everything else **by type**. Two names
+    rather than one because a goal carries two: what to do, and — on the few that
+    were asked to answer in words — what to say. By name and not by type because
+    both are plain `str`: a `str | None` field matched structurally would be
+    handed whatever string happened to travel on an upstream output.
+
+    `generation_instruction` is keyword-only and defaults to None, so a caller
+    with nothing to say passes nothing, and an input that declares no such field
+    never sees it — `model_fields` decides, so the branch simply does not fire.
 
     Raises `pydantic.ValidationError` when a required field cannot be filled;
     the dispatch site catches it, so that one goal fails rather than the plan.
     """
+    briefs: dict[str, Any] = {
+        "instruction": instruction,
+        "generation_instruction": generation_instruction,
+    }
     available = list(artifacts.values())
     claimed: set[int] = set()
     values: dict[str, Any] = {}
 
     for name, field in input_cls.model_fields.items():
-        if name == "instruction":
-            values["instruction"] = instruction
+        if name in briefs:
+            values[name] = briefs[name]
             continue
 
         filled, value = _resolve(field.annotation, available)

@@ -102,7 +102,7 @@ Two consequences worth keeping:
 a planner that picks the wrong node, not one that writes a thin instruction. That is the
 standing gap this contract is enforced against by prompt and review.
 
-## The generation instruction (added 2026-09-08, planner half only)
+## The generation instruction (planner half 2026-09-08, delivered 2026-09-09)
 
 A goal now carries a **second, optional brief**: `SystemGoal.generation_instruction`,
 what this step is to *say* back, as against `instruction`, what it is to *do*. It is
@@ -137,20 +137,51 @@ Strict tool calling puts every property in `required`, so the model emits the fi
 every goal and writes `null` where there is no ask — "leave it null", not "omit it", is
 what the prompt has to say. And when the field does reach a node it arrives in the same
 position as `instruction`: planner prose paraphrasing an untrusted message, trusted as a
-description of the ask and not as an instruction to the writer. The reply prompt in
-`find_similar_books/prompts/response_prompt.txt` already states that rule for the
-`asked for:` line — use it to know what the search was after, never quote it back — and a
-generation instruction is the same kind of input.
+description of the ask and not as an instruction to the writer. The shared reply prompt
+(`app/domains/prompts/reply.txt`) states that rule once, for both lines — use them to know
+what the step was set to do and what to cover, never quote either back — so no slice
+restates it and no slice can forget to.
 
-**It stops at the planner today.** It is emitted, refused/accepted, recorded, and drawn in
-the plan diagram (the `Reply` row on a box, shown only when set), but no node reads it —
-`NodeInput` has no field for it. That is deliberate rather than unfinished: `build_input`
-fills every field but `instruction` *by type*, so a `str | None` slot would be handed the
-first string artifact that happened to be upstream. Carrying it needs the same by-name
-branch `instruction` gets, from a `build_input` that is passed the goal rather than just
-its instruction — which is also the natural moment to decide whether a retrieval node
-gains a writing step at all, or whether the confirmation is written by whoever ends up
-owning the turn's prose.
+### Delivery (2026-09-09)
+
+Three decisions, and each one was forced by something already in the code.
+
+**How it reaches the node: by name, alongside `instruction`.** `build_input` gained a
+keyword-only `generation_instruction` and now fills *both* of the goal's briefs by name,
+leaving everything else by type. The rule that replaced "by type, never by name" is
+sharper than the old one: **a field is filled by name when it comes from the goal, and by
+type when it comes from an artifact.** There are exactly two of the former. Passing the
+whole `SystemGoal` instead was the obvious alternative and is not available —
+`node_input.py` importing `planjane.external` closes a cycle (`planjane/external` →
+registry → specs → `node_input`).
+
+**Where it is declared: on the slice, not on `NodeInput`.** The symmetric-looking choice
+is wrong here. `node_input.py` opens by saying a declared field a node never reads "would
+make the field a lie", and `Combine_Intersect` makes no LLM call at all, so it cannot
+speak under any plan. Declaring the field is therefore the *claim* — this node can be
+asked to answer in words — which is exactly what an input class is for. Two declare it:
+`FindByTitleInput` and `SimilarBooksInput`. The cost this seemed to avoid was imaginary:
+`build_input` iterates `model_fields`, so the by-name branch simply never fires on a class
+that does not declare it.
+
+**What a node does with it: writes, through one shared call.** `AppWorkflow.run_llm_reply`
+is the reply's counterpart to `run_llm_args_parse` — the base owns delivery and voice (the
+streaming request, and `domains/prompts/reply.txt`: role, trust boundary, tone, and what
+`asked for` and `asked to say` mean), the slice owns content (its rendered `facts`, its own
+`guidance`, its own model and budget). `asked_to_say` is appended to the *facts*, not the
+prompt, which is what puts it in the trust position the paragraph above describes. The two
+callers differ exactly where the null rule says they should: `find_by_title` gates on the
+field and stays silent without it; `find_similar_books` writes either way and lets it
+steer.
+
+One consequence worth stating because it is not obvious: the runner reads the brief off
+the **assembled input** (not off the goal) to decide whether a goal's UI section is
+folded. A node that cannot speak never gets an expanded, prose-less section, and an answer
+never arrives hidden behind a disclosure triangle.
+
+What this does **not** fix: a title lookup that matches nothing *succeeds*, so the
+similarity goal after it still dispatches and dies in `check_anchors` with nothing said
+about why. See [execution-pipeline-v1.md](execution-pipeline-v1.md).
 
 **Not covered by the golden test either,** for the same reason as the instruction:
 `expected_nodes` is a list of node types, and this field changes no node type. A planner

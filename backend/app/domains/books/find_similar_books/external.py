@@ -23,9 +23,15 @@ class SimilarBooksInput(NodeInput):
 
     No `documents` field: `AnalyzeBooksOutput` is a reserved name with no class,
     and a field can only select by type against a type that exists.
+
+    `generation_instruction` is declared because this node always writes the
+    turn's note, so a brief for it has somewhere to land. Unlike a retrieval
+    node it does not gate on the field — null means "no special ask", not
+    "stay silent" — it only steers what the note covers.
     """
 
     anchors: list[BookAnchorOutput] = Field(..., min_length=1)
+    generation_instruction: str | None = None
 
 
 class ScoreStats(BaseModel):

@@ -779,8 +779,10 @@ time, as case 65's note had been asking for since the combine tier was designed.
   *"who wrote Dune"* and *"when was it published"* are answerable and *"who is the main
   character of The Hunger Games"* or *"who's the one with the sword in Dune"* are not.
   Nothing in the schema knows what happens **inside** a book. The `description` blurb is
-  the one partial exception and the only prose the system has: it is what the generation
-  node grounds a "why this book" in, and it is marketing copy, not a summary. Requests
+  the one partial exception and the only prose the *catalog* has — marketing copy, not a
+  summary. It grounds `Analyze_Similar_Books`' fold into a search description and reaches
+  no further: no reply is written from a blurb, deliberately, since a writer shown one
+  will describe a book it was only handed metadata for. Requests
   that need knowledge from inside the text belong to the clarification/rejection node,
   not to a retrieval node that will happily match the words and answer confidently.
 - Multi-turn conversation context is the flagship V1.1 feature (see roadmap deferred
