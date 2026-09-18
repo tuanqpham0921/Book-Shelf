@@ -34,13 +34,17 @@ an unprotected endpoint live.
 
 ### Two things worth knowing before you start
 
-**Nothing is recorded in production today.** `app/orchestration/run_recorder.py`'s
-docstring says "everything else (prod): database only — Cloud Run's filesystem is
-ephemeral", but the database write at lines 186-188 is commented out, and the
-file-writing branch above it is gated on `app_env == "development"`. So a
-deployed instance writes **no file and no row**: no evals, no review page, no
-debugging. Stage 4 uncomments it — deliberately in the same stage as the auth
-gate, because that write is also what makes `/chat_runs` worth protecting.
+**Nothing is recorded in production today.** `record_chat_run`
+(`app/orchestration/run_recorder.py`) returns immediately for any environment
+but `development`, and the `chat_runs` insert — the commented block at the end
+of that function — is off in *every* environment. So a deployed instance writes
+**no file and no row**: no evals, no review page, no debugging. Files are never
+the production sink: Cloud Run's filesystem is in-memory, so each one would cost
+instance RAM and vanish with the instance. Stage 4 turns the insert back on —
+deliberately in the same stage as the auth gate, because that write is also what
+makes `/chat_runs` worth protecting. (The same switch is why local evals — whose
+`test_runs` rows have an FK to `chat_runs` — and the local review page currently
+get nothing either.)
 
 **`config/settings/sqlalchemy.py:21` interpolates user and password into the URL
 unescaped.** A password containing `@ : / # ?` silently corrupts the connection
@@ -79,13 +83,18 @@ Build context is `backend/`. Each point fixes a specific current defect:
   `RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"`
   (`cl100k_base` backs `text-embedding-3-large`; `o200k_base` is
   `OPENAI_TOKENIZER_ENCODING`).
-- **Honor `$PORT`** — Cloud Run injects it; the current CMD hardcodes 8000. Use
-  the shell form so it expands, with `exec` so uvicorn is PID 1 and Cloud Run's
-  SIGTERM reaches it (in-flight SSE streams then close cleanly):
-  `CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}`.
+- **Honor `$PORT`** — Cloud Run injects it; the current CMD hardcodes 8000. Run
+  it through `sh -c` so it expands, with `exec` so uvicorn is PID 1 and Cloud
+  Run's SIGTERM reaches it (in-flight SSE streams then close cleanly):
+  `CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]`.
   One worker, no `--workers` — Cloud Run is one process per container and scales
   by instance.
-- Run as a non-root user.
+- Run as a non-root user, **without** `chown -R /app`. The app only reads
+  `/app`, and a `chown` rewrites every file — the whole `.venv` — into a new
+  ~190MB layer. Leaving `/app` root-owned also makes it read-only at runtime, so
+  a stray write fails loudly instead of eating Cloud Run's in-memory disk. The
+  consequence: the image only boots as `APP_ENVIRONMENT=production`, because
+  development's log file needs `/app/logs`. Local dev is `make dev`.
 - No `apt-get` layer: `asyncpg`, `pandas`, `tiktoken` all ship manylinux wheels
   and `pgvector` is pure Python.
 
@@ -129,12 +138,26 @@ invocations.
 ```bash
 cd backend
 docker build -t book-shelf-api .
-docker run --rm --network host -e PORT=8080 --env-file config/.env book-shelf-api
+# -e after --env-file wins: config/.env says development, the image is production
+docker run --rm --name book-shelf-api --network host -e PORT=8080 \
+  --env-file config/.env -e APP_ENVIRONMENT=production book-shelf-api
 curl localhost:8080/ping     # -> {"status":"ok",...}
 curl localhost:8080/ready    # -> 200, proves it reached the local postgres
 ```
-Then send one real chat message and confirm SSE streams. Also
-`make tests-all && make typecheck` after the pyproject/CI edits.
+The boot log should say `App environment set to: PRODUCTION` and
+`Handlers: ['StreamHandler']` (no log file). Then send one real chat message and
+confirm SSE streams. Also `make tests-all && make typecheck` after the
+pyproject/CI edits.
+
+### Test the message endpoint
+
+```bash
+# -N: don't buffer, so SSE events print as they arrive
+curl -N -X POST "http://localhost:8080/session/abc123/message" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Recommend me a science fiction book"}'
+docker exec book-shelf-api ls -la /app   # no logs/ — production writes nothing
+```
 
 ---
 
@@ -356,7 +379,12 @@ auth (Firebase Auth) and is separate work — don't fake it with a bundled token
 
 ### 4.2 Turn recording
 
-Uncomment `app/orchestration/run_recorder.py:186-188`. Without it the deployed
+In `record_chat_run` (`app/orchestration/run_recorder.py`), uncomment the
+`chat_runs` insert block at the end of the function (the `build_chat_run_row`
+call plus the `ChatRunStore(...).insert_run`) and move it **above** the
+`app_env != "development"` gate, so production records too; widen that gate's
+comment and the module docstring to match, and flip
+`test_non_development_records_nothing` for production. Without it the deployed
 app records nothing at all, and `/chat_runs` stays permanently empty.
 
 Sequencing note: because prod starts with an empty `chat_runs` and the recorder

@@ -1,10 +1,11 @@
 """Tests for run_recorder: column mapping and serialization fidelity of
 build_chat_run_row (private attrs like _refusal must survive), and the
-env-dependent sink selection in record_chat_run (test → nothing,
-development → file + DB, prod → DB only, DB failures swallowed)."""
+env-dependent sink selection in record_chat_run (development → files only,
+test and production → nothing, write failures swallowed)."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.orchestration.triage import TriageOutput
@@ -171,8 +172,13 @@ class TestRecordChatRun:
         mock_save.assert_not_called()
         mock_store_cls.assert_not_called()
 
-    async def test_test_env_records_nothing(self, make_request_context):
-        ctx = make_request_context(app_env="test")
+    @pytest.mark.parametrize("app_env", ["test", "production"])
+    async def test_non_development_records_nothing(
+        self, make_request_context, app_env
+    ):
+        # production included: Cloud Run's filesystem is in-memory, and the
+        # chat_runs insert stays off until Stage 4 (docs/deployment.md §4.2)
+        ctx = make_request_context(app_env=app_env)
         planner = _make_planner_record()
 
         with patch("app.orchestration.run_recorder.save_file") as mock_save, patch(
@@ -186,29 +192,28 @@ class TestRecordChatRun:
         mock_store_cls.assert_not_called()
         ctx.session_factory.assert_not_called()
 
-    async def test_development_writes_file_and_db(self, make_request_context):
+    async def test_development_writes_files_only(self, make_request_context):
         ctx = make_request_context(app_env="development")
         planner = _make_planner_record()
 
         with patch("app.orchestration.run_recorder.save_file") as mock_save, patch(
             "app.orchestration.run_recorder.ChatRunStore"
         ) as mock_store_cls:
-            mock_store_cls.return_value.insert_run = AsyncMock()
             await record_chat_run(
                 ctx, _make_root_record(planner), _make_workflow(planner)
             )
 
         # two files, both inside the turn's own directory: the run as a span
-        # list, then the tree of step names
+        # list, then the conversation (no writer or task runner on this turn)
         assert mock_save.call_count == 2
-        flat_call, tracer_call = mock_save.call_args_list
+        flat_call, convo_call = mock_save.call_args_list
 
         # the chat_id names the folder now, not each file in it — so a turn's
         # artifacts sit together and a new one is added without renaming
         chat_id = ctx.user_message.id
         turn_dir = FilesLocationConstants.EXPORT_DIR / chat_id
         assert flat_call.kwargs == {"file_name": "record", "path": turn_dir}
-        assert tracer_call.kwargs == {"file_name": "tracer_name", "path": turn_dir}
+        assert convo_call.kwargs == {"file_name": "convo_history", "path": turn_dir}
 
         # one entry per operation, parent before child, and already serialized
         # — save_file receives jsonable data, not live envelopes
@@ -219,31 +224,18 @@ class TestRecordChatRun:
         # no row in the file carries a subtree
         assert not any("steps" in span for span in spans)
 
-        mock_store_cls.return_value.insert_run.assert_awaited_once()
+        # the chat_runs insert is off in every environment until Stage 4
+        mock_store_cls.assert_not_called()
+        ctx.session_factory.assert_not_called()
 
-    async def test_production_writes_db_only(self, make_request_context):
-        ctx = make_request_context(app_env="production")
+    async def test_file_failure_is_swallowed(self, make_request_context):
+        ctx = make_request_context(app_env="development")
         planner = _make_planner_record()
 
-        with patch("app.orchestration.run_recorder.save_file") as mock_save, patch(
-            "app.orchestration.run_recorder.ChatRunStore"
-        ) as mock_store_cls:
-            mock_store_cls.return_value.insert_run = AsyncMock()
-            await record_chat_run(
-                ctx, _make_root_record(planner), _make_workflow(planner)
-            )
-
-        mock_save.assert_not_called()
-        mock_store_cls.return_value.insert_run.assert_awaited_once()
-
-    async def test_db_failure_is_swallowed(self, make_request_context):
-        ctx = make_request_context(app_env="production")
-        planner = _make_planner_record()
-
-        with patch("app.orchestration.run_recorder.ChatRunStore") as mock_store_cls:
-            mock_store_cls.return_value.insert_run = AsyncMock(
-                side_effect=RuntimeError("db down")
-            )
+        with patch(
+            "app.orchestration.run_recorder.save_file",
+            side_effect=OSError("disk full"),
+        ):
             # must not raise — recording never breaks the chat response
             await record_chat_run(
                 ctx, _make_root_record(planner), _make_workflow(planner)

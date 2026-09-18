@@ -45,11 +45,17 @@ COPY common    ./common
 COPY config    ./config
 COPY db        ./db
 
-RUN useradd --create-home --uid 1000 app && chown -R app:app /app
+# No chown: /app stays root-owned and world-readable, so the app can read it
+# but not write it. Cloud Run's filesystem is in-memory — a stray write should
+# fail loudly, not quietly eat instance RAM. (A `chown -R` here would also
+# rewrite every file into a new ~190MB layer.) This is also why the image only
+# boots as APP_ENVIRONMENT=production: development's log file needs /app/logs.
+RUN useradd --create-home --uid 1000 app
 USER app
 
 EXPOSE 8080
-# Shell form so ${PORT} expands (Cloud Run injects it); `exec` keeps uvicorn as
-# PID 1 so SIGTERM reaches it and in-flight SSE streams close cleanly. One
-# worker: Cloud Run runs one process per container and scales by instance.
-CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
+# `sh -c` so ${PORT} expands (Cloud Run injects it); `exec` replaces the shell
+# so uvicorn is PID 1, SIGTERM reaches it and in-flight SSE streams close
+# cleanly. One worker: Cloud Run runs one process per container and scales by
+# instance.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
