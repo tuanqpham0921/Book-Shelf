@@ -326,11 +326,14 @@ belong in the `make deploy` recipe; the password and API key come from
 
 ### Stage 5 — go public
 
-**5.3** — `--min-instances=1` now buys two things, not one. A warm instance also
-holds a connection open, which stops Neon autosuspending, so the first chat after
-a quiet hour skips both the container cold start *and* the database resume. The
-trade is that it also stops your free-tier compute hours from idling — watch usage
-for a week before leaving it on.
+**5.3** — `--min-instances=1` keeps the *container* warm, **not the database**.
+Neon suspends after 5 minutes with no active *queries*, and closes idle
+connections when it does — an open pool does not hold it awake (Neon's
+compute-lifecycle docs; only an idle-in-transaction connection counts as
+active). So the first chat after a quiet spell still pays the database resume,
+a few hundred milliseconds, which `pool_pre_ping=True` absorbs by reconnecting.
+Keeping Neon itself awake means disabling scale to zero, a paid-plan setting —
+not worth it for a demo whose LLM calls take seconds.
 
 ### Stage 6 — docs
 
@@ -394,8 +397,9 @@ it from compute size — **901** on this project's 0.25–2 CU autoscaling range
   paid tier is still far below Cloud SQL, so the failure mode is a small bill, not
   an outage — set a billing alert anyway.
 - **Autosuspend adds latency to the first query after idle**, on top of the Cloud
-  Run cold start you already accepted. `pool_pre_ping=True` makes it *correct*; it
-  does not make it *fast*. Stage 5.3 is the lever.
+  Run cold start you already accepted — a few hundred milliseconds, per Neon.
+  `pool_pre_ping=True` makes it *correct*; it does not make it *fast*, and
+  Stage 5.3 does not help here (it warms the container, not the database).
 - **Neon is a third party, on another cloud.** It runs in AWS `us-east-2`, so
   Cloud Run reaches it over the public internet: another account, another status
   page, and another thing that can change its free tier. Cloud Run bills internet
