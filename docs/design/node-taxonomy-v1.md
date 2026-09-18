@@ -400,7 +400,7 @@ dead one. Both sites carry a comment saying so. The fix, when it is picked up, i
 the field and its two lines in `metadata_predicates`.
 
 **The index is load-bearing and fragile.** Unindexed, the document expression is a 520ms
-sequential scan. `books_search_idx` (GIN, `db/schema/02_indexes.sql` plus a dated migration,
+sequential scan. `books_search_idx` (GIN, `db/init/02_indexes.sql` plus a dated migration,
 since that file only runs at container init) takes it to ~5ms. Two things silently disable
 it, both of which look like cleanups: passing `'english'` or `''` as Python strings, which
 SQLAlchemy binds as parameters that a generic plan cannot match against a constant-folded

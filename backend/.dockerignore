@@ -19,6 +19,11 @@
 config/.env
 config/.env.*
 
+# SQL run against the database, never read by the app: db/init builds a fresh
+# database, db/commands holds ad-hoc queries and dated migrations
+db/init
+db/commands
+
 **/__pycache__
 **/*.py[cod]
 **/.pytest_cache

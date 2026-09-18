@@ -6,14 +6,19 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
 
 - `async_engine.py` — the shared async engine/session factory. Create sessions from
   here; the engine is closed on app shutdown (don't create ad-hoc engines).
-- `schema/` — schema is created by **raw SQL, in order**: extensions → tables →
-  indexes. `models.py` holds the SQLAlchemy ORM models, but
-  `Base.metadata.create_all` is *not* how tables come to exist — which is why
-  `index=True` flags on models do nothing (docs/backlog.md, Performance).
-  These files run **only when the container initializes an empty data
-  directory**, so an index added to `02_indexes.sql` never reaches an existing
-  database — pair it with a dated file in `schema/migrations/` and apply that
-  with `make postgres-query FILE=...`.
+- `schema/` — the Python side of the schema: `models.py` (SQLAlchemy ORM
+  models) and `filter_schemas.py`. `Base.metadata.create_all` is *not* how
+  tables come to exist — `init/` is — which is why `index=True` flags on models
+  do nothing (docs/backlog.md, Performance).
+- `init/` — the schema as **raw SQL, run in name order**: extensions → tables →
+  indexes. **Not in the image and never read by the app** (`.dockerignore` /
+  `.gcloudignore` exclude it). Locally, `docker-compose.yml` mounts it into
+  `/docker-entrypoint-initdb.d/`, which runs it **only when the container
+  initializes an empty data directory**; a managed database (Cloud SQL, Neon) is
+  bootstrapped from these files by hand — see docs/deployment.md §3.3. So an
+  index added to `02_indexes.sql` never reaches an existing database — pair it
+  with a dated file in `commands/migrations/` and apply that with
+  `make postgres-query FILE=...`.
   **`books_search_idx` duplicates a Python expression.** It is a GIN index over
   the `to_tsvector(...)` document that `search_document()` in
   `stores/book_store.py` builds, and Postgres matches expression indexes
@@ -72,9 +77,9 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
   A tracked `capped` attribute and a guard were tried and removed the same day;
   nothing registered pools a query, since `Combine_Union` does not exist. See
   docs/design/execution-pipeline-v1.md.
-- `bootstrap.py`, `readiness.py` — startup schema checks backing `GET /ready`.
-- `ingestion/` — populates `books` from `data/books.csv`. **Legacy, ignore**: old
-  Workflow/@task patterns; don't refactor it or model new code on it.
+- `commands/` — ad-hoc queries (`chat_run_eval.sql`, `example.sql`) and the
+  dated `migrations/`, run with `make postgres-query FILE=...`. Like `init/`,
+  excluded from the image.
 
 ## Tables
 

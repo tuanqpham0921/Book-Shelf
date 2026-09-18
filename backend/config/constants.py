@@ -32,10 +32,10 @@ class FilesLocationConstants:
     PAYLOAD_DIR = EXPORT_DIR / "payloads"
     
     BACKUP_DIR = DATA_DIR / "backup"
-    SCHEMA_DIR = PROJECT_ROOT / "db" / "schema"
-    SCHEMA_EXTENSIONS_FILE = SCHEMA_DIR / "00_extensions.sql"
-    SCHEMA_TABLES_FILE = SCHEMA_DIR / "01_tables.sql"
-    SCHEMA_INDEXES_FILE = SCHEMA_DIR / "02_indexes.sql"
+    # the SQL a fresh database is built from — never read by the app, and not
+    # in the image; compose mounts it, Cloud SQL / Neon get it by hand
+    DB_INIT_DIR = PROJECT_ROOT / "db" / "init"
+    SCHEMA_INDEXES_FILE = DB_INIT_DIR / "02_indexes.sql"
     
     LOG_DIR = PROJECT_ROOT / "logs"
 

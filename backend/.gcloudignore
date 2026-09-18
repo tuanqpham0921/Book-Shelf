@@ -24,6 +24,10 @@
 config/.env
 config/.env.*
 
+# SQL run against the database, never read by the app
+/db/init/
+/db/commands/
+
 **/__pycache__/
 **/*.py[cod]
 **/.pytest_cache/

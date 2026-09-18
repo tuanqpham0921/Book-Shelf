@@ -11,7 +11,7 @@ prevents that, and the assertions here are what stop someone "simplifying" it
 back.
 
 **The drift guard.** The same expression is written twice, once in
-`search_document()` and once as DDL in `db/schema/02_indexes.sql`. They must stay
+`search_document()` and once as DDL in `db/init/02_indexes.sql`. They must stay
 character-identical for the same reason, so the test compares them.
 
 **The deferred invariants and the score contract** — no LIMIT, no ORDER BY, and a

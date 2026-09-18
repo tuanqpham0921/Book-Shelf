@@ -112,7 +112,8 @@ is the most common way to leak a secret or upload 220MB.
 
 Both must exclude `config/.env` — otherwise your real secrets get baked into the
 image. Both exclude `logs/`, `data/`, `evals/` (145MB), `playground/`, `tests/`,
-`.venv`, `__pycache__`. Without `.gcloudignore`, `gcloud` uploads ~3,900 files
+`.venv`, `__pycache__`, and the SQL under `db/` the app never reads —
+`db/init/` (the schema) and `db/commands/` (ad-hoc queries, migrations). Without `.gcloudignore`, `gcloud` uploads ~3,900 files
 per deploy, and if the file is absent while `.gitignore` exists, gcloud *writes*
 a generated `.gcloudignore` into your repo.
 
@@ -259,7 +260,7 @@ postgres-dump-books:   # pg_dump --table=books --data-only -> data/backup/books.
 
 ### 3.3 Bootstrap, in this order
 
-There is no schema runner anywhere — `docker-compose.yml:29-31` mounts the SQL
+There is no schema runner anywhere — `docker-compose.yml` mounts `db/init/`
 into `/docker-entrypoint-initdb.d/`, which only fires on an empty data
 directory. Add `cloudsql-proxy`, `cloudsql-bootstrap` and `cloudsql-cli` targets
 so the proxy path is a first-class sibling of the `docker exec` ones.
@@ -275,11 +276,11 @@ so the proxy path is a first-class sibling of the `docker exec` ones.
    and `feedback_review_idx` also need their tables to exist.
 
 **No migration runner needed.** I verified all seven files in
-`db/schema/migrations/` are already folded into the base schema —
+`db/commands/migrations/` are already folded into the base schema —
 `writer JSONB` is in `01_tables.sql`, `books_search_idx` is in `02_indexes.sql`.
 A fresh database gets the current schema from `00/01/02`. Building a runner now
 is building for a caller that doesn't exist. The durable rule for the runbook: a
-schema change lands in `db/schema/0*.sql` **and** a dated migration file, and
+schema change lands in `db/init/0*.sql` **and** a dated migration file, and
 the migration is applied with `make cloudsql-cli ARGS="-f <file>"`.
 
 ### 3.4 Reconnect Cloud Run to the database
@@ -353,7 +354,7 @@ unscoped and unauthenticated. The feedback routes take a caller-supplied
 On the backlog's "real session-ownership verification, not 'the ID is hard to
 guess'" (`docs/backlog.md:21-25`): that **cannot be satisfied as written**.
 `POST /session/new` hands out session ids to anyone with no credential, so there
-is no identity to verify against. `db/schema/01_tables.sql` already calls
+is no identity to verify against. `db/init/01_tables.sql` already calls
 `feedback` "Reviews from the internal /review page" — this plan takes it at its
 word and gates the surface, which closes the disclosure *and* the tampering
 item together and dissolves the ownership question: the session id stops being

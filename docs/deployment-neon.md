@@ -349,7 +349,7 @@ neon-guard:
 	@test -n "$(NEON_URL)" || { echo "NEON_URL is not set — add it to config/.env"; exit 1; }
 
 # psql shell on Neon:   make neon-cli
-# one file or command:  make neon-cli ARGS="-f db/schema/migrations/xxx.sql"
+# one file or command:  make neon-cli ARGS="-f db/commands/migrations/xxx.sql"
 .PHONY: neon-cli
 neon-cli: neon-guard
 	psql "$(NEON_URL)" $(ARGS)
@@ -369,10 +369,10 @@ postgres-dump-books:
 # seed a fresh Neon database. THE ORDER IS LOAD-BEARING — see Step 5.
 .PHONY: neon-bootstrap
 neon-bootstrap: neon-guard
-	psql "$(NEON_URL)" -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/schema/00_extensions.sql
-	psql "$(NEON_URL)" -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/schema/01_tables.sql
+	psql "$(NEON_URL)" -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/00_extensions.sql
+	psql "$(NEON_URL)" -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/01_tables.sql
 	psql "$(NEON_URL)" -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)data/backup/books.sql
-	psql "$(NEON_URL)" -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/schema/02_indexes.sql
+	psql "$(NEON_URL)" -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/02_indexes.sql
 	@echo "Neon bootstrapped."
 ```
 
@@ -436,13 +436,13 @@ The ordering is not stylistic:
 
 Expect the books load to take a few minutes over TLS.
 
-**No migration runner needed.** All seven files in `db/schema/migrations/` are
+**No migration runner needed.** All seven files in `db/commands/migrations/` are
 already folded into the base schema — `writer JSONB` is in `01_tables.sql`,
 `books_search_idx` is in `02_indexes.sql`. A fresh database gets the current
 schema from `00/01/02`; building a runner now is building for a caller that does
-not exist. The durable rule: a schema change lands in `db/schema/0*.sql` **and** a
+not exist. The durable rule: a schema change lands in `db/init/0*.sql` **and** a
 dated migration file, and the migration is applied with
-`make neon-cli ARGS="-f db/schema/migrations/<file>.sql"`.
+`make neon-cli ARGS="-f db/commands/migrations/<file>.sql"`.
 
 ---
 

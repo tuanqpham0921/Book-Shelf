@@ -12,7 +12,7 @@
 -- Plain CREATE INDEX rather than CONCURRENTLY: trivial on 5,197 rows, and
 -- CONCURRENTLY cannot run inside the transaction block the other migrations use.
 --
--- Apply with: make postgres-query FILE=db/schema/migrations/2026_08_21_books_search_idx.sql
+-- Apply with: make postgres-query FILE=db/commands/migrations/2026_08_21_books_search_idx.sql
 BEGIN;
 
 CREATE INDEX IF NOT EXISTS books_search_idx

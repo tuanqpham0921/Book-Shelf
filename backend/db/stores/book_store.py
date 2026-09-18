@@ -68,7 +68,7 @@ def search_document(model: type[BookModel]):
     `regexp_replace` here would double the expression that has to stay identical
     to the DDL, and the prefix belongs to ingestion anyway.
 
-    **Duplicated as DDL in `db/schema/02_indexes.sql` and the two must stay
+    **Duplicated as DDL in `db/init/02_indexes.sql` and the two must stay
     character-identical** — Postgres matches an expression index structurally, so
     a changed separator here silently turns a single-digit-ms bitmap scan back
     into the 520ms sequential scan measured before the index existed.

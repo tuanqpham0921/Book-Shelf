@@ -8,7 +8,7 @@
 -- feedback) would violate the new constraint, so they're deleted first —
 -- a no-op on a database where every review's run still exists.
 --
--- Apply with: make postgres-query FILE=db/schema/migrations/2026_07_15_feedback_chat_id_fk.sql
+-- Apply with: make postgres-query FILE=db/commands/migrations/2026_07_15_feedback_chat_id_fk.sql
 BEGIN;
 
 DELETE FROM feedback f
