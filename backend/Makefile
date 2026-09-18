@@ -168,6 +168,52 @@ postgres-clear-test-runs:
 		psql -U $$POSTGRES_USER -d $$POSTGRES_DB -c "TRUNCATE TABLE test_runs;"
 	@echo "test_runs table cleared"
 
+# dump the local container's books table (data only, COPY format) — the seed
+# for neon-bootstrap. No --column-inserts: 5,197 rows x 1024 floats as
+# individual INSERTs would be enormous and slow to replay.
+.PHONY: postgres-dump-books
+postgres-dump-books:
+	@mkdir -p $(MAKEFILE_DIR)data/backup
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		pg_dump -U $$POSTGRES_USER -d $$POSTGRES_DB --table=books --data-only \
+		> $(MAKEFILE_DIR)data/backup/books.sql
+	@echo "books dumped to $(MAKEFILE_DIR)data/backup/books.sql"
+
+# -------------------
+# Neon (managed Postgres)
+# -------------------
+
+# Every target goes through the Neon CLI: `neon psql` resolves the project from
+# the .neon file `neon link` wrote in this folder and fetches the password from
+# your Neon login, so no operator credential sits in config/.env and a mistyped
+# host can never point these at the local container. Direct endpoint, not the
+# -pooler one, which is what dumps and schema changes need.
+
+# psql shell on Neon:   make neon-cli
+# one file or command:  make neon-cli ARGS='-c "SELECT count(*) FROM books;"'
+.PHONY: neon-cli
+neon-cli:
+	neon psql -- $(ARGS)
+
+# seed a fresh Neon database (make postgres-dump-books first). The order is
+# load-bearing: the books load needs the vector type from 00_extensions, and
+# ivfflat builds its centroids from the rows present when the index is created,
+# so 02_indexes runs last — built on an empty table, recall degrades silently.
+.PHONY: neon-bootstrap
+neon-bootstrap:
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/00_extensions.sql
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/01_tables.sql
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)data/backup/books.sql
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/02_indexes.sql
+	@echo "Neon bootstrapped."
+
+# the API against Neon instead of the compose container: config/.env.neon holds
+# only POSTGRES_* values, and process env beats config/.env in pydantic-settings
+.PHONY: dev-neon
+dev-neon:
+	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && $(MAKE) dev
+
 # -------------------
 # Docker commands
 # -------------------

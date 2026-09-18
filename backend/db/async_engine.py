@@ -28,12 +28,13 @@ def get_async_engine(sqlalchemy_settings: SQLAlchemySettings) -> AsyncEngine:
 
     engine = create_async_engine(
         sqlalchemy_settings.sqlalchemy_url,
-        # Connection pool settings optimized for Cloud SQL
         pool_size=sqlalchemy_settings.MIN_CONNECTIONS,
         max_overflow=sqlalchemy_settings.MAX_CONNECTIONS
         - sqlalchemy_settings.MIN_CONNECTIONS,
-        pool_pre_ping=True,  # Validate connections before use
-        pool_recycle=1800,  # Recycle connections every 30 minutes (Cloud SQL friendly)
+        # Validate connections before use — Neon suspends an idle compute, and
+        # this drops a connection that died with it instead of failing a request
+        pool_pre_ping=True,
+        pool_recycle=1800,  # Recycle connections every 30 minutes
         pool_timeout=60,  # Wait up to 60 seconds for a connection
         # echo=settings.debug, # Log SQL queries in debug mode
     )
