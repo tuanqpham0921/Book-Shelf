@@ -128,8 +128,8 @@ invocations.
 
 ```bash
 cd backend
-docker build -t book-rec-api .
-docker run --rm --network host -e PORT=8080 --env-file config/.env book-rec-api
+docker build -t book-shelf-api .
+docker run --rm --network host -e PORT=8080 --env-file config/.env book-shelf-api
 curl localhost:8080/ping     # -> {"status":"ok",...}
 curl localhost:8080/ready    # -> 200, proves it reached the local postgres
 ```
@@ -167,7 +167,7 @@ deploy flags already say, with no CI trigger calling it. That is exactly the
 delete. Fix the stale docs by **deleting the claim**, not by writing the file.
 
 ```bash
-gcloud run deploy book-rec-api \
+gcloud run deploy book-shelf-api \
   --source=backend/ --region=$REGION --no-allow-unauthenticated \
   --cpu=1 --memory=1Gi --cpu-boost --timeout=300 \
   --min-instances=0 --max-instances=3 --concurrency=5 \
@@ -187,7 +187,7 @@ gcloud run deploy book-rec-api \
 ### ✅ Stage 2 checkpoint
 
 ```bash
-URL=$(gcloud run services describe book-rec-api --region=$REGION --format='value(status.url)')
+URL=$(gcloud run services describe book-shelf-api --region=$REGION --format='value(status.url)')
 curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" $URL/ping
 ```
 `{"status":"ok"}` means the image built, `$PORT` was honored and the app booted.
@@ -262,7 +262,7 @@ the migration is applied with `make cloudsql-cli ARGS="-f <file>"`.
 ### 3.4 Reconnect Cloud Run to the database
 
 ```bash
-gcloud run services update book-rec-api --region=$REGION \
+gcloud run services update book-shelf-api --region=$REGION \
   --add-cloudsql-instances=$PROJECT:$REGION:book-rec-db \
   --update-env-vars="POSTGRES_HOST=/cloudsql/$PROJECT:$REGION:book-rec-db" \
   --startup-probe=httpGet.path=/ready,initialDelaySeconds=5,timeoutSeconds=5,periodSeconds=5,failureThreshold=6
@@ -387,8 +387,8 @@ strip validator.
 ### 4.5 Secrets and a real service account
 
 ```bash
-SA=book-rec-api@$PROJECT.iam.gserviceaccount.com
-gcloud iam service-accounts create book-rec-api --display-name="Book Recommender API"
+SA=book-shelf-api@$PROJECT.iam.gserviceaccount.com
+gcloud iam service-accounts create book-shelf-api --display-name="Book Recommender API"
 gcloud projects add-iam-policy-binding $PROJECT --member=serviceAccount:$SA \
   --role=roles/cloudsql.client
 
@@ -447,9 +447,9 @@ in `chat_runs` via `make cloudsql-cli`.
 ### 5.1 Open the service and set real origins
 
 ```bash
-gcloud run services update book-rec-api --region=$REGION \
+gcloud run services update book-shelf-api --region=$REGION \
   --update-env-vars="^@^APP_ALLOW_ORIGINS=https://tuanqpham0921.web.app,https://tuanqpham0921.firebaseapp.com"
-gcloud run services add-iam-policy-binding book-rec-api --region=$REGION \
+gcloud run services add-iam-policy-binding book-shelf-api --region=$REGION \
   --member=allUsers --role=roles/run.invoker
 ```
 
@@ -474,7 +474,7 @@ thing that drifts.
 ### 5.3 Consider min-instances=1
 
 You chose cold starts, which is right for now. But before you *share* the link,
-`gcloud run services update book-rec-api --min-instances=1` costs roughly
+`gcloud run services update book-shelf-api --min-instances=1` costs roughly
 $7/month — noise next to the Cloud SQL instance — and removes the 5-8s
 first-chat penalty that is most visible on exactly this low-traffic demo
 pattern. `--cpu-boost` shortens whatever cold start remains.
@@ -495,7 +495,7 @@ deployment claims are false.
 - **`README.md:52-56`** — replace the `gcloud builds submit --config
   cloudbuild.yaml` line with `cd backend && make deploy`. Also line 18,
   "Python 3.11+" → 3.12+.
-- **`CLAUDE.md` Infrastructure section** — name the service `book-rec-api`, the
+- **`CLAUDE.md` Infrastructure section** — name the service `book-shelf-api`, the
   Artifact Registry repo `cloud-run-source-deploy`, the instance
   `tuanqpham0921:us-central1:book-rec-db`, and the `/cloudsql/` socket path.
 - **New `docs/deploy.md`** — the runbook: one-time setup, the Stage 3 bootstrap

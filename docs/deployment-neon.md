@@ -495,7 +495,7 @@ read -rs -p "OpenAI API key: "  OPENAI_KEY; echo
 ```
 
 ```bash
-gcloud run deploy book-rec-api \
+gcloud run deploy book-shelf-api \
   --source=backend/ --region=$REGION --no-allow-unauthenticated \
   --cpu=1 --memory=1Gi --cpu-boost --timeout=300 \
   --min-instances=0 --max-instances=3 --concurrency=5 \
