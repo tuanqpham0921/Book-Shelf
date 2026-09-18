@@ -225,6 +225,9 @@ and `roles/artifactregistry.writer`.
 
 # Stage 3 — Cloud SQL
 
+> **Superseded by [deployment-neon.md](deployment-neon.md)** — the database is
+> Neon, and it is already live. Kept for the Cloud SQL path only.
+
 ### 3.1 Create the instance
 
 ```bash

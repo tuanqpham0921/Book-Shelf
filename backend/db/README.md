@@ -14,11 +14,11 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
   indexes. **Not in the image and never read by the app** (`.dockerignore` /
   `.gcloudignore` exclude it). Locally, `docker-compose.yml` mounts it into
   `/docker-entrypoint-initdb.d/`, which runs it **only when the container
-  initializes an empty data directory**; a managed database (Cloud SQL, Neon) is
-  bootstrapped from these files by hand — see docs/deployment.md §3.3. So an
-  index added to `02_indexes.sql` never reaches an existing database — pair it
-  with a dated file in `commands/migrations/` and apply that with
-  `make postgres-query FILE=...`.
+  initializes an empty data directory**; Neon was seeded from them by
+  `make neon-bootstrap` (docs/deployment-neon.md). So an index added to
+  `02_indexes.sql` never reaches an existing database — pair it with a dated
+  file in `commands/migrations/` and apply that with `make postgres-query
+  FILE=...` locally and `make neon-cli ARGS='-f ...'` on Neon.
   **`books_search_idx` duplicates a Python expression.** It is a GIN index over
   the `to_tsvector(...)` document that `search_document()` in
   `stores/book_store.py` builds, and Postgres matches expression indexes
@@ -97,4 +97,13 @@ make postgres-start     # Docker Compose PostgreSQL
 make postgres-restore   # load data/backup.sql
 make postgres-cli       # psql shell
 make postgres-stop
+```
+
+Neon (managed Postgres, the deployed database) — `neon auth` and `neon link`
+once per machine, see docs/deployment-neon.md:
+
+```bash
+make dev-neon           # make dev with config/.env.neon's POSTGRES_* over config/.env
+make neon-cli           # psql shell on Neon
+make neon-bootstrap     # seed an EMPTY Neon database from db/init + data/backup/books.sql
 ```

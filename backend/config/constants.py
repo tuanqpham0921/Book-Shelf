@@ -33,7 +33,7 @@ class FilesLocationConstants:
     
     BACKUP_DIR = DATA_DIR / "backup"
     # the SQL a fresh database is built from — never read by the app, and not
-    # in the image; compose mounts it, Cloud SQL / Neon get it by hand
+    # in the image; compose mounts it, make neon-bootstrap applies it to Neon
     DB_INIT_DIR = PROJECT_ROOT / "db" / "init"
     SCHEMA_INDEXES_FILE = DB_INIT_DIR / "02_indexes.sql"
     

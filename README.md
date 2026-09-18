@@ -101,7 +101,7 @@ The Cloud Run configuration is optimized for:
 ### Infrastructure
 - **Backend Hosting**: Google Cloud Run
 - **Frontend Hosting**: Firebase Hosting
-- **Database**: Cloud SQL (PostgreSQL)
+- **Database**: Neon (managed PostgreSQL)
 - **Container Registry**: Google Container Registry
 
 ---

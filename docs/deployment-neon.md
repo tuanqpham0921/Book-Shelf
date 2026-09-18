@@ -2,12 +2,11 @@
 
 > **Companion to [deployment.md](deployment.md)**, which is written for Cloud SQL.
 > This file replaces its **Stage 3** entirely and adjusts a few flags in Stages 2,
-> 4 and 6. **Stage 1 is unaffected** — the container work is already committed
-> (`151fa88`) and is correct either way.
+> 4 and 6. **Stage 1 is unaffected** — the container work is correct either way.
 >
-> Verified against the code on 2026-09-17. Nothing here is guesswork about how
-> the driver behaves; the two claims that usually get this wrong are checked
-> against the installed SQLAlchemy 2.0.43 and asyncpg 0.29.0 and noted as such.
+> **Status: the database is live** (Steps 1–6, done 2026-09-18). The driver
+> claims are checked against the installed SQLAlchemy 2.0.43 and asyncpg 0.29.0;
+> the Neon claims against Neon CLI 5.0.0 and the project itself.
 
 ---
 
@@ -115,364 +114,149 @@ The safety property is unchanged: Cloud Run still deploys
 
 ---
 
-## Step 1 — Two code changes and a comment
+## Steps 1–6 — done 2026-09-18
 
-### 1a. `config/settings/sqlalchemy.py`
+Neon project **`book-shelf`** (`dry-frog-27239435`), branch **`production`**,
+database `neondb`, role `neondb_owner` — in **`aws-us-east-2` (Ohio), on
+Postgres 18**. Two of those differ from what this section used to plan:
 
-**The trap that costs an afternoon: SQLAlchemy's asyncpg dialect needs `ssl=`,
-but Neon's dashboard hands you `?sslmode=require`.**
+- **There is no GCP region.** Neon creates projects in AWS regions (plus one
+  Azure), so `us-central1` was never on offer. Ohio is the nearest to Cloud
+  Run's `us-central1` (Iowa) — roughly 10–15 ms each way, for a few round trips
+  per chat turn beside LLM calls that take seconds. The traffic now leaves
+  Google's network; see Risks.
+- **Postgres 18, not 16.** The local container is `pgvector/pgvector:pg16`. A
+  data-only dump from 16 loads into 18, and nothing in the schema is
+  version-specific. The one visible skew is the local psql 16 talking to an 18
+  server, which warns on `\d`-style meta-commands — so the checkpoint below
+  uses plain SQL.
 
-Verified in the installed packages:
+### 1. Connection settings
 
-- `PGDialect_asyncpg.create_connect_args` is literally `opts.update(url.query)` —
-  every query parameter is forwarded to `asyncpg.connect()` as a **keyword
-  argument**.
-- `inspect.signature(asyncpg.connect)` has **`ssl`** and **no `sslmode`**.
-  asyncpg reads `sslmode` only out of a DSN string it parses itself
-  (`connect_utils` line 349), which is not the path SQLAlchemy takes.
-- A bare string is what it wants: `connect_utils` line 494 is
-  `if isinstance(ssl, (str, SSLMode)): sslmode = SSLMode.parse(ssl)`.
+`config/settings/sqlalchemy.py` gained **`SSL_MODE`** (default `prefer`, so the
+compose container, every existing `.env` and the CI env block connect
+unchanged) and now percent-encodes the credentials, because Neon generates the
+password. The URL carries **`ssl=`, not `sslmode=`**: SQLAlchemy's asyncpg
+dialect forwards every query parameter to `asyncpg.connect()` as a keyword
+argument, and that has `ssl` but no `sslmode` — so Neon's `?sslmode=require`
+pasted as-is raises `TypeError: connect() got an unexpected keyword argument
+'sslmode'` at connect time. `tests/unit/config/test_settings.py` guards the
+spelling and the escaping. The `/cloudsql/` socket branch is gone, with its
+tests.
 
-Paste Neon's URL as-is and you get, at connect time, not import time:
+**Keep `pool_pre_ping=True`** in `db/async_engine.py`. It drops a connection
+that died while Neon suspended the compute, which is what makes autosuspend
+invisible rather than a 500 on the first chat after a quiet hour.
 
-```
-TypeError: connect() got an unexpected keyword argument 'sslmode'
-```
-
-Replace the whole file:
-
-```python
-from urllib.parse import quote_plus
-
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from config.constants import FilesLocationConstants
-
-
-class SQLAlchemySettings(BaseSettings):
-    """Connection and pool settings for the async SQLAlchemy engine (PostgreSQL + asyncpg)."""
-
-    HOST: str
-    PORT: int
-    DB: str
-    USER: str
-    PASSWORD: str
-    MIN_CONNECTIONS: int
-    MAX_CONNECTIONS: int
-    # asyncpg's own default, so an unset value connects exactly as it did before
-    # this field existed. Neon needs `require`; the local compose container
-    # serves no TLS and falls back to plaintext under `prefer`. The only field
-    # here with a default, for that reason — it keeps every existing .env and
-    # the CI env matrix working unchanged.
-    SSL_MODE: str = "prefer"
-
-    @property
-    def sqlalchemy_url(self) -> str:
-        """Async SQLAlchemy URL (postgresql+asyncpg).
-
-        **`ssl=`, not `sslmode=`.** SQLAlchemy's asyncpg dialect passes every
-        query parameter straight through to `asyncpg.connect()` as a keyword
-        argument (`create_connect_args` is `opts.update(url.query)`), and
-        asyncpg has `ssl` but no `sslmode` — it reads that spelling only from a
-        DSN it parses itself. Neon's dashboard hands out a `?sslmode=require`
-        URL, so pasting it here raises
-        `TypeError: connect() got an unexpected keyword argument 'sslmode'`.
-
-        Credentials are percent-encoded because the password is no longer ours
-        to choose — Neon generates it. An unescaped `@` re-points the host
-        (everything left of the *last* `@` is the userinfo) and a `/` truncates
-        the database name, neither of which fails loudly; both read as a wrong
-        password for as long as it takes to find.
-        """
-        user = quote_plus(self.USER)
-        password = quote_plus(self.PASSWORD)
-        return (
-            f"postgresql+asyncpg://{user}:{password}"
-            f"@{self.HOST}:{self.PORT}/{self.DB}?ssl={self.SSL_MODE}"
-        )
-
-    model_config = SettingsConfigDict(
-        env_file=FilesLocationConstants.ENV_FILE,
-        env_prefix="POSTGRES_",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-```
-
-Two things went away in that rewrite, both deliberately:
-
-- **The `/cloudsql/` branch.** Nothing will ever set that host again, and
-  CLAUDE.md rule 5 says removal is part of the change. It is three lines in git
-  history if you want it back.
-- **The deferred `quote_plus` item.** The old plan dodged the escaping bug by
-  generating an alphanumeric password. That option is gone — Neon generates the
-  password — so the fix is now cheaper than the workaround.
-
-### 1b. `tests/unit/config/test_settings.py`
-
-Delete the three tests that only exist for the removed branch —
-`test_cloudsql_url_format`, `test_cloudsql_when_host_starts_with_cloudsql_prefix`,
-and `test_tcp_when_host_does_not_start_with_cloudsql` (which existed only to
-contrast with them). Fix `test_tcp_url_format`'s expected string to end
-`?ssl=prefer`. Then add guards for both fixes:
-
-```python
-class TestSQLAlchemySettingsSsl:
-    def test_ssl_mode_defaults_to_asyncpg_default(self):
-        assert make_sqlalchemy().SSL_MODE == "prefer"
-
-    def test_ssl_mode_reaches_the_url(self):
-        assert "?ssl=require" in make_sqlalchemy(SSL_MODE="require").sqlalchemy_url
-
-    def test_parameter_is_ssl_not_sslmode(self):
-        # asyncpg.connect() takes `ssl=` and has no `sslmode` keyword, and
-        # SQLAlchemy's dialect forwards query parameters to it verbatim.
-        # Emitting `sslmode` — which is what Neon's dashboard hands you —
-        # raises TypeError at connect time, so assert the spelling, not the value.
-        url = make_sqlalchemy(SSL_MODE="require").sqlalchemy_url
-        assert "sslmode=" not in url
-        assert "ssl=require" in url
-
-
-class TestSQLAlchemySettingsCredentialEscaping:
-    def test_password_reserved_characters_are_escaped(self):
-        # an unescaped '@' re-points the host: everything left of the LAST '@'
-        # is the userinfo, so "p@ss" would make "ss@localhost" the authority
-        s = make_sqlalchemy(PASSWORD="p@ss/word#1")
-        assert "p%40ss%2Fword%231" in s.sqlalchemy_url
-        assert "@localhost:5432/mydb" in s.sqlalchemy_url
-
-    def test_ordinary_credentials_are_left_alone(self):
-        # Neon's generated passwords are alphanumeric with underscores, which
-        # must survive untouched — quote_plus does not escape '_'
-        s = make_sqlalchemy(USER="neondb_owner", PASSWORD="npg_AbC123xyZ")
-        assert "neondb_owner:npg_AbC123xyZ@" in s.sqlalchemy_url
-```
-
-### 1c. `db/async_engine.py` — two stale comments
-
-Lines 31 and 36 say "optimized for Cloud SQL" and "Cloud SQL friendly". Say Neon.
-
-**Do not remove `pool_pre_ping=True`.** It is already there and it is exactly what
-an autosuspending database needs: it discards a connection that died during
-suspend instead of handing a dead one to a request. It is the reason autosuspend
-is invisible rather than a 500 on the first chat after a quiet hour.
-
-### 1d. `config/.env.example`
-
-```
-# 'require' for Neon; 'prefer' (the default) for the local compose container
-POSTGRES_SSL_MODE=prefer
-```
-
-Because the field has a default, **this does not break CI** the way a required
-field would — `.github/workflows/ci.yml`'s env block needs no change.
-
----
-
-## Step 2 — Create the Neon project
-
-1. Sign up at **[neon.tech](https://neon.tech)** (GitHub or Google login).
-2. Create a project named `book-recommender`, and set:
-   - **Postgres 16** — matches your local `pgvector/pgvector:pg16` and psql 16.14,
-     so no version skew
-   - **Cloud provider: GCP**, **region: `us-central1`** — the same region Cloud
-     Run uses, so the per-query round trip stays inside one datacenter
-3. Neon creates a database `neondb` and a role `neondb_owner`, then shows a
-   connection string.
-
-### Take the direct endpoint, not the pooled one
-
-Neon offers two hostnames and the dashboard often defaults to the pooled one:
-
-| Hostname | Use it? |
-|---|---|
-| `ep-<name>-<id>.us-central1.gcp.neon.tech` | ✅ **this one** |
-| `ep-<name>-<id>-`**`pooler`**`.us-central1.gcp.neon.tech` | ❌ |
-
-The `-pooler` host is PgBouncer in transaction mode, which breaks asyncpg's
-prepared-statement cache. SQLAlchemy already maintains its own pool
-(`db/async_engine.py`), so the pooler would be a second pool solving a problem you
-do not have, at the cost of a failure mode that only appears under load.
-
-### Map it into `config/.env`
-
-The string looks like this. Note there is **no port** — use the default 5432:
-
-```
-postgresql://neondb_owner:npg_XXXXXXXX@ep-cool-darkness-a1b2c3d4.us-central1.gcp.neon.tech/neondb?sslmode=require
-```
-
-```bash
-POSTGRES_HOST=ep-cool-darkness-a1b2c3d4.us-central1.gcp.neon.tech
-POSTGRES_PORT=5432
-POSTGRES_DB=neondb
-POSTGRES_USER=neondb_owner
-POSTGRES_PASSWORD=npg_XXXXXXXX
-POSTGRES_SSL_MODE=require
-POSTGRES_MIN_CONNECTIONS=2
-POSTGRES_MAX_CONNECTIONS=12
-
-# operator credential for psql — used only by the Makefile targets below
-NEON_URL=postgresql://neondb_owner:npg_XXXXXXXX@ep-cool-darkness-a1b2c3d4.us-central1.gcp.neon.tech/neondb?sslmode=require
-```
-
-`NEON_URL` keeps `sslmode=require`, and that is correct — **psql parses the DSN
-itself**, so it wants the libpq spelling. Only asyncpg needs `ssl=`. The two
-spellings living side by side in one file is confusing enough to be worth the
-comment.
-
-**Keep your local values.** You will switch back and forth; the simplest way is a
-`config/.env.local` and a `config/.env.neon`, copying one over `config/.env`.
-Verified: both are gitignored by the existing `config/.env*` rule
-(`backend/.gitignore:9`), and `.dockerignore` / `.gcloudignore` both already
-exclude `config/.env.*`.
-
----
-
-## Step 3 — Makefile targets
-
-Add to `backend/Makefile`, beside the existing `postgres-*` family:
-
-```make
-# -------------------
-# Neon (managed Postgres)
-# -------------------
-
-# NEON_URL is the operator credential for psql, read from config/.env.
-# Deliberately a SEPARATE variable from the POSTGRES_* app settings: these
-# targets write, and a mistyped host should never be able to bootstrap the
-# local container or production by accident.
-NEON_URL ?= $(shell set -a; . $(ENV_FILE) 2>/dev/null; set +a; echo $$NEON_URL)
-
-.PHONY: neon-guard
-neon-guard:
-	@test -n "$(NEON_URL)" || { echo "NEON_URL is not set — add it to config/.env"; exit 1; }
-
-# psql shell on Neon:   make neon-cli
-# one file or command:  make neon-cli ARGS="-f db/commands/migrations/xxx.sql"
-.PHONY: neon-cli
-neon-cli: neon-guard
-	psql "$(NEON_URL)" $(ARGS)
-
-# dump the local container's books table (data only, COPY format).
-# No --column-inserts: 5,197 rows x 1024 floats as individual INSERTs would be
-# enormous and slow to replay.
-.PHONY: postgres-dump-books
-postgres-dump-books:
-	@mkdir -p $(MAKEFILE_DIR)data/backup
-	set -a && . $(ENV_FILE) && set +a && \
-	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
-		pg_dump -U $$POSTGRES_USER -d $$POSTGRES_DB --table=books --data-only \
-		> $(MAKEFILE_DIR)data/backup/books.sql
-	@echo "books dumped to $(MAKEFILE_DIR)data/backup/books.sql"
-
-# seed a fresh Neon database. THE ORDER IS LOAD-BEARING — see Step 5.
-.PHONY: neon-bootstrap
-neon-bootstrap: neon-guard
-	psql "$(NEON_URL)" -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/00_extensions.sql
-	psql "$(NEON_URL)" -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/01_tables.sql
-	psql "$(NEON_URL)" -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)data/backup/books.sql
-	psql "$(NEON_URL)" -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/02_indexes.sql
-	@echo "Neon bootstrapped."
-```
-
-`ON_ERROR_STOP=1` matters. Without it psql reports an error and keeps going, so a
-failed `CREATE EXTENSION` would leave you loading 100 MB of books into a database
-with no `vector` type and a confusing error at the end of it.
-
----
-
-## Step 4 — Dump books from the local container
-
-### Add a gitignore rule first
-
-`backend/.gitignore:13` ignores `*backup.sql`, which covered the old
-`data/backup/backup.sql` but **does not match `books.sql`** — so the dump is
-committable as things stand, and GitHub rejects pushes over 100 MB. Add:
-
-```
-# Database dumps — books.sql is ~150MB of text-format vectors
-data/backup/
-```
-
-### Then dump
+### 2. Link, and where the credentials live
 
 ```bash
 cd backend
-make postgres-start        # if it is not already up
-make postgres-dump-books
-ls -lh data/backup/books.sql    # expect ~100-150 MB
+neon auth    # once per machine — browser sign-in; the CLI keeps the token
+neon link --project-id dry-frog-27239435 --branch production --no-env-pull --no-config -y
 ```
 
-Text-format floats are much larger than their on-disk form, so a 76 MB table
-dumps to well over 100 MB.
-
-**Do this before anything else, even if you are not ready to deploy.** The local
-container is currently the *only* copy of the embeddings — `data/backup/` is
-empty, so the dump referenced in `Makefile:75` is already gone. Regenerating
-5,197 embeddings costs real OpenAI spend, and `data/books.csv` has no vectors.
-
----
-
-## Step 5 — Bootstrap, in this order
+`neon link` writes the IDs to `backend/.neon` (and added that file to
+`.gitignore` itself). **`--no-env-pull` matters**: a pull writes `DATABASE_URL`
+into `config/.env`, which the app never reads — it reads the `POSTGRES_*`
+fields. Instead the **direct** connection string (`neon connection-string`'s
+default — not the `-pooler` host) is split into **`config/.env.neon`**, which
+holds only those fields:
 
 ```bash
-make neon-bootstrap
+POSTGRES_HOST=ep-<name>-<id>.us-east-2.aws.neon.tech
+POSTGRES_PORT=5432
+POSTGRES_DB=neondb
+POSTGRES_USER=neondb_owner
+POSTGRES_PASSWORD='npg_…'
+POSTGRES_SSL_MODE=require
+POSTGRES_MIN_CONNECTIONS=2
+POSTGRES_MAX_CONNECTIONS=12
 ```
 
-The ordering is not stylistic:
+`config/.env` stays pointed at the local container. `make dev-neon` sources
+`.env.neon` over it — process env beats the env file in pydantic-settings — so
+switching databases is a target, not a file copy. `config/.env.neon` is covered
+by the existing `config/.env*` gitignore rule and by both `.dockerignore` and
+`.gcloudignore`.
 
-1. **`00_extensions.sql`** — `vector` and `pg_trgm`. Neon allows both without
-   superuser, but nothing in the app creates them, and the books load fails
-   without `vector` because the column type would not exist.
+**Direct, although Neon's own guidance says pooled for web apps.** The
+`-pooler` host is PgBouncer in transaction mode. SQLAlchemy already pools
+(`db/async_engine.py`), and asyncpg's prepared-statement cache is the classic
+casualty of a second pool in front of it. One long-lived Cloud Run service
+holding at most 36 connections (Pool sizing) gives PgBouncer nothing to solve.
+
+### 3. Makefile targets
+
+| Target | Does |
+|---|---|
+| `make neon-cli` | psql shell on Neon; `ARGS='-c "…"'` or `ARGS='-f file.sql'` for one command or file |
+| `make postgres-dump-books` | the local container's `books`, data only, COPY format → `data/backup/books.sql` |
+| `make neon-bootstrap` | extensions → tables → books → indexes, each file with `ON_ERROR_STOP=1` |
+| `make dev-neon` | `make dev` with `config/.env.neon` loaded over `config/.env` (same port — stop `make dev` first) |
+
+The Neon targets go through **`neon psql`**, which finds the project in `.neon`
+and the password through your Neon login. So there is no operator credential
+in `config/.env` (the old plan's `NEON_URL`), and a mistyped host cannot point
+a write at the local container. `ON_ERROR_STOP=1` matters: without it psql
+reports an error and keeps going, so a failed `CREATE EXTENSION` would surface
+as a confusing error at the end of the books load.
+
+### 4. The books dump
+
+`data/backup/` is gitignored — the old `*backup.sql` rule did not match
+`books.sql`. The dump is **67 MB**. Keep it: regenerating 5,197 embeddings
+costs real OpenAI spend and `data/books.csv` has no vectors, so the local
+container, this file and Neon are the only three copies.
+
+### 5. Bootstrap order
+
+`make neon-bootstrap` took 1m23s. The order is load-bearing:
+
+1. **`00_extensions.sql`** — `vector` and `pg_trgm` (Neon allows both without
+   superuser). The books load fails without the `vector` type.
 2. **`01_tables.sql`**
-3. **Load `books.sql`**
-4. **`02_indexes.sql` — last, deliberately.** `books_embedding_idx` is
-   `ivfflat ... WITH (lists = 100)`, and ivfflat builds its centroids from the
-   rows present **at creation time**. Built on an empty table it is useless and
-   similarity recall degrades *silently* — you still get answers, just worse
-   ones, with nothing in the logs. `books_search_idx` and `feedback_review_idx`
-   also need their tables to exist.
+3. **`books.sql`**
+4. **`02_indexes.sql`, last.** `books_embedding_idx` is ivfflat, which builds
+   its centroids from the rows present when the index is created. Built on an
+   empty table, similarity recall degrades *silently* — answers still come
+   back, just worse ones.
 
-Expect the books load to take a few minutes over TLS.
+**No migration runner.** Every file in `db/commands/migrations/` is already
+folded into `db/init/`, so a fresh database gets the current schema from
+`00/01/02`. A schema change lands in `db/init/0*.sql` **and** a dated
+migration, and the migration reaches Neon with
+`make neon-cli ARGS='-f db/commands/migrations/<file>.sql'` — ideally tried on
+a Neon branch first (see Next steps).
 
-**No migration runner needed.** All seven files in `db/commands/migrations/` are
-already folded into the base schema — `writer JSONB` is in `01_tables.sql`,
-`books_search_idx` is in `02_indexes.sql`. A fresh database gets the current
-schema from `00/01/02`; building a runner now is building for a caller that does
-not exist. The durable rule: a schema change lands in `db/init/0*.sql` **and** a
-dated migration file, and the migration is applied with
-`make neon-cli ARGS="-f db/commands/migrations/<file>.sql"`.
-
----
-
-## Step 6 — Prove it locally
-
-With `config/.env` pointing at Neon:
+### 6. ✅ Checkpoint — passed 2026-09-18
 
 ```bash
-make dev
-curl localhost:8000/ready     # -> 200, against Neon
+make neon-cli ARGS='-c "SELECT extname, extversion FROM pg_extension;"'   # vector 0.8.6, pg_trgm 1.6
+make neon-cli ARGS='-c "SELECT count(*), count(embedding) FROM books;"'   # 5197 | 5197
+make neon-cli ARGS='-c "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema();"'  # 8
+make dev-neon              # then, from another shell:
+curl localhost:8000/ready  # 200
 ```
 
-Then send a real chat message and confirm book cards come back. This is the whole
-point of doing the database first: **the exact code path Cloud Run will use**,
-exercised where you can actually debug it.
+Eight indexes is the four from `02_indexes.sql` plus the four primary keys.
+One real turn — "books like Dune under 300 pages" — ran all four goals against
+Neon (Dune → 2,429 short books → 250 similar → 49 after the intersect) and
+streamed cards and prose.
 
-### ✅ Checkpoint
+### Next steps
 
-```bash
-make neon-cli ARGS='-c "\dx"'                         # vector, pg_trgm
-make neon-cli ARGS='-c "SELECT count(*) FROM books;"' # 5197
-make neon-cli ARGS='-c "\di"'                         # four indexes
-make neon-cli ARGS='-c "SHOW max_connections;"'       # see Pool sizing
-curl localhost:8000/ready                             # 200
-```
-
-Plus one real chat turn returning book cards. Then **switch `config/.env` back to
-the local container** for day-to-day work — the Cloud Run deploy passes Neon
-credentials explicitly, so the deployed service never depends on what your `.env`
-happens to say.
+- **Branch before a migration.** `neon branches create --name mig-<topic>`
+  is an instant copy-on-write clone of production with all 5,197 books; apply
+  the dated migration there, point `config/.env.neon` at its host, exercise it
+  with `make dev-neon`, then apply it to `production`. It is the first time a
+  schema change can be tested against real data before it lands.
+- **Stage 2 next.** Cloud Run can deploy with real credentials and the
+  `/ready` startup probe from its first revision (below).
+- **Neon's other services** — Object Storage, Functions, the AI Gateway —
+  are all available in `aws-us-east-2`, but nothing in the app is looking for
+  a home: there are no uploads, the API already runs on Cloud Run, and
+  `clients/` owns the OpenAI calls. Revisit only if one of those changes.
 
 ---
 
@@ -487,7 +271,7 @@ There is no Cloud SQL instance to administer.
 values first so no secret lands in shell history:
 
 ```bash
-NEON_HOST=ep-cool-darkness-a1b2c3d4.us-central1.gcp.neon.tech
+NEON_HOST=ep-<name>-<id>.us-east-2.aws.neon.tech   # POSTGRES_HOST in config/.env.neon
 NEON_USER=neondb_owner
 NEON_DB=neondb
 read -rs -p "Neon password: "   NEON_PW;    echo
@@ -550,10 +334,10 @@ for a week before leaving it on.
 
 ### Stage 6 — docs
 
-`CLAUDE.md`'s Infrastructure section currently says "**Database**: Cloud SQL
-(PostgreSQL)". It should name Neon and its `us-central1` GCP region. Check
-`backend/db/README.md` too — the connection story now has two targets (local
-container, Neon) selected by `config/.env`.
+Done with the database: `CLAUDE.md` and `README.md` name Neon as the database,
+and `backend/db/README.md` covers both targets (the local container via
+`config/.env`, Neon via `config/.env.neon` and `make dev-neon`). The Cloud Run
+lines follow once Stage 2 is real.
 
 ---
 
@@ -576,7 +360,8 @@ first is still open. Peak is **2 connections per in-flight turn**.
 The shipped defaults (`.env.example:18-19`, MIN=5/MAX=20) are **per instance** — at
 3 instances that is 60. Both are env-driven, so this is config, not code. Check
 the real ceiling with `make neon-cli ARGS='-c "SHOW max_connections;"'`; Neon sets
-it from compute size, and the smallest tier still allows comfortably more than 36.
+it from compute size — **901** on this project's 0.25–2 CU autoscaling range, so
+36 is nowhere near it.
 
 ---
 
@@ -611,10 +396,11 @@ it from compute size, and the smallest tier still allows comfortably more than 3
 - **Autosuspend adds latency to the first query after idle**, on top of the Cloud
   Run cold start you already accepted. `pool_pre_ping=True` makes it *correct*; it
   does not make it *fast*. Stage 5.3 is the lever.
-- **Neon is a third party**, not GCP. It runs in GCP `us-central1`, but it is
-  another account, another status page and another thing that can change its free
-  tier. The mitigation is that nothing is locked in: it is stock Postgres 16, so
-  moving to Cloud SQL later is `pg_dump` plus five env vars.
-- **The books seed depends on the local container staying populated** until Neon
-  is bootstrapped. Once it is, you have a second copy — the first time this
-  project has had one.
+- **Neon is a third party, on another cloud.** It runs in AWS `us-east-2`, so
+  Cloud Run reaches it over the public internet: another account, another status
+  page, and another thing that can change its free tier. Cloud Run bills internet
+  egress, but a turn moves kilobytes — no query returns the `embedding` column.
+  Nothing is locked in: it is stock Postgres, so moving to Cloud SQL later is
+  `pg_dump` plus five env vars.
+- **Local is 16, Neon is 18.** Harmless today; if a query ever behaves
+  differently between the two, suspect the version before the code.

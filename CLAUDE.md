@@ -39,7 +39,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 To save tokens, do not read these unless the task specifically requires it:
 
 - **Log files** (`backend/logs/` — `*.log` and chat-run JSON dumps): skip unless the task is formatting or restructuring the logs themselves.
-- **SQL backups/dumps** (`backend/data/*.sql`, e.g. `backup.sql`; `backend/evals/results/**/*.sql` raw eval dumps): never read these. The schema init SQL in `backend/db/schema/` (extensions/tables/indexes) is fine to read.
+- **SQL backups/dumps** (`backend/data/*.sql`, e.g. `backup.sql`; `backend/data/backup/`, e.g. the 67 MB `books.sql` seed; `backend/evals/results/**/*.sql` raw eval dumps): never read these. The schema init SQL in `backend/db/init/` (extensions/tables/indexes) is fine to read.
 - **`backend/playground/app_mock/`** — **outdated, ignore.** The mock executors and extended node schemas were the stand-in used for eval testing before the slices had real executors. They are no longer maintained and nothing live reads them (`NodeSpec.executor` points at the real slice executors). Don't read them for context, don't update them alongside a change to the real code, and don't model new code on them.
 
 If a file is in gitignore, you probably don't need to read it.
@@ -61,6 +61,8 @@ make postgres-start             # start PostgreSQL via Docker Compose
 make postgres-stop              # stop PostgreSQL container
 make postgres-restore           # restore data from data/backup.sql
 make postgres-cli               # open psql shell
+make dev-neon                   # make dev against Neon (config/.env.neon over config/.env)
+make neon-cli                   # psql shell on Neon, via the Neon CLI (neon auth + neon link first)
 make query-suite                # POST the base eval suite at a running backend (make dev first)
 make query-suite-all            # fire all 4 eval suites concurrently
 make tools-catalog              # inventory the planner's tool catalog (no backend/DB needed)
@@ -157,7 +159,7 @@ The app's own layer on top is `AppWorkflow` (`app/domains/base_workflow.py`), wh
 ### Database
 
 - **PostgreSQL + pgvector** via async SQLAlchemy (`db/async_engine.py`)
-- Schema SQL in `db/init/` (extensions → tables → indexes) — mounted by Docker Compose locally, applied by hand to a managed database, never read by the app and excluded from the image along with `db/commands/` (ad-hoc queries and dated migrations)
+- Schema SQL in `db/init/` (extensions → tables → indexes) — mounted by Docker Compose locally, applied to Neon by `make neon-bootstrap`, never read by the app and excluded from the image along with `db/commands/` (ad-hoc queries and dated migrations)
 - SQLAlchemy models in `db/schema/models.py`
 - Repository pattern in `db/stores/` — `book_store.py` is the primary store. Retrieval is **counts-first**: `title_query()` builds a `DeferredBookQuery` that isn't run for rows, `count()` runs only a `COUNT`, `DeferredBookQuery.compose()` folds several into one CTE, and `materialize()` is the single place rows are fetched — each node's capped `preview`, and the similarity node's anchors. (`filter_query()` was deleted 2026-08-24 with `Filter_Retrieval`: a bound is `numeric_traits_query()` composed with the subject, so there is one way to narrow rather than two.) Statement derivation lives on `DeferredBookQuery` itself; the store builds from dimensions and executes — with one exception, `embedding_search_stmt`, a module-level pure builder rather than a store method, because only the caller knows the label that elides its 1024-float vector from the recorded SQL; keeping that build step out of the store is what keeps airglider out of `db/`. **`DeferredBookQuery` carries no LIMIT and no ORDER BY — with one documented exception** (2026-08-24): the vector search keeps both, because it does not select a subset but orders the whole table and truncates, so the cap *is* the pool. `score_stats()` is its counting call, since `count()` on it only ever reports the LIMIT. **Nothing on the class marks the exception and `compose()` does not refuse it** — a `capped` attribute and a compose guard were built and removed the same day. What that leaves unprotected split in two on 2026-08-24: **`compose(op="and")` carries the one `score` through** (an intersect result is a subset of every input, so that column is defined on every output row), which is what makes `Combine_Intersect` able to bound a similarity pool *without flattening cosine order* — the LIMIT still applies first, so the count means "of the 250 nearest, N also match". **`compose(op="or")` still drops it and is still lossy** — a union contains rows the pool never matched — so tune `MIN_SIMILARITY` to bound the pool or restore the guard before registering `Combine_Union`. See `db/README.md` and [docs/design/execution-pipeline-v1.md](docs/design/execution-pipeline-v1.md)
 - `db/ingestion/` populates books from `data/books.csv` — **legacy, ignore**: still uses old `Workflow`/`@task` patterns and will be reworked later; don't refactor it or model new code on it
@@ -181,5 +183,5 @@ The app's own layer on top is `AppWorkflow` (`app/domains/base_workflow.py`), wh
 
 - **Backend**: Google Cloud Run, deployed via `gcloud builds submit`
 - **Frontend**: Firebase Hosting
-- **Database**: Cloud SQL (PostgreSQL)
+- **Database**: Neon — managed Postgres 18 in `aws-us-east-2`, project `book-shelf` (see [docs/deployment-neon.md](docs/deployment-neon.md))
 - Local dev uses Docker Compose for PostgreSQL only (see `backend/docker-compose.yml`)
