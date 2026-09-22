@@ -262,6 +262,23 @@ deploy-check:
 	echo "$$URL"; \
 	curl -fsS -w '\n' "$$URL/ready" || (echo "NOT READY"; exit 1)
 
+# kill switch: drop public access so every request gets a 403 and nothing runs
+# (min-instances=0) or reaches OpenAI. The service and its URL stay; `deploy-on`
+# restores access without a rebuild (`make deploy` also does, since
+# --allow-unauthenticated re-adds this binding).
+.PHONY: deploy-off
+deploy-off:
+	gcloud run services remove-iam-policy-binding $(CLOUD_RUN_SERVICE) \
+		--member=allUsers --role=roles/run.invoker \
+		--region=$(CLOUD_RUN_REGION) --project=$(GCP_PROJECT)
+
+.PHONY: deploy-on
+deploy-on:
+	gcloud run services add-iam-policy-binding $(CLOUD_RUN_SERVICE) \
+		--member=allUsers --role=roles/run.invoker \
+		--region=$(CLOUD_RUN_REGION) --project=$(GCP_PROJECT)
+	@$(MAKE) deploy-check
+
 # -------------------
 # Docker commands
 # -------------------

@@ -64,6 +64,8 @@ make dev-neon                   # make dev against Neon (config/.env.neon over c
 make neon-cli                   # psql shell on Neon, via the Neon CLI (neon auth + neon link first)
 make deploy                     # deploy the backend to Cloud Run (the recipe is the whole service config)
 make deploy-check               # curl /ready on the live revision
+make deploy-off                 # kill switch: revoke public access (403s); nothing is deleted
+make deploy-on                  # restore public access without a rebuild, then deploy-check
 make query-suite                # POST the base eval suite at a running backend (make dev first)
 make query-suite-all            # fire all 4 eval suites concurrently
 make tools-catalog              # inventory the planner's tool catalog (no backend/DB needed)
