@@ -22,6 +22,10 @@ ARGS_PARSER_PROMPT_PATH = (
     "domains/books/find_by_lexical_traits/prompts/lexical_traits_args_parser.txt"
 )
 
+# More room than the single-field parsers: keywords is a list, and this node
+# runs at reasoning_effort="low", which spends from the same budget.
+MAX_COMPLETION_TOKENS = 2_000
+
 
 def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
     """Ask the LLM to fill `FindByLexicalTraitsArgs` in from the planner's instruction.
@@ -42,6 +46,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         reasoning_effort="low",
         messages=[AssistantMessage(content=instruction)],
         tool_models=[FindByLexicalTraitsArgs],
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )
 
 

@@ -70,6 +70,10 @@ PROMPT_PATH = "orchestration/write_recommendations/prompts/write_recommendations
 MAX_INFO_CHARS = 400
 MAX_BOOK_CHARS = 600
 
+# The longest output in the app: prose plus sources for every goal in the plan,
+# so it scales with MAX_SYSTEM_GOALS rather than with one schema.
+MAX_COMPLETION_TOKENS = 4_000
+
 # What an entry with no goal instruction is headed by — an output that never
 # travelled through the runner, which no registered plan produces today.
 FALLBACK_HEADER = "part of the search"
@@ -274,4 +278,5 @@ def build_recommendations_request(
         ],
         tool_models=[GenerationResult],
         include_tool_description=False,
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )

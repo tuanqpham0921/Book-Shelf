@@ -31,6 +31,10 @@ ANALYZE_REFERENCES_PROMPT_PATH = (
 MAX_DOC_CHARS = 1500
 MAX_TOTAL_CHARS = 8000
 
+# Writes an `IdealBookDescription` — prose, not a field to fill, so above the
+# argument parsers.
+MAX_COMPLETION_TOKENS = 2_000
+
 
 def render_documents(books: list[Book]) -> str:
     """The document block the analyzer prompt reads.
@@ -104,4 +108,5 @@ def build_analysis_request(document_text: str) -> OpenAIParserRequest:
         # prior system work, not something the user typed
         messages=[AssistantMessage(content=document_text)],
         tool_models=[IdealBookDescription],
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )

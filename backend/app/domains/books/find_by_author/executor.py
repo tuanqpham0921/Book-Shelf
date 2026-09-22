@@ -14,6 +14,9 @@ from .external import FindByAuthorInput, FindByAuthorOutput
 
 from common.prompts import basic_fill_schema_prompt
 
+# One field to fill; see find_by_title/executor.py for the sizing rule.
+MAX_COMPLETION_TOKENS = 1_000
+
 
 def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
     """Ask the LLM to fill `FindByAuthorArgs` in from the planner's instruction."""
@@ -29,6 +32,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         # instructions are enough while the conversation is single-turn.
         messages=[AssistantMessage(content=instruction)],
         tool_models=[FindByAuthorArgs],
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )
 
 

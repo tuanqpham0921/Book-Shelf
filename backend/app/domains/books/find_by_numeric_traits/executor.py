@@ -30,6 +30,10 @@ ARGS_PARSER_PROMPT_PATH = (
     "domains/books/find_by_numeric_traits/prompts/numeric_traits_args_parser.txt"
 )
 
+# The widest argument schema in the app — a whole BookMetadataFilter — and it
+# runs at reasoning_effort="low", which spends from the same budget.
+MAX_COMPLETION_TOKENS = 2_000
+
 
 def range_phrase(
     low: float | None,
@@ -142,6 +146,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         # instructions are enough while the conversation is single-turn.
         messages=[AssistantMessage(content=instruction)],
         tool_models=[FindByNumericTraitsArgs],
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )
 
 

@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 PlanJaneInput = NodeInput | ParsedInput[GoalParseRequest]
 
 GOAL_GENERATOR_PROMPT_PATH = "domains/planjane/prompts/0_goal_generator.txt"
+
+# A maximal plan — MAX_SYSTEM_GOALS (10) goals with every string at its bound —
+# serializes to ~1,341 tokens, so this is the schema's own worst case plus
+# margin. Raise it with MAX_SYSTEM_GOALS or MAX_INSTRUCTION_LENGTH.
+MAX_COMPLETION_TOKENS = 2_000
 # PLAYGORUND_PROMPT_PATH = "../playground/prompting/planner_prompt._extended.txt"
 
 
@@ -61,6 +66,7 @@ def build_goal_parse_request(query: str) -> OpenAIParserRequest:
         # what gets parsed.
         messages=[UserMessage(content=query)],
         tool_models=[GoalParseRequest],
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )
 
 

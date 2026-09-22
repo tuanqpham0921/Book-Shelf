@@ -16,6 +16,10 @@ from .external import FindByTitleInput, FindByTitleOutput
 
 from common.prompts import basic_fill_schema_prompt
 
+# One field to fill, so the ceiling is far above anything healthy — it stops a
+# runaway, it does not shape the output. Counts reasoning too.
+MAX_COMPLETION_TOKENS = 1_000
+
 
 def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
     """Ask the LLM to fill `FindByTitleArgs` in from the planner's instruction."""
@@ -31,6 +35,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         # instructions are enough while the conversation is single-turn.
         messages=[AssistantMessage(content=instruction)],
         tool_models=[FindByTitleArgs],
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )
 
 
