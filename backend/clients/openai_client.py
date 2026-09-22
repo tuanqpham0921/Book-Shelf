@@ -84,8 +84,20 @@ class OpenAIClient(BaseLLMClient):
 
         async with self.semaphore:
             final_completion = await self._chat_stream(payload, req.sse_stream)
-        
-        response_message = final_completion.choices[0].message
+
+        choice = final_completion.choices[0]
+        # The cap bounds reasoning + output together on gpt-5, so a call that
+        # hits it returns a truncated tool call — which reaches the app as an
+        # empty `tool_calls` and gets reported as "no tool calls", naming the
+        # symptom rather than the cause. This is the only layer that can see
+        # both the finish reason and the cap that produced it.
+        if choice.finish_reason == "length":
+            raise ValueError(
+                f"hit max_completion_tokens ({payload.get('max_completion_tokens')}) "
+                f"before finishing — the response is truncated"
+            )
+
+        response_message = choice.message
         assistant_msg = AssistantMessage(
             id=final_completion.id,
             content=response_message.content,

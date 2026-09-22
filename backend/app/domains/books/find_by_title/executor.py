@@ -31,7 +31,6 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         # instructions are enough while the conversation is single-turn.
         messages=[AssistantMessage(content=instruction)],
         tool_models=[FindByTitleArgs],
-        max_completion_tokens=2000,
     )
 
 

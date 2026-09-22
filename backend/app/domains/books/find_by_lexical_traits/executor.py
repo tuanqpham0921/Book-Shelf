@@ -42,7 +42,6 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         reasoning_effort="low",
         messages=[AssistantMessage(content=instruction)],
         tool_models=[FindByLexicalTraitsArgs],
-        max_completion_tokens=2000,
     )
 
 

@@ -4,6 +4,7 @@ from typing import Any
 from .base import BaseLLMRequest
 
 from config import settings
+from config.constants import OpenAIConstants
 from clients.messages import AssistantMessage, SystemMessage, ToolMessage
 from openai import pydantic_function_tool
 from openai.types.chat import ChatCompletionFunctionToolParam
@@ -12,7 +13,6 @@ from typing import Annotated
 
 logger = logging.getLogger(__name__)
 
-MAX_COMPLETION_TOKENS = 300
 TEMPERATURE = 0.3
 TOP_P = 0.8
 SEED = 42
@@ -25,7 +25,9 @@ class OpenAIBaseRequest(BaseLLMRequest):
     seed: int | None = SEED
     reasoning_effort: str | None = 'low'
 
-    max_completion_tokens: int = 1000
+    # A parse is the common case; the planner and the reply writer say so
+    # themselves. Bounds reasoning + output together on gpt-5 models.
+    max_completion_tokens: int = OpenAIConstants.ARGS_PARSE_COMPLETION
 
     @model_validator(mode="after")
     def check_tool_message_linkage(self) -> "OpenAIBaseRequest":
@@ -85,7 +87,7 @@ class OpenAIBaseRequest(BaseLLMRequest):
             "model": self.model,
             "messages": self.to_messages_payload(),
             "stream_options": {"include_usage": True},
-            # "max_completion_tokens": self.max_completion_tokens
+            "max_completion_tokens": self.max_completion_tokens,
         }
 
         if self.model.startswith("gpt-5"):
@@ -143,16 +145,9 @@ class OpenAIParserRequest(OpenAIBaseRequest):
 
 class OpenAIChatRequest(OpenAIBaseRequest):
     """Support only sse stream no tool choice"""
-    
-    max_complete_chat_tokens: int = Field(default = MAX_COMPLETION_TOKENS)
 
     @model_validator(mode="after")
     def check_sse_stream(self) -> "OpenAIChatRequest":
         if not self.sse_stream:
             raise ValueError("Usage error: sse_stream must be provided")
         return self
-
-    def to_payload(self) -> dict[str, Any]:
-        payload = self.base_payload()
-        payload["max_completion_tokens"] = self.max_complete_chat_tokens
-        return payload

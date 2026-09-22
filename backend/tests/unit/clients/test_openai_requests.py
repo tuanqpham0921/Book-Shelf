@@ -6,7 +6,6 @@ from pydantic import BaseModel
 from clients.messages import AssistantMessage, ToolMessage, UserMessage
 from app.common.sse_stream import SSEStream
 from clients.openai_requests import (
-    MAX_COMPLETION_TOKENS,
     SEED,
     TEMPERATURE,
     TOP_P,
@@ -14,6 +13,7 @@ from clients.openai_requests import (
     OpenAIChatRequest,
     OpenAIParserRequest,
 )
+from config.constants import OpenAIConstants
 
 
 USER_MSG = UserMessage(content="hello")
@@ -47,7 +47,15 @@ class TestOpenAIBaseRequest:
     def test_base_payload_keys(self):
         req = OpenAIBaseRequest(prompt="p", messages=[USER_MSG])
         payload = req.base_payload()
-        assert set(payload.keys()) == {"model", "messages", "temperature", "top_p", "seed", "stream_options"}
+        assert set(payload.keys()) == {
+            "model",
+            "messages",
+            "temperature",
+            "top_p",
+            "seed",
+            "stream_options",
+            "max_completion_tokens",
+        }
 
     def test_base_payload_includes_stream_options(self):
         req = OpenAIBaseRequest(prompt="p", messages=[USER_MSG])
@@ -135,6 +143,28 @@ class TestOpenAIParserRequest:
         payload = req.to_payload()
         assert payload["tools"] == [override]
 
+    def test_to_payload_sends_max_completion_tokens(self):
+        # the live path: every parse in the app goes through this class, and
+        # the cap used to be dropped here silently
+        req = OpenAIParserRequest(prompt="p", messages=[USER_MSG], tool_models=[ToolA])
+        assert (
+            req.to_payload()["max_completion_tokens"]
+            == OpenAIConstants.ARGS_PARSE_COMPLETION
+        )
+
+    def test_to_payload_honors_a_raised_cap(self):
+        # how the planner and the reply writer ask for more
+        req = OpenAIParserRequest(
+            prompt="p",
+            messages=[USER_MSG],
+            tool_models=[ToolA],
+            max_completion_tokens=OpenAIConstants.REPLY_COMPLETION,
+        )
+        assert (
+            req.to_payload()["max_completion_tokens"]
+            == OpenAIConstants.REPLY_COMPLETION
+        )
+
 
 class TestOpenAIChatRequest:
     def test_requires_sse_stream(self):
@@ -146,13 +176,12 @@ class TestOpenAIChatRequest:
         assert req.sse_stream is not None
 
     def test_to_payload_has_max_completion_tokens(self):
+        # inherited from the base now; the chat class no longer declares a
+        # second field of its own
         req = OpenAIChatRequest(prompt="p", messages=[USER_MSG], sse_stream=make_sse_stream())
-        assert req.to_payload()["max_completion_tokens"] == MAX_COMPLETION_TOKENS
-
-    def test_custom_max_completion_tokens(self):
-        req = OpenAIChatRequest(
-            prompt="p", messages=[USER_MSG], sse_stream=make_sse_stream(), max_complete_chat_tokens=50
+        assert (
+            req.to_payload()["max_completion_tokens"]
+            == OpenAIConstants.ARGS_PARSE_COMPLETION
         )
-        assert req.to_payload()["max_completion_tokens"] == 50
 
 

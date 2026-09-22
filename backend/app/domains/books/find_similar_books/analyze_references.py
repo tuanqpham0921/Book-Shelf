@@ -104,5 +104,4 @@ def build_analysis_request(document_text: str) -> OpenAIParserRequest:
         # prior system work, not something the user typed
         messages=[AssistantMessage(content=document_text)],
         tool_models=[IdealBookDescription],
-        max_completion_tokens=2000,
     )

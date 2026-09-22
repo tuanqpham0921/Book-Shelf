@@ -59,6 +59,7 @@ from app.orchestration.task_runner import TaskResult
 from airglider import remove_empty_values
 from clients import OpenAIParserRequest
 from clients.messages import AssistantMessage, UserMessage
+from config.constants import OpenAIConstants
 
 from .external import GenerationResult
 
@@ -274,4 +275,7 @@ def build_recommendations_request(
         ],
         tool_models=[GenerationResult],
         include_tool_description=False,
+        # the longest output in the app — every goal's prose plus its sources,
+        # so well above the parse default
+        max_completion_tokens=OpenAIConstants.REPLY_COMPLETION,
     )

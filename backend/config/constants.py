@@ -14,7 +14,18 @@ class AppConfig:
 
 
 class OpenAIConstants:
+    # Ceiling on the *input* to a call — not a completion cap. The two read
+    # alike and are unrelated: this one raises before the request is sent.
     MAX_TOKENS = 100_000
+
+    # Completion caps, named by the job a call does rather than by node, so
+    # the arg-parsing slices stay interchangeable. On gpt-5 models this bounds
+    # reasoning *and* visible output together, so these are runaway guards,
+    # not output budgets — sized well above what a healthy call uses.
+    # Tightening one to shape response length truncates the tool call instead.
+    ARGS_PARSE_COMPLETION = 2_000   # a node filling 1-3 argument fields
+    PLAN_COMPLETION       = 4_000   # PlanJane: many goals, whole catalog
+    REPLY_COMPLETION      = 8_000   # the turn's prose, the longest output
 
 class FilesLocationConstants:
     """Repository paths resolved from the backend package root."""
