@@ -14,23 +14,9 @@ class AppConfig:
 
 
 class OpenAIConstants:
-    # Ceiling on the *input* to a call — not a completion cap. The two read
-    # alike and are unrelated: this one raises before the request is sent.
-    MAX_TOKENS = 100_000
-
-    # Completion caps. `max_completion_tokens` is the only cap the Chat
-    # Completions API takes, and it bounds reasoning *and* visible output
-    # together — there is no separate output-token knob, and `max_tokens` is
-    # deprecated and rejected by reasoning models. So these are runaway
-    # guards, not budgets: a cap costs nothing until it binds, and when it
-    # binds it fails the turn rather than making it cheaper. Size them above
-    # the worst case the schemas permit, never near the expected value.
-    #
-    # Two tiers, because the planner and an argument parse measure the same.
-    # A maximal GoalParseRequest — MAX_SYSTEM_GOALS (10) goals, every string
-    # at its bound — is 1341 tokens; a realistic 10-goal plan is 611.
+    MAX_PROMPT_TOKENS = 25_000
     DEFAULT_COMPLETION = 2_000  # the planner, and every node's argument parse
-    REPLY_COMPLETION   = 8_000  # the generation stage: the turn's whole prose
+    REPLY_COMPLETION   = 4_000  # the generation stage: the turn's whole prose
 
 class FilesLocationConstants:
     """Repository paths resolved from the backend package root."""
