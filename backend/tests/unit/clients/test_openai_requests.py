@@ -5,7 +5,11 @@ from pydantic import BaseModel
 
 from clients.messages import AssistantMessage, ToolMessage, UserMessage
 from app.common.sse_stream import SSEStream
+from pydantic import ValidationError
+
 from clients.openai_requests import (
+    REASONING_EFFORT,
+    REASONING_EFFORTS,
     SEED,
     TEMPERATURE,
     TOP_P,
@@ -35,6 +39,84 @@ class DocumentedTool(BaseModel):
     """Purpose: pick this tool when the user names a title."""
 
     query: str
+
+
+class TestModelFamilySettings:
+    """A request must not carry a setting its model ignores.
+
+    The rule is *explicitly set*, not *has a value*: every one of these fields
+    has a class default, so the check reads `model_fields_set` and a default
+    is cleared rather than refused.
+    """
+
+    def test_reasoning_model_clears_sampling_defaults(self):
+        req = OpenAIBaseRequest(prompt="p", messages=[USER_MSG], model="gpt-5-nano")
+        assert req.temperature is None
+        assert req.top_p is None
+        assert req.seed is None
+        assert req.reasoning_effort == REASONING_EFFORT
+
+    def test_sampling_model_clears_reasoning_default(self):
+        req = OpenAIBaseRequest(prompt="p", messages=[USER_MSG], model="gpt-4.1-mini")
+        assert req.reasoning_effort is None
+        assert req.temperature == TEMPERATURE
+
+    @pytest.mark.parametrize("field,value", [("temperature", 0.3), ("top_p", 0.5), ("seed", 1)])
+    def test_reasoning_model_refuses_sampling_settings(self, field, value):
+        with pytest.raises(ValidationError, match="ignores"):
+            OpenAIBaseRequest(
+                prompt="p", messages=[USER_MSG], model="gpt-5-nano", **{field: value}
+            )
+
+    def test_sampling_model_refuses_reasoning_effort(self):
+        with pytest.raises(ValidationError, match="reasoning_effort"):
+            OpenAIBaseRequest(
+                prompt="p", messages=[USER_MSG], model="gpt-4.1-mini", reasoning_effort="low"
+            )
+
+    @pytest.mark.parametrize("effort", sorted(REASONING_EFFORTS))
+    def test_every_known_effort_is_accepted(self, effort):
+        req = OpenAIBaseRequest(
+            prompt="p", messages=[USER_MSG], model="gpt-5-nano", reasoning_effort=effort
+        )
+        assert req.base_payload()["reasoning_effort"] == effort
+
+    def test_unknown_effort_is_refused(self):
+        # the typo case: "lo" would otherwise travel to the API
+        with pytest.raises(ValidationError, match="is not one of"):
+            OpenAIBaseRequest(
+                prompt="p", messages=[USER_MSG], model="gpt-5-nano", reasoning_effort="lo"
+            )
+
+
+class TestCompletionCapBounds:
+    def test_a_node_may_raise_its_cap_up_to_the_ceiling(self):
+        req = OpenAIBaseRequest(
+            prompt="p",
+            messages=[USER_MSG],
+            max_completion_tokens=OpenAIConstants.REPLY_COMPLETION,
+        )
+        assert req.max_completion_tokens == OpenAIConstants.REPLY_COMPLETION
+
+    def test_above_the_ceiling_is_refused(self):
+        with pytest.raises(ValidationError, match="less than or equal"):
+            OpenAIBaseRequest(
+                prompt="p",
+                messages=[USER_MSG],
+                max_completion_tokens=OpenAIConstants.REPLY_COMPLETION + 1,
+            )
+
+    @pytest.mark.parametrize("bad", [0, -1])
+    def test_non_positive_cap_is_refused(self, bad):
+        with pytest.raises(ValidationError, match="greater than"):
+            OpenAIBaseRequest(prompt="p", messages=[USER_MSG], max_completion_tokens=bad)
+
+    @pytest.mark.parametrize("field,bad", [("temperature", 2.1), ("top_p", 1.1)])
+    def test_sampling_settings_stay_in_range(self, field, bad):
+        with pytest.raises(ValidationError):
+            OpenAIBaseRequest(
+                prompt="p", messages=[USER_MSG], model="gpt-4.1-mini", **{field: bad}
+            )
 
 
 class TestOpenAIBaseRequest:

@@ -16,18 +16,44 @@ logger = logging.getLogger(__name__)
 TEMPERATURE = 0.3
 TOP_P = 0.8
 SEED = 42
+REASONING_EFFORT = "low"
+
+# The two model families, and what each one takes. A reasoning model is told
+# how hard to think; everything else is told how to sample. Sending the wrong
+# set is not a soft error at the API, so the split is enforced below rather
+# than left to whoever writes the next `build_*_request`.
+REASONING_MODEL_PREFIX = "gpt-5"
+SAMPLING_FIELDS = frozenset({"temperature", "top_p", "seed"})
+
+# The app's own list, not the SDK's: `openai.types.shared.ReasoningEffort`
+# omits "none", which gpt-5.6 accepts and the planner uses. Widen this when a
+# model gains a level — an unknown value is a typo far more often than a
+# feature, and the API rejects it either way.
+REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high"})
 
 
 class OpenAIBaseRequest(BaseLLMRequest):
     model: str = settings.openai.BASE_MODEL
-    temperature: float | None = TEMPERATURE
-    top_p: float | None = TOP_P
+    temperature: float | None = Field(default=TEMPERATURE, ge=0.0, le=2.0)
+    top_p: float | None = Field(default=TOP_P, ge=0.0, le=1.0)
     seed: int | None = SEED
-    reasoning_effort: str | None = 'low'
+    reasoning_effort: str | None = REASONING_EFFORT
 
     # Bounds reasoning + visible output together. Only the reply writer needs
-    # more than the default, and it says so itself.
-    max_completion_tokens: int = OpenAIConstants.DEFAULT_COMPLETION
+    # more than the default, and it says so itself — so `REPLY_COMPLETION` is
+    # also the ceiling: a node may ask for anything up to the largest tier the
+    # app defines, and asking for more is a misconfiguration, not a choice.
+    max_completion_tokens: int = Field(
+        default=OpenAIConstants.DEFAULT_COMPLETION,
+        gt=0,
+        le=OpenAIConstants.REPLY_COMPLETION,
+    )
+
+    @property
+    def is_reasoning_model(self) -> bool:
+        """Which family this request is for. One definition — the validator
+        below and `base_payload` both ask it, and they must agree."""
+        return self.model.startswith(REASONING_MODEL_PREFIX)
 
     @model_validator(mode="after")
     def check_tool_message_linkage(self) -> "OpenAIBaseRequest":
@@ -51,14 +77,49 @@ class OpenAIBaseRequest(BaseLLMRequest):
 
         return self
     
-    def model_post_init(self, __context: Any) -> None:
-        if self.model.startswith("gpt-5"):
+    @model_validator(mode="after")
+    def check_model_family_settings(self) -> "OpenAIBaseRequest":
+        """Refuse a setting the chosen model does not take, then clear the
+        other family's defaults.
+
+        The distinction that makes this usable is *explicitly set* vs. left at
+        the class default: every one of these fields has a default, so raising
+        on a mere value would reject every request. `model_fields_set` is what
+        the caller actually passed, so a `build_*_request` that names a field
+        its model ignores fails here — at construction, naming the field and
+        the model — instead of having the value silently dropped on the way to
+        the payload.
+
+        Copied, because assigning below adds those names to the live set.
+        """
+        configured = set(self.model_fields_set)
+
+        if self.is_reasoning_model:
+            ignored = sorted(SAMPLING_FIELDS & configured)
+            if ignored:
+                raise ValueError(
+                    f"{self.model} is a reasoning model and ignores "
+                    f"{', '.join(ignored)} — set reasoning_effort instead"
+                )
+            if self.reasoning_effort not in REASONING_EFFORTS:
+                raise ValueError(
+                    f"reasoning_effort={self.reasoning_effort!r} is not one of "
+                    f"{', '.join(sorted(REASONING_EFFORTS))}"
+                )
             self.temperature = None
             self.top_p = None
             self.seed = None
         else:
+            if "reasoning_effort" in configured:
+                raise ValueError(
+                    f"{self.model} is not a reasoning model and ignores "
+                    f"reasoning_effort — set temperature, top_p or seed instead"
+                )
             self.reasoning_effort = None
-            
+
+        return self
+
+
     def to_summary(self) -> dict[str, Any]:
         """Adds the two OpenAI-specific things a trace is read for: the
         reasoning effort a cost line is explained by, and *which* schema a
@@ -90,7 +151,7 @@ class OpenAIBaseRequest(BaseLLMRequest):
             "max_completion_tokens": self.max_completion_tokens,
         }
 
-        if self.model.startswith("gpt-5"):
+        if self.is_reasoning_model:
             payload["reasoning_effort"] = self.reasoning_effort
         else:
             payload["temperature"] = self.temperature

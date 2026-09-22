@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from typing import Any, Optional
 
@@ -53,7 +54,9 @@ class OpenAIClient(BaseLLMClient):
         here (see `BaseLLMClient`): the step envelope and the usage promotion
         happen on the app's wrapper, `AppWorkflow.get_embeddings`."""
         if self.token_count(input) > self.max_prompt_tokens:
-            raise ValueError(f"Input is too long. Max tokens: {self.max_tokens}")
+            raise ValueError(
+                f"Input is too long. Max prompt tokens: {self.max_prompt_tokens}"
+            )
 
         async with self.semaphore:
             response = await self.client.embeddings.create(
@@ -82,8 +85,18 @@ class OpenAIClient(BaseLLMClient):
         """
         payload = req.to_payload()
         
-        if self.token_count(payload) > self.max_prompt_tokens:
-            raise ValueError(f"Input is too long. Max tokens: {self.max_tokens}")
+        # Serialized, because the bill is messages *and* tool schemas: the
+        # numeric-traits parse is 74% tool schema, so counting message content
+        # alone undercounts it ~4x. This overcounts by ~5% (JSON syntax) —
+        # the safe direction for a ceiling — and, unlike a hand-picked list of
+        # keys, cannot silently miss a component a new request type adds.
+        # (Passing `payload` itself counted its *keys*: 4 tokens.)
+        prompt_tokens = self.token_count(json.dumps(payload, default=str))
+        if prompt_tokens > self.max_prompt_tokens:
+            raise ValueError(
+                f"Input is too long: {prompt_tokens} tokens. "
+                f"Max prompt tokens: {self.max_prompt_tokens}"
+            )
 
         async with self.semaphore:
             final_completion = await self._chat_stream(payload, req.sse_stream)
@@ -166,13 +179,26 @@ class OpenAIClient(BaseLLMClient):
 
     def token_count(self, text: str | list[str]) -> int:
         import tiktoken
-        
+
+        # a dict iterates as its keys, so the list branch below would happily
+        # "count" a payload and return a handful of tokens. Anything that is
+        # not the declared type is a caller bug, not an empty count.
+        if not isinstance(text, (str, list)):
+            raise TypeError(
+                f"token_count takes a string or list of strings, "
+                f"not {type(text).__name__}"
+            )
+
+        # Always the embedding model's encoding, including when counting a
+        # chat prompt: `encoding_for_model` raises KeyError for every chat
+        # model in use here (gpt-5*, gpt-4.1*), so there is no per-model
+        # encoding to pick. Approximate by design — this feeds a ceiling.
         encoding = tiktoken.encoding_for_model(self.embedding_model)
-        
+
         # single string
         if isinstance(text, str):
             return len(encoding.encode(text))
-        
+
         # list of strings
         return sum(len(encoding.encode(item)) for item in text)
     

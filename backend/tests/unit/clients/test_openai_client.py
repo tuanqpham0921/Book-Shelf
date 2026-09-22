@@ -55,9 +55,9 @@ class TestOpenAIClientInit:
         with pytest.raises(ValueError, match="API key"):
             OpenAIClient(make_settings(API_KEY=""))
 
-    def test_sets_max_tokens(self):
+    def test_sets_max_prompt_tokens(self):
         client = make_client()
-        assert client.max_tokens > 0
+        assert client.max_prompt_tokens > 0
 
     def test_sets_embedding_model(self):
         client = make_client()
@@ -106,7 +106,7 @@ class TestGetEmbeddings:
 
     @pytest.mark.asyncio
     async def test_raises_when_input_too_long(self):
-        self.client.max_tokens = 1
+        self.client.max_prompt_tokens = 1
         with pytest.raises(ValueError, match="too long"):
             await self.client.get_embeddings(
                 ["a very long text that exceeds one token"]
@@ -133,6 +133,48 @@ class TestGetEmbeddings:
         )
         with pytest.raises(RuntimeError, match="API down"):
             await self.client.get_embeddings(["hello"])
+
+
+class TestPromptLengthGuard:
+    """The guard measures the whole payload, tool schemas included.
+
+    Counting message content alone undercut the real prompt ~4x on the
+    argument parsers, whose schemas are most of what they send.
+    """
+
+    def setup_method(self):
+        self.client = make_client()
+
+    @pytest.mark.asyncio
+    async def test_tool_schema_counts_toward_the_ceiling(self):
+        self.client.max_prompt_tokens = 50
+        # short messages, a large tool schema: the guard must still fire
+        payload = {
+            "model": FAKE_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"function": {"name": "big", "description": "x " * 400}}],
+        }
+        req = MagicMock(sse_stream=None, to_payload=lambda: payload)
+
+        with pytest.raises(ValueError, match="too long"):
+            await self.client.execute(req)
+
+    @pytest.mark.asyncio
+    async def test_a_short_payload_passes(self):
+        self.client._chat_stream = AsyncMock(return_value=make_fake_completion(content="ok"))
+        req = MagicMock(
+            sse_stream=None,
+            to_payload=lambda: {
+                "model": FAKE_MODEL,
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+        assert (await self.client.execute(req)).content == "ok"
+
+    def test_token_count_refuses_a_payload_dict(self):
+        # the original bug: a dict iterates as its keys and "counts" as ~4
+        with pytest.raises(TypeError, match="not dict"):
+            self.client.token_count({"model": "m", "messages": []})
 
 
 class TestExecute:
