@@ -61,9 +61,9 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 --------------------------
 
-1. configure the limit better
-2. add rejection and small talks
-3. set up a session db with max tokens
+2. set up a session db with max tokens
+3. add rejection and small talks
+4. run evals
 
 2. format the task runner better
 3. fix the ingestion thing with the ISBN
