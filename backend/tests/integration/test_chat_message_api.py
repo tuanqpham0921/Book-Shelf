@@ -1,5 +1,11 @@
-"""In-process API tests of POST /session/{id}/message — specifically the session
-token budget, which is the only guard on that route that touches the database.
+"""In-process API tests of POST /session/{id}/message — specifically what the
+route does with the session token budget, which is the only thing on it that
+touches the database.
+
+The route reads the balance and hands it to the turn; it does not judge it. The
+refusal lives in `Orchestrator` (tests/unit/app/orchestration/test_orchestrator.py),
+so what is pinned here is the round trip: that it happens once, on the session in
+the path, after the two 400s and not before.
 
 Same shape as test_chat_runs_api.py: the real FastAPI app over httpx's ASGI
 transport, stores swapped out via dependency_overrides, so no database, no LLM
@@ -9,7 +15,7 @@ that happens *before* a turn starts, so no turn is ever allowed to start.
 Three overrides rather than one, because `ASGITransport` runs no lifespan: with
 `app.state` empty, `get_orchestrator` and `get_request_context_factory` would
 raise 503 while resolving, and every Depends resolves before the handler body —
-so the guard would never be reached.
+so the read would never be reached.
 """
 
 from unittest.mock import MagicMock
@@ -58,29 +64,32 @@ class FakeSessionStore:
 
 class FakeOrchestrator:
     """Stands in for the real turn. It closes the stream immediately so the SSE
-    response completes instead of hanging on an empty queue."""
+    response completes instead of hanging on an empty queue, and keeps the
+    context it was handed so a test can read what the route put on it."""
 
     def __init__(self):
-        self.runs = []
+        self.contexts = []
 
     async def run(self, request_context):
-        self.runs.append(request_context.session_id)
+        self.contexts.append(request_context)
         await request_context.sse_stream.close()
 
 
 @pytest.fixture
 def client_for():
     """Factory: pass the session store the route should use, get an AsyncClient
-    against the real app with it injected. Overrides are cleared after the test
-    so app state never leaks between tests."""
+    against the real app with it injected, plus the orchestrator that will be
+    handed the turn. Overrides are cleared after the test so app state never
+    leaks between tests."""
     orchestrator = FakeOrchestrator()
 
-    async def _context_factory(session_id, user_message):
+    async def _context_factory(session_id, user_message, remaining_tokens):
         """What get_request_context_factory returns, with every service faked —
         no turn runs, so none of them is touched."""
         return RequestContext(
             app_env="test",
             session_id=session_id,
+            remaining_tokens=remaining_tokens,
             user_message=user_message,
             llm_client=MagicMock(spec=OpenAIClient),
             stores={},
@@ -94,59 +103,57 @@ def client_for():
         app.dependency_overrides[get_request_context_factory] = (
             lambda: _context_factory
         )
-        return httpx.AsyncClient(
+        client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://testserver"
         )
+        return client, orchestrator
 
     yield _make
     app.dependency_overrides.clear()
 
 
-class TestTheTokenBudgetGuard:
-    async def test_an_exhausted_session_is_refused(self, client_for):
-        store = FakeSessionStore(remaining_tokens=0)
-
-        async with client_for(store) as client:
-            resp = await client.post(URL, json={"message": "Find me a book"})
-
-        assert resp.status_code == 429
-
-    async def test_an_overspent_session_is_refused(self, client_for):
-        """The balance goes negative by design — a turn is charged after it runs,
-        so the last turn of a session overshoots."""
-        store = FakeSessionStore(remaining_tokens=-3_000)
-
-        async with client_for(store) as client:
-            resp = await client.post(URL, json={"message": "Find me a book"})
-
-        assert resp.status_code == 429
-
-    async def test_a_session_with_budget_left_is_served(self, client_for):
-        store = FakeSessionStore(remaining_tokens=1)
-
-        async with client_for(store) as client:
-            resp = await client.post(URL, json={"message": "Find me a book"})
-
-        assert resp.status_code == 200
-
+class TestTheBudgetRoundTrip:
     async def test_the_route_looks_up_the_session_from_the_path(self, client_for):
         """One lookup, which is also what creates the row on a first message."""
         store = FakeSessionStore()
+        client, _ = client_for(store)
 
-        async with client_for(store) as client:
+        async with client:
             await client.post(URL, json={"message": "Find me a book"})
 
         assert store.calls == ["dev_abc123"]
 
+    async def test_the_balance_is_handed_to_the_turn(self, client_for):
+        """The orchestrator reads it off the context — it cannot look it up
+        itself, because it runs after this request's database session is gone."""
+        client, orchestrator = client_for(FakeSessionStore(remaining_tokens=1_234))
+
+        async with client:
+            await client.post(URL, json={"message": "Find me a book"})
+
+        assert [ctx.remaining_tokens for ctx in orchestrator.contexts] == [1_234]
+
+    async def test_an_exhausted_session_still_gets_its_turn_started(self, client_for):
+        """No 429 here by design: an empty balance is the orchestrator's to
+        refuse, so that the user is told why over the stream."""
+        client, orchestrator = client_for(FakeSessionStore(remaining_tokens=0))
+
+        async with client:
+            resp = await client.post(URL, json={"message": "Find me a book"})
+
+        assert resp.status_code == 200
+        assert [ctx.remaining_tokens for ctx in orchestrator.contexts] == [0]
+
 
 class TestGuardOrder:
-    """The budget check is last of the three, so a request that was never going
-    to run costs no round trip and mints no session row."""
+    """The budget read is last, so a request that was never going to run costs
+    no round trip and mints no session row."""
 
     async def test_a_blank_message_never_reaches_the_database(self, client_for):
         store = FakeSessionStore()
+        client, _ = client_for(store)
 
-        async with client_for(store) as client:
+        async with client:
             resp = await client.post(URL, json={"message": "   "})
 
         assert resp.status_code == 400
@@ -154,8 +161,9 @@ class TestGuardOrder:
 
     async def test_an_oversized_message_never_reaches_the_database(self, client_for):
         store = FakeSessionStore()
+        client, _ = client_for(store)
 
-        async with client_for(store) as client:
+        async with client:
             resp = await client.post(URL, json={"message": "x" * 2001})
 
         assert resp.status_code == 400

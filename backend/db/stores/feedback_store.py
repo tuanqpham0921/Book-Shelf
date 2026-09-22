@@ -45,7 +45,7 @@ class FeedbackStore(BaseStore[FeedbackModel]):
             )
             .returning(FeedbackModel)
         )
-        result = await self.session.execute(stmt)
+        result = await self.execute_statement(stmt)
         await self.session.commit()
         return result.scalar_one()
 
@@ -56,5 +56,5 @@ class FeedbackStore(BaseStore[FeedbackModel]):
             .where(FeedbackModel.chat_id == chat_id)
             .order_by(FeedbackModel.created_at.asc())
         )
-        result = await self.session.execute(stmt)
+        result = await self.execute_statement(stmt)
         return list(result.scalars().all())

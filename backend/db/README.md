@@ -27,13 +27,24 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
   becomes one, and the index silently stops being used: ~5ms back to ~520ms).
   `tests/unit/db/stores/test_lexical_query.py` guards both halves.
 - `stores/` — repository pattern; routes/workflows never touch sessions directly.
-  `base_store.py` (shared execute helpers), `book_store.py` (primary store: the
+  `base_store.py` — **the single execute path: every store method goes through
+  `execute_statement`**, never `self.session.execute`, because that is the one
+  place what should hold for every query lives. Today that is the compiled SQL at
+  DEBUG and an `AppConfig.DATABASE_TIMEOUT` ceiling (asyncio-side, so it bounds
+  the wait for a pooled connection too — which Postgres' own `statement_timeout`
+  cannot see). A timed-out session is finished, not retryable: cancelling
+  mid-execute leaves the connection in a state SQLAlchemy no longer knows, which
+  is fine here because a store lives for one request.
+  `book_store.py` (primary store: the
   deferred-query API below, plus the module-level `embedding_search_stmt` — a
   pure builder rather than a store method, because only the caller knows the
   label that elides its 1024-float vector from the recorded SQL; it returns a
   `DeferredBookQuery` like every other builder, so `count`/`score_stats`/
   `materialize` are its execute half), `session_store.py` (the token budget:
-  `start_turn`, which upserts the row and returns the balance in one round trip,
+  `start_turn`, which upserts the row and returns the balance in one round trip —
+  called from the chat route, because that handler is the last moment the
+  request-scoped session is open; the balance then travels on `RequestContext` to
+  the orchestrator, which is what judges it —
   and `debit`, which subtracts *in SQL* because overlapping turns in one session
   hold separate database sessions. Both return scalars, never the model —
   `returning(SessionModel)` gives an ORM entity, so a session already holding
@@ -110,6 +121,7 @@ once per machine, see docs/deployment-neon.md:
 
 ```bash
 make dev-neon           # make dev with config/.env.neon's POSTGRES_* over config/.env
+make local-prod-neon    # the same, as APP_ENVIRONMENT=production and no reload
 make neon-cli           # psql shell on Neon
 make neon-bootstrap     # seed an EMPTY Neon database from db/init + data/backup/books.sql
 ```

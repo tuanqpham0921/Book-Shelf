@@ -10,7 +10,8 @@ runs, and what it is fed — not the reply itself, which is
 test_write_recommendations_executor.py.
 
 `TestChargingTheSession` covers the fourth thing `_finalize` does: charge the
-turn to its session's token budget.
+turn to its session's token budget. `TestRefusingAnExhaustedSession` is the other
+end of that budget — the route reads the balance, this is where it is judged.
 """
 
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
@@ -23,6 +24,7 @@ from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.domains.planjane import PlanJaneOutput, SystemGoal
 from app.orchestration.orchestrator import Orchestrator
 from app.orchestration.task_runner import TaskResult, TaskRunnerOutput
+from app.orchestration.token_budget import OUT_OF_TOKENS_MESSAGE
 from airglider import OperationResult, TokenUsage
 
 # request_context comes from tests/conftest.py
@@ -289,3 +291,94 @@ class TestChargingTheSession:
             await Orchestrator().run(request_context)
 
         request_context.sse_stream.close.assert_awaited()
+
+
+class TestRefusingAnExhaustedSession:
+    """The other end of the budget. The route reads the balance and puts it on
+    the context; this is the only place it is judged — with a message rather than
+    a status code, because the route's response is an SSE stream and the client
+    renders a non-200 as its own generic error."""
+
+    @staticmethod
+    def _context(make_request_context, app_env="production", remaining_tokens=0):
+        ctx = make_request_context(
+            app_env=app_env, remaining_tokens=remaining_tokens
+        )
+        ctx.sse_stream.send_error = AsyncMock()
+        return ctx
+
+    @staticmethod
+    async def _turn(ctx):
+        """Run one turn with triage and recording faked. Returns the two mocks:
+        the `TriageWorkflow` class, which answers whether the turn started at
+        all, and `record_chat_run`, which carries the root envelope."""
+        with patch(
+            "app.orchestration.orchestrator.TriageWorkflow",
+            return_value=_triage_with_plan(None),
+        ) as triage_cls, patch(
+            "app.orchestration.orchestrator.record_chat_run", new_callable=AsyncMock
+        ) as record:
+            await Orchestrator().run(ctx)
+        return triage_cls, record
+
+    async def test_a_spent_session_gets_no_turn(self, make_request_context):
+        """Nothing is even planned — the refusal is ahead of triage, which is
+        the first thing that costs money."""
+        triage_cls, _ = await self._turn(self._context(make_request_context))
+
+        triage_cls.assert_not_called()
+
+    async def test_the_user_is_told_why(self, make_request_context):
+        """Verbatim: the client renders an `error` event's text as-is, so this
+        string is what actually reaches the screen."""
+        ctx = self._context(make_request_context)
+
+        await self._turn(ctx)
+
+        ctx.sse_stream.send_error.assert_awaited_once_with(OUT_OF_TOKENS_MESSAGE)
+
+    async def test_a_negative_balance_counts_as_spent(self, make_request_context):
+        """It goes negative by design — a turn is charged after it runs, so a
+        session's last turn overshoots into the red."""
+        ctx = self._context(make_request_context, remaining_tokens=-3_000)
+
+        triage_cls, _ = await self._turn(ctx)
+
+        triage_cls.assert_not_called()
+
+    async def test_one_token_left_is_enough(self, make_request_context):
+        """`<= 0`, not "can this turn afford it": the charge comes afterwards, so
+        the only question is whether anything was left."""
+        ctx = self._context(make_request_context, remaining_tokens=1)
+
+        triage_cls, _ = await self._turn(ctx)
+
+        triage_cls.assert_called_once()
+
+    async def test_nothing_is_refused_outside_production(self, make_request_context):
+        """Development and the eval suites read and debit the same way but are
+        never cut off — a suite reuses one session for every case in it."""
+        ctx = self._context(make_request_context, app_env="development")
+
+        triage_cls, _ = await self._turn(ctx)
+
+        triage_cls.assert_called_once()
+
+    async def test_the_refusal_is_on_the_turns_record(self, make_request_context):
+        """So a refused turn reads as one, rather than as a turn that did
+        nothing for no reason: it has no steps, so `ok` is False either way."""
+        _, record = await self._turn(self._context(make_request_context))
+
+        assert "refused: session out of tokens" in record.await_args.args[1].details
+
+    async def test_the_balance_is_recorded_on_every_turn(self, make_request_context):
+        """Tracking rather than enforcement, which is why it is not inside the
+        guard: what the session had before this turn, so the turn's cost can be
+        read against it."""
+        ctx = self._context(
+            make_request_context, app_env="development", remaining_tokens=1_234
+        )
+
+        _, record = await self._turn(ctx)
+
+        assert "session tokens remaining: 1234" in record.await_args.args[1].details

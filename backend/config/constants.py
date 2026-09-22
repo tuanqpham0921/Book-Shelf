@@ -11,12 +11,16 @@ class AppConfig:
 
     # What a new session may spend, across every call of every turn. Unlike the
     # per-call caps in OpenAIConstants this is a real budget: it is spent down
-    # once per turn and never refills, so when it runs out the chat route
+    # once per turn and never refills, so when it runs out the deployed service
     # refuses the next message. The sessions table deliberately has no DEFAULT
     # on remaining_tokens — this is the only place the number lives.
     SESSION_TOKEN_BUDGET = 50_000
 
-    DATABASE_TIMEOUT = 10.0  # SQLAlchemy engine init / connectivity
+    # The ceiling on any one statement a store runs, in seconds — applied in
+    # BaseStore.execute_statement, which every store method goes through. It
+    # bounds the whole await (waiting for a pooled connection included), which
+    # is why it is asyncio-side rather than Postgres' own statement_timeout.
+    DATABASE_TIMEOUT = 10.0
     OPENAI_TIMEOUT   = 10.0
     DEFAULT_TIMEOUT  = 10.0
 

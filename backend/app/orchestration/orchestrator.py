@@ -10,7 +10,11 @@ from app.domains.node_input import NodeInput
 from app.orchestration.triage import TriageWorkflow
 from app.orchestration.task_runner import TaskRunnerInput, TaskRunnerWorkflow
 from app.orchestration.run_recorder import record_chat_run
-from app.orchestration.token_budget import debit_session_tokens
+from app.orchestration.token_budget import (
+    OUT_OF_TOKENS_MESSAGE,
+    debit_session_tokens,
+    session_is_out_of_tokens,
+)
 from app.orchestration.write_recommendations import (
     GenerateRecommendationsExecutor,
     RecommendationsInput,
@@ -59,6 +63,27 @@ class Orchestrator:
             # starts, so the client can attach feedback even if the turn later
             # errors, times out, or is stopped before 'complete' fires.
             await sse_stream.send_chat_id(request_context.user_message.id)
+
+            # On the record before anything is spent, so a turn's cost can be
+            # read against what the session had left to spend it from.
+            record.add_details(
+                f"session tokens remaining: {request_context.remaining_tokens}"
+            )
+            if session_is_out_of_tokens(request_context):
+                # Told, not refused. The route's response is an SSE stream, so
+                # this arrives as the turn's one event and the client renders it
+                # verbatim; an HTTP status could only come out as the frontend's
+                # generic "something went wrong". The finally block still runs:
+                # the turn is recorded — no steps, so not ok — and the stream is
+                # closed there.
+                record.add_details("refused: session out of tokens")
+                logger.warning(
+                    f"🚫 Out of tokens, refusing the turn: "
+                    f"session={request_context.session_id}"
+                )
+                await sse_stream.send_error(OUT_OF_TOKENS_MESSAGE)
+                return
+
             await sse_stream.send_ui_loading("Starting conversation...")
 
             triage_workflow = TriageWorkflow(request_context, messages=messages)

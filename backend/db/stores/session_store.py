@@ -50,7 +50,7 @@ class SessionStore(BaseStore[SessionModel]):
             )
             .returning(SessionModel.remaining_tokens)
         )
-        result = await self.session.execute(stmt)
+        result = await self.execute_statement(stmt)
         await self.session.commit()
         return result.scalar_one()
 
@@ -78,7 +78,7 @@ class SessionStore(BaseStore[SessionModel]):
             .returning(SessionModel.remaining_tokens)
             .execution_options(synchronize_session=False)
         )
-        result = await self.session.execute(stmt)
+        result = await self.execute_statement(stmt)
         await self.session.commit()
         # None rather than a raise: the caller is the orchestrator's cleanup,
         # where a missing row is worth a warning and nothing more.

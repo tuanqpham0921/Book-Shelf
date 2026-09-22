@@ -39,7 +39,7 @@ class ChatRunStore(BaseStore[ChatRunModel]):
             stmt = stmt.where(ChatRunModel.session_id.ilike(f"%{session_id}%"))
         stmt = stmt.limit(limit).offset(offset)
 
-        result = await self.session.execute(stmt)
+        result = await self.execute_statement(stmt)
         return [
             {**run.to_dict(), "num_reviews": count} for run, count in result.all()
         ]

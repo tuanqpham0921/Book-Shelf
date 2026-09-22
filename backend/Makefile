@@ -20,6 +20,22 @@ install:
 dev:
 	LOG_LEVEL=INFO poetry run uvicorn app.main:app --reload --reload-include "*.py" --reload-include "*.env"
 
+# The deployed service, locally: APP_ENVIRONMENT=production (the same value the
+# deploy recipe sets) and no --reload, so the production-only paths are live —
+# today that means the session token budget, which is read everywhere but only
+# enforced here. Against the compose Postgres; for the deployed database use
+# local-prod-neon.
+.PHONY: local-prod
+local-prod:
+	APP_ENVIRONMENT=production LOG_LEVEL=INFO poetry run uvicorn app.main:app
+
+# local-prod against Neon — the same override dev-neon uses: config/.env.neon
+# holds only POSTGRES_* values, and process env beats config/.env in
+# pydantic-settings. As close to the deployed service as this machine gets.
+.PHONY: local-prod-neon
+local-prod-neon:
+	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && $(MAKE) local-prod
+
 # clear the pycache
 .PHONY: clean
 clean:

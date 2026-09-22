@@ -104,7 +104,9 @@ async def get_request_context_factory(
     from clients.messages import UserMessage
     from app.common.request_context import RequestContext
 
-    async def create_context(session_id: str, user_message: UserMessage):
+    async def create_context(
+        session_id: str, user_message: UserMessage, remaining_tokens: int
+    ):
         # The *widest* context, always — this runs before there is a plan, so
         # it cannot know which nodes will run, and wiring per-node views here
         # would make this module import every slice. The task runner narrows
@@ -112,6 +114,10 @@ async def get_request_context_factory(
         return RequestContext(
             app_env=app_env,
             session_id=session_id,
+            # the route has already read it; passed in rather than looked up
+            # again, because the orchestrator runs after this request's
+            # database session is out of scope
+            remaining_tokens=remaining_tokens,
             user_message=user_message,
             llm_client=llm_client,
             # keyed by class; a domain's context narrows to its own store

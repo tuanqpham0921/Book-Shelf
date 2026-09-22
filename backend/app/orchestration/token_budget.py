@@ -1,4 +1,4 @@
-"""Charge a finished turn to its session's token budget.
+"""The session token budget: who may spend, and what a turn cost.
 
 Its own module beside `run_recorder.py`, for the two reasons that one is: it
 keeps `orchestration/orchestrator.py` free of any `db/` import, and it gives the
@@ -18,6 +18,36 @@ from app.common.request_context import RequestContext
 from db.stores.session_store import SessionStore
 
 logger = logging.getLogger(__name__)
+
+# What the user is told, as the turn's one and only event. Says what to do next,
+# and names no number: a balance is not something a reader can act on.
+OUT_OF_TOKENS_MESSAGE = (
+    "This session has used up its token budget. Start a new chat to keep going."
+)
+
+# The environment the budget is enforced in. Everywhere else the row is still
+# created and still debited — the write path stays identical, which is what keeps
+# it honest — but nothing is refused. That is deliberate: `make dev` and the eval
+# suites reuse one session for a whole run (evals/run_suites.py), and at 10–20k
+# tokens a turn a 50,000 budget would cut a suite off after three or four cases.
+ENFORCED_IN = "production"
+
+
+def session_is_out_of_tokens(request_context: RequestContext) -> bool:
+    """Whether this turn should be refused before any work starts.
+
+    `<= 0`, not "can this turn afford it": a turn is charged after it runs (see
+    `debit_session_tokens`), so a session's last turn legitimately ends in the
+    red and the only question here is whether anything was left.
+
+    Reads the balance off the context rather than the database. The route put it
+    there, in the one round trip that also created the row — and the orchestrator
+    could not read it again anyway, since it runs after this request's database
+    session has gone out of scope.
+    """
+    if request_context.app_env != ENFORCED_IN:
+        return False
+    return request_context.remaining_tokens <= 0
 
 
 async def debit_session_tokens(
@@ -43,6 +73,12 @@ async def debit_session_tokens(
     """
     try:
         spent = record.token_usage.total
+        if spent <= 0:
+            # A turn refused for being out of tokens spends nothing, and
+            # `start_turn` has already moved `last_updated` — so there is
+            # nothing here to write.
+            return
+
         async with request_context.session_factory() as session:
             remaining = await SessionStore(session).debit(
                 request_context.session_id, spent

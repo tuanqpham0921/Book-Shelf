@@ -1,7 +1,8 @@
-"""Tests for debit_session_tokens — charging a finished turn to its session.
+"""Tests for the session token budget: who may spend (`session_is_out_of_tokens`)
+and what a finished turn cost (`debit_session_tokens`).
 
-Two things are load-bearing here and neither is the arithmetic (that is SQL's
-job, see test_session_store.py):
+For the charge, two things are load-bearing and neither is the arithmetic (that
+is SQL's job, see test_session_store.py):
 
 - **Which database session it writes on.** Its own, opened from
   `session_factory`, never a store off `ctx.stores` — that one's scope is gone by
@@ -16,7 +17,10 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from airglider import OperationResult, TokenUsage
-from app.orchestration.token_budget import debit_session_tokens
+from app.orchestration.token_budget import (
+    debit_session_tokens,
+    session_is_out_of_tokens,
+)
 
 
 def _record(total: int) -> OperationResult:
@@ -45,6 +49,38 @@ def patched_store(store):
         yield cls
 
 
+class TestWhoMaySpend:
+    """The decision, which reads the balance off the context rather than the
+    database — the route put it there in the round trip that created the row."""
+
+    @pytest.mark.parametrize("remaining", [0, -1, -50_000])
+    def test_a_spent_session_is_refused_in_production(
+        self, make_request_context, remaining
+    ):
+        """Negative included: a turn is charged after it runs, so a session's
+        last turn ends in the red."""
+        ctx = make_request_context(app_env="production", remaining_tokens=remaining)
+
+        assert session_is_out_of_tokens(ctx) is True
+
+    @pytest.mark.parametrize("remaining", [1, 50_000])
+    def test_anything_left_is_enough(self, make_request_context, remaining):
+        """`<= 0`, not "can this turn afford it" — the charge comes afterwards,
+        so one token buys a whole turn."""
+        ctx = make_request_context(app_env="production", remaining_tokens=remaining)
+
+        assert session_is_out_of_tokens(ctx) is False
+
+    @pytest.mark.parametrize("app_env", ["development", "test"])
+    def test_nothing_is_refused_outside_production(self, make_request_context, app_env):
+        """The row is still created and still debited there — only the refusal is
+        production-only, so that `make dev` and the eval suites (one session for
+        a whole suite) are not cut off partway."""
+        ctx = make_request_context(app_env=app_env, remaining_tokens=-10_000)
+
+        assert session_is_out_of_tokens(ctx) is False
+
+
 class TestWhatGetsCharged:
     async def test_the_session_is_charged_the_turns_whole_spend(
         self, request_context, store, patched_store
@@ -53,14 +89,14 @@ class TestWhatGetsCharged:
 
         store.debit.assert_awaited_once_with(request_context.session_id, 1_000)
 
-    async def test_a_free_turn_still_settles(
+    async def test_a_turn_that_spent_nothing_is_not_written(
         self, request_context, store, patched_store
     ):
-        """A turn that made no LLM call (a cached plan, a refused message) spends
-        nothing. Charging zero keeps `last_updated` honest about activity."""
+        """A refused turn makes no LLM call, so there is nothing to subtract —
+        and `start_turn` has already moved `last_updated` for it."""
         await debit_session_tokens(request_context, _record(0))
 
-        store.debit.assert_awaited_once_with(request_context.session_id, 0)
+        store.debit.assert_not_awaited()
 
 
 class TestWhichDatabaseSessionItUses:

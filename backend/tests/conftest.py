@@ -4,7 +4,7 @@
 the setup step for anything that touches `AppWorkflow`. It lives here as a
 *factory* rather than a plain fixture because callers need to vary one field at
 a time (`app_env` for the run-recorder sinks, `user_message` for the planner)
-while the other six stay boring.
+while the other seven stay boring.
 """
 
 from unittest.mock import MagicMock
@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from config import AppConfig
 from clients.messages import UserMessage
 from app.common.sse_stream import SSEStream
 from app.common.request_context import RequestContext
@@ -27,6 +28,9 @@ def make_request_context():
         defaults = dict(
             app_env="test",
             session_id="sess_1",
+            # a budget nothing has spent from; the guard that reads it only
+            # bites in production anyway, so "test" makes it doubly irrelevant
+            remaining_tokens=AppConfig.SESSION_TOKEN_BUDGET,
             user_message=UserMessage(content="Find me a book"),
             llm_client=MagicMock(spec=OpenAIClient),
             # keyed explicitly: `type(MagicMock(spec=BookStore))` is MagicMock,

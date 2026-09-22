@@ -76,24 +76,21 @@ async def chat(
             detail=f"Message is too long. Maximum {2000} characters allowed.",
         )
 
-    # Third guard, and the only one that touches the database — last, so a blank
-    # or oversized message costs no round trip and mints no session row. The same
-    # round trip creates the session on its first message (POST /session/new
-    # stays stateless) and returns the balance checked here.
+    # The session's token budget — the only thing here that touches the database,
+    # and last, so a blank or oversized message costs no round trip and mints no
+    # session row. The same round trip creates the session on its first message
+    # (POST /session/new stays stateless) and returns what it has left to spend.
     #
-    # `<= 0`, not "can this turn afford it": the turn is charged afterwards, in
-    # Orchestrator._finalize, so the question is only whether anything is left.
+    # Read here but *judged* in the orchestrator, which is where a refusal can be
+    # timed, recorded on the turn, and said to the user in the stream. Here it
+    # could only be an HTTP 429, and the frontend renders any non-200 on this
+    # route as "Oops something went wrong" — losing the one thing the user needs
+    # to be told. The read stays in the handler because this is the last moment
+    # the request-scoped database session is open (see RequestContext).
     remaining_tokens = await session_store.start_turn(session_id)
-    if remaining_tokens <= 0:
-        # No Retry-After: the budget never refills, so there is no window to name
-        raise HTTPException(
-            status_code=429,
-            detail="This session has used up its token budget. "
-            "Start a new chat to keep going.",
-        )
 
     request_context = await request_context_factory(
-        session_id, UserMessage(content=chat_in.message)
+        session_id, UserMessage(content=chat_in.message), remaining_tokens
     )
     logger.info(f"🚀 Starting chat for session: {request_context.session_id}")
 
