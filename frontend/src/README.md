@@ -1,20 +1,20 @@
 # frontend/src
 
 Single-page React app (React 19 + Vite). All routes (`/`, `/blog`, `/review`) render
-`BookRecommenderPage`, which maps the path to a view; views are lazy-loaded and stay
+`BookShelfPage`, which maps the path to a view; views are lazy-loaded and stay
 mounted once visited.
 
 ## Map
 
 | Path | What it is |
 |---|---|
-| `api.js` | **The only backend surface.** Uses `VITE_API_URL`; wraps fetch with a 120s timeout. Note: `stopChatStream`, `getTaskPlanDiagram`, and `getRecommendedBooks` are dead/unwired (docs/backlog.md) |
+| `api.js` | **The only backend surface.** `VITE_API_URL` comes from `.env.development` / `.env.production` at build time; wraps fetch with a 120s timeout. One function per live endpoint — the three clients for endpoints that no longer exist (`stopChatStream`, `getTaskPlanDiagram`, `getRecommendedBooks`) were deleted 2026-09-19 |
 | `components/ChatBot.jsx` | Chat view: sends messages, consumes the SSE stream, builds ordered response sections (`text`/`books`/`diagram`/`error`/`task`) in `use-immer` state |
 | `components/chatbot/` | `ChatInput`, `ChatMessages` (react-markdown + remark-gfm rendering), `TaskSection` (one collapsible step: an executed node, or the plan diagram) |
 | `components/MermaidDiagram.jsx` | Renders the task-plan diagram (`securityLevel: 'strict'`, pan/zoom via `@panzoom/panzoom`); shared with the review page |
 | `components/book/` | `BookCard`, `BookCover`, `BookDetailModal`, `BooksGrid` |
 | `pages/ChatReviewPage.jsx` | Review queue over recorded chat runs: expand a run → goals, goal diagram, raw envelopes; file one review per run (`PUT /feedback/review`). The diagram is read out of the `planner` JSONB envelope (`output.diagram`), not the promoted `mermaid` column. The second "parsed arguments" diagram was dropped on 2026-08-10 when PlanJane became the only backend renderer — it had also been reading the wrong envelope, so it never displayed |
-| `pages/BookRecommenderPage.jsx` | Shell: header, view switching |
+| `pages/BookShelfPage.jsx` | Shell: header, view switching |
 | `design-system/` | Button, Badge, Modal, Dropdown, IconButton, ColorModeToggle, … |
 | `hooks/`, `utils/`, `styles/`, `data/` | Support code; split CSS lives in `styles/` |
 

@@ -86,11 +86,11 @@ class TestOpenAISettings:
 class TestAppSettings:
     def test_fields_stored_correctly(self):
         s = AppSettings.model_construct(
-            NAME="book-recommender",
+            NAME="book-shelf",
             ENVIRONMENT="test",
             ALLOW_ORIGINS=["http://localhost:3000"],
         )
-        assert s.NAME == "book-recommender"
+        assert s.NAME == "book-shelf"
         assert s.ENVIRONMENT == "test"
         assert s.ALLOW_ORIGINS == ["http://localhost:3000"]
 
@@ -99,14 +99,14 @@ class TestAppSettings:
         # str would substring-match instead, which is a CORS bypass once
         # more than one origin is configured (see field_validator).
         s = AppSettings(
-            NAME="book-recommender",
+            NAME="book-shelf",
             ENVIRONMENT="test",
             ALLOW_ORIGINS="http://localhost:3000, http://localhost:3001",
         )
         assert s.ALLOW_ORIGINS == ["http://localhost:3000", "http://localhost:3001"]
 
     def test_allow_origins_accepts_wildcard(self):
-        s = AppSettings(NAME="book-recommender", ENVIRONMENT="test", ALLOW_ORIGINS="*")
+        s = AppSettings(NAME="book-shelf", ENVIRONMENT="test", ALLOW_ORIGINS="*")
         assert s.ALLOW_ORIGINS == ["*"]
 
 

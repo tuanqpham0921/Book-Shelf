@@ -56,13 +56,14 @@ make tests                      # run unit tests (tests/unit/)
 make tests-integration          # in-process API tests (tests/integration/) — faked stores, no services needed
 make tests-all                  # both of the above
 poetry run pytest -s tests/unit/path/to/test_file.py  # run a single test
-make ingestion                  # run the book data ingestion script
 make postgres-start             # start PostgreSQL via Docker Compose
 make postgres-stop              # stop PostgreSQL container
 make postgres-restore           # restore data from data/backup.sql
 make postgres-cli               # open psql shell
 make dev-neon                   # make dev against Neon (config/.env.neon over config/.env)
 make neon-cli                   # psql shell on Neon, via the Neon CLI (neon auth + neon link first)
+make deploy                     # deploy the backend to Cloud Run (the recipe is the whole service config)
+make deploy-check               # curl /ready on the live revision
 make query-suite                # POST the base eval suite at a running backend (make dev first)
 make query-suite-all            # fire all 4 eval suites concurrently
 make tools-catalog              # inventory the planner's tool catalog (no backend/DB needed)
@@ -83,12 +84,16 @@ Environment config lives at `config/.env` (see `config/README.md` for structure)
 
 ```bash
 npm install     # install dependencies
-npm run dev     # start Vite dev server
-npm run build   # production build
-npm run lint    # run ESLint
+make dev        # start Vite dev server on :3000
+make lint       # run ESLint
+make build      # production build
+make deploy     # build + publish to Firebase Hosting
 ```
 
-Frontend reads `VITE_API_URL` from `.env` to locate the backend.
+`VITE_API_URL` locates the backend and is **committed per mode**:
+`.env.development` (localhost:8000) for `npm run dev`, `.env.production` (the
+Cloud Run URL) for `npm run build` — so a build is reproducible from a clone.
+A git-ignored `.env.local` overrides either.
 
 ---
 
@@ -173,7 +178,7 @@ The app's own layer on top is `AppWorkflow` (`app/domains/base_workflow.py`), wh
 
 ### Frontend
 
-- Single-page React app — `/`, `/blog`, and `/review` all render `BookRecommenderPage`, which maps the path to a view (chat / blog post / review queue); see `frontend/src/README.md`
+- Single-page React app — `/`, `/blog`, and `/review` all render `BookShelfPage`, which maps the path to a view (chat / blog post / review queue); see `frontend/src/README.md`
 - `src/api.js` — all backend calls; uses `VITE_API_URL`; SSE streaming handled in the chat component
 - State management uses `use-immer` for complex nested state
 - Mermaid diagrams rendered client-side with pan/zoom via `@panzoom/panzoom`
@@ -181,7 +186,7 @@ The app's own layer on top is `AppWorkflow` (`app/domains/base_workflow.py`), wh
 
 ### Infrastructure
 
-- **Backend**: Google Cloud Run, deployed via `gcloud builds submit`
-- **Frontend**: Firebase Hosting
+- **Backend**: Google Cloud Run service `book-shelf-api` in `us-east5`, deployed by `make deploy` (`gcloud run deploy --source` → Cloud Build → Artifact Registry). There is no `cloudbuild.yaml` and shouldn't be: the Dockerfile and the deploy flags already say everything it would. The `deploy` recipe in `backend/Makefile` is the whole description of the service — change a setting there, not in the console. `POSTGRES_PASSWORD` and `OPENAI_API_KEY` come from Secret Manager; the database host/user come from git-ignored `config/.env.neon`, the same file `dev-neon` reads
+- **Frontend**: Firebase Hosting (target `book-rec` → tuanqpham0921.web.app), deployed by `make -C frontend deploy`
 - **Database**: Neon — managed Postgres 18 in `aws-us-east-2`, project `book-shelf` (see [docs/deployment-neon.md](docs/deployment-neon.md))
 - Local dev uses Docker Compose for PostgreSQL only (see `backend/docker-compose.yml`)

@@ -1,19 +1,56 @@
-# Deploying Book-Recommender to GCP — staged runbook
+# Deploying BookShelf to GCP — staged runbook
 
-## Context
+## Status — as built, 2026-09-19
 
-The goal is a public demo: anyone opens `tuanqpham0921.web.app` and chats. Today
-only the frontend is deployed; the backend is reached through an ngrok tunnel
-(`make tunnel`), which is why `frontend/src/api.js:34` still sends an
-`ngrok-skip-browser-warning` header on every request.
+**The demo is live.** Anyone can open
+[tuanqpham0921.web.app](https://tuanqpham0921.web.app) and chat.
 
-**The Cloud Run path the docs describe does not exist.** `README.md:52-56` and
-`CLAUDE.md`'s Infrastructure section both say `gcloud builds submit --config
-cloudbuild.yaml` works. There is no `cloudbuild.yaml` in the repo, and
-`backend/Dockerfile` **cannot build**: `COPY ../pyproject.toml` (line 7) and
-`COPY ../app` (line 17) reach outside the build context, which Docker rejects.
-Even fixed, it copies only `app/` while `app/main.py` needs `config`, `common`,
-`db`, `clients` and `airglider`.
+| Piece | Live value |
+|---|---|
+| Cloud Run service | `book-shelf-api`, region `us-east5`, project `tuanqpham0921` |
+| URL | `https://book-shelf-api-imqv7vxzdq-ul.a.run.app` (public: `allUsers` → `roles/run.invoker`) |
+| Shape | cpu 1, memory 1Gi, cpu-boost, timeout 300s, min 0 / max 3 instances, concurrency 5 |
+| Identity | `book-shelf-api@tuanqpham0921.iam.gserviceaccount.com` — not the compute default |
+| Secrets | `POSTGRES_PASSWORD` ← `postgres-password:latest`, `OPENAI_API_KEY` ← `openai-api-key:latest` |
+| Startup probe | `GET /ready`, 5s delay / 5s period / 6 failures — a revision that can't reach Neon never takes traffic |
+| Database | Neon, not Cloud SQL — see [deployment-neon.md](deployment-neon.md) |
+| Frontend | Firebase Hosting, target `book-rec`; `VITE_API_URL` baked in from `frontend/.env.production` |
+
+**The deploy is one command:** `make -C backend deploy` (Stage 4.6, done — the
+recipe in `backend/Makefile` carries every flag above, so nothing lives only in
+the console), and `make -C frontend deploy` for the site.
+
+| Stage | State |
+|---|---|
+| 1 — container builds | ✅ |
+| 2 — on Cloud Run | ✅ (deployed private, opened in Stage 5) |
+| 3 — database | ✅ **via Neon**, not Cloud SQL; the Cloud SQL stage below is superseded |
+| 4 — security | ⏳ **open.** CORS (4.3) is done; the admin gate (4.1), recording (4.2) and message bounds (4.4) are not. Secrets + service account (4.5) are done |
+| 5 — public | ✅ |
+| 6 — docs | ✅ |
+
+**What being public means while Stage 4 is open:** `GET /chat_runs`,
+`PUT /feedback/review` and `GET /feedback` take no credential, and
+`POST /session/{id}/message` spends OpenAI budget for anyone who calls it. The
+standing mitigations are a hard monthly spend cap on the OpenAI account plus
+`--concurrency=5 × --max-instances=3` as a throughput ceiling. Recording is off,
+so `/chat_runs` returns nothing today — 4.1 and 4.2 belong in the same change.
+
+## Context (the starting state, 2026-09-17)
+
+The goal was a public demo: anyone opens `tuanqpham0921.web.app` and chats. At
+the time only the frontend was deployed and the backend was reached through an
+ngrok tunnel — which is why `frontend/src/api.js` sent an
+`ngrok-skip-browser-warning` header on every request. Both the tunnel and that
+header are gone (2026-09-19).
+
+**The Cloud Run path the docs described did not exist.** `README.md` and
+`CLAUDE.md`'s Infrastructure section both claimed `gcloud builds submit --config
+cloudbuild.yaml` worked. There was no `cloudbuild.yaml` in the repo, and
+`backend/Dockerfile` **could not build**: `COPY ../pyproject.toml` and
+`COPY ../app` reached outside the build context, which Docker rejects. Even
+fixed, it copied only `app/` while `app/main.py` needs `config`, `common`,
+`db`, `clients` and `airglider`. Stage 1 replaced that Dockerfile.
 
 Stages run in your order — Dockerfile, Cloud Run, Cloud SQL, then security —
 with one adjustment that makes that order safe: **Stage 2 deploys the service
@@ -53,7 +90,7 @@ the `quote_plus` fix in the backlog rather than building around it now.
 
 ---
 
-# Stage 1 — Make the container build
+# Stage 1 — Make the container build ✅
 
 Nothing here touches GCP. Ends with the image serving real traffic locally.
 
@@ -162,7 +199,7 @@ docker exec book-shelf-api ls -la /app   # no logs/ — production writes nothin
 
 ---
 
-# Stage 2 — Get it onto Cloud Run (private)
+# Stage 2 — Get it onto Cloud Run (private) ✅
 
 No database yet, so `/ready` will fail — that is expected and fine. This stage
 proves build, push, boot and `$PORT` only.
@@ -396,16 +433,17 @@ is off, **today's disclosure risk is prospective, not retroactive.** It becomes
 real the moment you uncomment these lines — which is why they belong in the same
 stage as the gate, not before it.
 
-### 4.3 CORS
+### 4.3 CORS ✅ (2026-09-19)
 
-`app/main.py:53-59` sets `allow_credentials=True`, so `*` is not merely sloppy —
-browsers reject it outright. Set exact origins in Stage 5. Tighten
-`allow_methods=["*"]` → `["GET","POST","PUT","OPTIONS"]`, clearing the TODO at
-line 57, and narrow `allow_headers` to `["Content-Type","X-Admin-Token"]`.
+`app/main.py` sets `allow_credentials=True`, so `*` was not merely sloppy —
+browsers reject it outright. Exact origins now come from `APP_ALLOW_ORIGINS`
+(set by the `deploy` recipe), `allow_methods` is `["GET","POST","PUT","OPTIONS"]`
+and `allow_headers` is `["Content-Type"]` — the verbs and the one header
+`frontend/src/api.js` actually sends. `X-Admin-Token` joins the header list when
+4.1 lands, not before.
 
-Drop `ngrok-skip-browser-warning` from `frontend/src/api.js:33` in the same
-change — ngrok is gone after this, and leaving it forces it back into the
-allow-list.
+`ngrok-skip-browser-warning` is gone from `api.js`, along with `make tunnel` and
+the three clients for endpoints that no longer exist.
 
 ### 4.4 Message length bounds
 
@@ -443,12 +481,21 @@ Then redeploy with `--service-account=$SA` and
 `--set-secrets=OPENAI_API_KEY=openai-api-key:latest,POSTGRES_PASSWORD=postgres-password:latest,APP_ADMIN_TOKEN=admin-token:latest`,
 dropping the placeholder env vars.
 
-### 4.6 Wrap it in `make deploy`
+### 4.6 Wrap it in `make deploy` ✅ (2026-09-19)
 
-Put the full command in a `deploy` target in `backend/Makefile` — the repo's
-existing idiom (cf. `frontend/Makefile:34`) — so the recipe is the whole
-description of the service and nothing lives only in the console. GitHub Actions
-CD comes later; `.github/workflows/ci.yml` already has the env matrix it needs.
+`backend/Makefile` has it. The recipe is the whole description of the service,
+so nothing lives only in the console, and `make deploy-check` curls `/ready` on
+the live revision afterwards — a 200 there means image, env, secrets and Neon
+are all wired up.
+
+Two details worth keeping: the database host/user/pool values are sourced from
+git-ignored `config/.env.neon` (the same file `dev-neon` reads, so the deployed
+database and local Neon runs cannot drift, and the endpoint stays out of a
+public repo), and `^@^` switches gcloud's list delimiter so the commas inside
+`APP_ALLOW_ORIGINS` don't split into malformed env vars.
+
+GitHub Actions CD comes later; `.github/workflows/ci.yml` already has the env
+matrix it needs, and now also lints and builds the frontend.
 
 ### What I'd leave open
 
@@ -474,9 +521,9 @@ in `chat_runs` via `make cloudsql-cli`.
 
 ---
 
-# Stage 5 — Go public
+# Stage 5 — Go public ✅
 
-### 5.1 Open the service and set real origins
+### 5.1 Open the service and set real origins ✅
 
 ```bash
 gcloud run services update book-shelf-api --region=$REGION \
@@ -487,21 +534,25 @@ gcloud run services add-iam-policy-binding book-shelf-api --region=$REGION \
 
 Firebase serves both hostnames, so both must be listed.
 
-### 5.2 Point the frontend at it
+### 5.2 Point the frontend at it ✅ (2026-09-19)
 
-`frontend/Makefile` already has everything: `deploy-tunnel URL=` is literally
-`set-api-url` + `deploy` chained, and is already URL-agnostic — only the name
-says "tunnel". Two small edits, no new machinery:
+The footgun this stage worried about was real and got a better fix than the
+`deploy-prod` target planned here. One git-ignored `.env`, mutated in place by
+`make set-api-url`, meant a plain `make deploy` shipped whatever was there — one
+`make dev` session and you publish a localhost bundle — and a fresh clone
+published `VITE_API_URL=undefined`.
 
-1. **Rename `deploy-tunnel` → `deploy-url`** (it is no longer tunnel-specific),
-   updating the referring comment at `backend/Makefile:28-30`.
-2. **Add a 4-line `deploy-prod`** pinning the Cloud Run URL. The footgun is
-   real: `.env` says `http://localhost:8000`, and a plain `make deploy` ships
-   whatever is there — one `make dev` session and you have published a localhost
-   bundle.
+Vite already solves this with **mode files**, both now committed:
 
-Then delete the commented-out `BASE_URL` at `frontend/src/api.js:2`; it is the
-thing that drifts.
+- `frontend/.env.development` → `http://localhost:8000`, loaded by `npm run dev`
+- `frontend/.env.production` → the Cloud Run URL, loaded by `npm run build`
+
+So `make deploy` cannot ship the wrong backend, and the URL is reviewable in
+git. A public URL for a public service is not a secret; a git-ignored
+`.env.local` still overrides either file locally.
+
+`set-api-url` and `deploy-tunnel` are deleted (both existed only to push a URL
+into that one file), as is the commented-out `BASE_URL` at `api.js:2`.
 
 ### 5.3 Consider min-instances=1
 
@@ -519,33 +570,32 @@ render. Check the console for CORS errors — that is where a mis-escaped
 
 ---
 
-# Stage 6 — Docs
+# Stage 6 — Docs ✅
 
-Required by CLAUDE.md's "keep docs in sync" rule, and overdue: both current
-deployment claims are false.
+Required by CLAUDE.md's "keep docs in sync" rule. Done 2026-09-19, in the same
+pass that renamed the product to **BookShelf** (user-facing strings, the API
+title, `APP_NAME`, and `BookRecommenderPage` → `BookShelfPage`; the local
+database name `book_recommender`, the repo name and the `Generate_Recommendations`
+node vocabulary were deliberately left alone).
 
-- **`README.md:52-56`** — replace the `gcloud builds submit --config
-  cloudbuild.yaml` line with `cd backend && make deploy`. Also line 18,
-  "Python 3.11+" → 3.12+.
-- **`CLAUDE.md` Infrastructure section** — name the service `book-shelf-api`, the
-  Artifact Registry repo `cloud-run-source-deploy`, the instance
-  `tuanqpham0921:us-central1:book-rec-db`, and the `/cloudsql/` socket path.
-- **New `docs/deploy.md`** — the runbook: one-time setup, the Stage 3 bootstrap
-  ordering *with why indexes come last*, the env/secret table, how to re-seed.
-  Operations rather than a decision record, so `docs/` root, not `docs/design/`.
-  **Add a row to `docs/README.md`'s doc-map table** — that table is the
-  convention, and a file missing from it is invisible.
-- **`docs/roadmap.md:180-187`** — tick the items Stage 4 closes; leave `uuid_8`
-  open with the reasoning above, and record that the ownership item was closed
-  by admin-gating.
-- **`docs/backlog.md`** — strike the closed P1 items; add two P2s: the unescaped
-  interpolation at `config/settings/sqlalchemy.py:21` (with the two-line
-  `quote_plus` fix written down, so whoever rotates the password later doesn't
-  lose a day), and the `lists=100` recall question below.
-- **`frontend/src/README.md:11`** already flags `stopChatStream`,
-  `getTaskPlanDiagram` and `getRecommendedBooks` as dead — I confirmed they call
-  routes that do not exist. Not a blocker; worth deleting while you are in
-  `api.js` anyway for 4.3.
+- **`README.md`** — rewritten. It was claiming Redis, a `cloudbuild.yaml` that
+  never existed and an `app/` tree with three folders that aren't there. Now it
+  carries the live URLs, `make deploy` for each half, an accurate structure, and
+  an honest note that the catalog dump is git-ignored so a fresh clone has no
+  rows (use `make dev-neon`).
+- **`CLAUDE.md` Infrastructure section** — names the service, region and the
+  `make deploy` recipe as the source of truth; the Cloud SQL instance and the
+  `/cloudsql/` socket path are *not* named, because the database is Neon. Also
+  dropped `make ingestion` from the command list: there is no such target.
+- **This file** — the status block at the top is the as-built record; the Cloud
+  SQL stage stays for the path not taken.
+- **`docs/deployment-neon.md`** — the database runbook, already written, and
+  listed in `docs/README.md`'s doc-map table.
+- **`docs/backlog.md`** — the dead-`api.js` P3 is closed (those three clients
+  are deleted); the `quote_plus` landmine was fixed in code during the Neon
+  move, not just written down.
+- **`docs/roadmap.md:180-187`** — still to tick when Stage 4 lands; leave
+  `uuid_8` open with the reasoning above.
 
 ---
 

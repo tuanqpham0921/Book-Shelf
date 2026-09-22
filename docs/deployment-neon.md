@@ -270,6 +270,12 @@ There is no Cloud SQL instance to administer.
 **2.2** — the deploy now carries real credentials and a startup probe. Set the
 values first so no secret lands in shell history:
 
+> **Superseded by `make -C backend deploy` (2026-09-19).** The command below is
+> the first-deploy record: it passes both secrets as plain env vars, which a
+> revision then keeps forever. The Makefile recipe reads the database settings
+> from `config/.env.neon` and pulls the password and the OpenAI key from Secret
+> Manager instead. Use it, not this.
+
 ```bash
 NEON_HOST=ep-<name>-<id>.us-east-2.aws.neon.tech   # POSTGRES_HOST in config/.env.neon
 NEON_USER=neondb_owner

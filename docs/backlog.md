@@ -336,12 +336,12 @@ From the owner's design notes — these need real design thought, not drive-by f
   `ChatReviewPage.jsx`) and fixes the double-session race above.
 - **P2** `useClickOutside()` hook — click-outside logic is copy-pasted 3×
   (version dropdown, feedback controls, chat input).
-- **P3** Dead code: `api.js` `getTaskPlanDiagram` (diagrams come over SSE),
-  `stopChatStream` (no backend endpoint — see roadmap deferred), and
-  `getRecommendedBooks` (calls `GET /session/{id}/recommended_books`, which no longer
-  exists server-side — found 2026-07-17); leftover debug
-  `console.log`s (App.jsx, ChatBot.jsx, MermaidDiagram.jsx, VersionDropdown.jsx);
-  `data/chatSuggestions.js` commented-out idea block.
+- **P3** Dead code: leftover debug `console.log`s (App.jsx, ChatBot.jsx,
+  MermaidDiagram.jsx, VersionDropdown.jsx); `data/chatSuggestions.js`
+  commented-out idea block. (The three `api.js` clients for endpoints that no
+  longer exist — `getTaskPlanDiagram`, `stopChatStream`, `getRecommendedBooks` —
+  were deleted 2026-09-19, along with the `ngrok-skip-browser-warning` header,
+  when `npm run lint` became a CI gate.)
 - **P3** `formatAuthors`/`formatAuthorsMobile` (~90% duplicated) — collapse with a
   `compact` flag.
 - **P3** Backend rename pass: `@task` → `@op_task` (avoid name conflicts),

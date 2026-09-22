@@ -1,5 +1,3 @@
-ENV_FILE := .env
-
 # -------------------
 # Local dev
 # -------------------
@@ -8,36 +6,28 @@ ENV_FILE := .env
 install:
 	npm install
 
+# serves on :3000 against http://localhost:8000 (.env.development)
 .PHONY: dev
 dev:
 	npm run dev
+
+.PHONY: lint
+lint:
+	npm run lint
 
 # -------------------
 # Deploy
 # -------------------
 
-# point the frontend at a backend URL (e.g. an ngrok tunnel or Cloud Run URL)
-# usage: make set-api-url URL=https://xxxx.ngrok-free.dev
-.PHONY: set-api-url
-set-api-url:
-	@test -n "$(URL)" || (echo "Usage: make set-api-url URL=https://your-backend-url"; exit 1)
-	@sed -i.bak "s|^VITE_API_URL=.*|VITE_API_URL=$(URL)|" $(ENV_FILE) && rm -f $(ENV_FILE).bak
-	@echo "VITE_API_URL set to $(URL)"
-
+# Vite runs this in production mode, so VITE_API_URL comes from .env.production
+# — the Cloud Run URL is in the repo, which is what makes the build
+# reproducible: no local .env to forget, nothing to pass on the command line.
 .PHONY: build
 build:
 	npm run build
 
-# build + publish to Firebase Hosting using whatever VITE_API_URL is
-# currently set in .env
+# build + publish dist/ to Firebase Hosting (target book-rec -> tuanqpham0921)
 .PHONY: deploy
 deploy: build
 	firebase deploy --only hosting
-
-# one-shot: point at a backend URL, then build + deploy
-# usage: make deploy-tunnel URL=https://xxxx.ngrok-free.dev
-.PHONY: deploy-tunnel
-deploy-tunnel:
-	@test -n "$(URL)" || (echo "Usage: make deploy-tunnel URL=https://your-backend-url"; exit 1)
-	$(MAKE) set-api-url URL=$(URL)
-	$(MAKE) deploy
+	@echo "Live at https://tuanqpham0921.web.app"

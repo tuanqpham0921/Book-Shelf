@@ -20,13 +20,6 @@ install:
 dev:
 	LOG_LEVEL=INFO poetry run uvicorn app.main:app --reload --reload-include "*.py" --reload-include "*.env"
 
-# expose the local API (make dev) to the internet via ngrok.
-# copy the printed https://*.ngrok-free.dev URL into
-# `make -C ../frontend deploy-tunnel URL=<that url>`
-.PHONY: tunnel
-tunnel:
-	ngrok http 8000
-
 # clear the pycache
 .PHONY: clean
 clean:
@@ -213,6 +206,61 @@ neon-bootstrap:
 .PHONY: dev-neon
 dev-neon:
 	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && $(MAKE) dev
+
+# -------------------
+# Deploy (Cloud Run)
+# -------------------
+
+# The recipe below is the whole description of the service: every flag that
+# shapes the deployed revision is here, so nothing lives only in the console
+# and a redeploy can't quietly drop a setting someone clicked in once.
+CLOUD_RUN_SERVICE := book-shelf-api
+CLOUD_RUN_REGION  := us-east5
+GCP_PROJECT       := tuanqpham0921
+# A dedicated service account, not the compute default (which carries project
+# Editor): this one may only read the two secrets below.
+CLOUD_RUN_SA      := $(CLOUD_RUN_SERVICE)@$(GCP_PROJECT).iam.gserviceaccount.com
+# Firebase serves the site on both hostnames, so both must be allowed.
+ALLOW_ORIGINS     := https://tuanqpham0921.web.app,https://tuanqpham0921.firebaseapp.com
+
+# Deploy the backend. Builds from source via Cloud Build (no cloudbuild.yaml:
+# the Dockerfile and these flags already say everything one would contain),
+# pushes to Artifact Registry, and rolls out a new revision.
+#
+# Database settings are read from config/.env.neon — the same file `dev-neon`
+# uses, so the deployed database and your local Neon runs cannot drift, and the
+# endpoint host stays out of version control. The password is NOT passed here:
+# it and the OpenAI key come from Secret Manager, which is what keeps them out
+# of the revision's env (revisions are immutable and readable forever).
+.PHONY: deploy
+deploy:
+	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && \
+	gcloud run deploy $(CLOUD_RUN_SERVICE) \
+		--source=$(MAKEFILE_DIR) \
+		--project=$(GCP_PROJECT) \
+		--region=$(CLOUD_RUN_REGION) \
+		--service-account=$(CLOUD_RUN_SA) \
+		--allow-unauthenticated \
+		--cpu=1 --memory=1Gi --cpu-boost \
+		--timeout=300 \
+		--min-instances=0 --max-instances=3 --concurrency=5 \
+		--startup-probe=httpGet.path=/ready,initialDelaySeconds=5,periodSeconds=5,timeoutSeconds=5,failureThreshold=6 \
+		--set-env-vars="^@^APP_NAME=book-shelf-backend@APP_ENVIRONMENT=production@APP_ALLOW_ORIGINS=$(ALLOW_ORIGINS)@POSTGRES_HOST=$$POSTGRES_HOST@POSTGRES_PORT=$$POSTGRES_PORT@POSTGRES_DB=$$POSTGRES_DB@POSTGRES_USER=$$POSTGRES_USER@POSTGRES_SSL_MODE=$$POSTGRES_SSL_MODE@POSTGRES_MIN_CONNECTIONS=$$POSTGRES_MIN_CONNECTIONS@POSTGRES_MAX_CONNECTIONS=$$POSTGRES_MAX_CONNECTIONS@OPENAI_BASE_MODEL=gpt-4.1-mini@OPENAI_TOKENIZER_ENCODING=o200k_base@OPENAI_EMBEDDING_MODEL=text-embedding-3-large@OPENAI_EMBEDDING_DIMENSIONS=1024@OPENAI_MAX_CONCURRENCY=10" \
+		--set-secrets=POSTGRES_PASSWORD=postgres-password:latest,OPENAI_API_KEY=openai-api-key:latest
+	@$(MAKE) deploy-check
+
+# `^@^` is load-bearing above: it switches gcloud's list delimiter from `,` to
+# `@`, so the commas inside APP_ALLOW_ORIGINS don't split into malformed vars.
+
+# prove the live revision is serving: /ready runs a real query against Neon,
+# so a 200 here means image, env, secrets and database are all wired up.
+.PHONY: deploy-check
+deploy-check:
+	@URL=$$(gcloud run services describe $(CLOUD_RUN_SERVICE) \
+		--project=$(GCP_PROJECT) --region=$(CLOUD_RUN_REGION) \
+		--format='value(status.url)'); \
+	echo "$$URL"; \
+	curl -fsS -w '\n' "$$URL/ready" || (echo "NOT READY"; exit 1)
 
 # -------------------
 # Docker commands

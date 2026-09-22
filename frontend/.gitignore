@@ -12,10 +12,11 @@ dist-ssr/
 *.local
 
 # Environment variables
+# .env.development and .env.production are committed: they hold only the API
+# URL for each mode, which is public. Local overrides go in .env.local.
 .env
 .env.local
 .env.*.local
-!.env.example
 
 # Firebase
 .firebase/

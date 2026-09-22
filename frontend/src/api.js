@@ -1,5 +1,6 @@
+// Supplied at build time by Vite: .env.development for `npm run dev`,
+// .env.production for `npm run build` (both committed — the URL is public).
 const BASE_URL = import.meta.env.VITE_API_URL
-// const BASE_URL = 'https://book-shelf-api-286869228046.us-central1.run.app'
 
 const DEFAULT_TIMEOUT_MS = 120000; // 2 minutes
 
@@ -29,9 +30,6 @@ async function fetch_api(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
   try {
     const res = await fetch(url, {
       ...options,
-      // harmless no-op against non-ngrok backends; required so ngrok
-      // doesn't serve its browser-warning interstitial instead of the API response
-      headers: { ...options.headers, 'ngrok-skip-browser-warning': 'true' },
       signal: combinedSignal
     });
 
@@ -64,21 +62,12 @@ async function fetch_api(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
   }
 }
 
-// TODO: implement this
-async function stopChatStream(sessionId) {
-  const res = await fetch_api(BASE_URL + `/session/${sessionId}/stop`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  });
-  return await res.json();
-}
-
 async function backEndPing() {
   try {
     const res = await fetch_api(BASE_URL + '/ping', { method: 'GET' });
     const data = await res.json();
     return data.status === 'ok';
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -105,14 +94,6 @@ async function sendChatMessage(sessionId, message, abortSignal = null, timeoutMs
   return res.body;
 }
 
-
-async function getRecommendedBooks(sessionId) {
-  const res = await fetch_api(BASE_URL + `/session/${sessionId}/recommended_books`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' }
-  });
-  return await res.json();
-}
 
 // Fetch recorded chat runs for the review page, in review-queue order
 // (least-reviewed first, newest first within a tie), each with its derived
@@ -150,16 +131,7 @@ async function submitReview({ chatId, sessionId, liked = null, comments = [] }) 
   return await res.json();
 }
 
-// TODO: implment this, using sse stream for now
-async function getTaskPlanDiagram(sessionId) {
-  const res = await fetch_api(BASE_URL + `/diagram/${sessionId}/task_plan`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' }
-  });
-  return await res.json();
-}
-
 export default {
-  createSession, sendChatMessage, getRecommendedBooks, backEndPing,
+  createSession, sendChatMessage, backEndPing,
   getChatRuns, getFeedback, submitReview
 };
