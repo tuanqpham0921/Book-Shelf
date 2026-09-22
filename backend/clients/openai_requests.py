@@ -39,14 +39,13 @@ class OpenAIBaseRequest(BaseLLMRequest):
     seed: int | None = SEED
     reasoning_effort: str | None = REASONING_EFFORT
 
-    # Bounds reasoning + visible output together. Only the reply writer needs
-    # more than the default, and it says so itself — so `REPLY_COMPLETION` is
-    # also the ceiling: a node may ask for anything up to the largest tier the
-    # app defines, and asking for more is a misconfiguration, not a choice.
+    # The app-wide guard is both the default and the ceiling: a node may ask
+    # for less when it knows its output is small, and asking for more is a
+    # misconfiguration rather than a choice.
     max_completion_tokens: int = Field(
-        default=OpenAIConstants.DEFAULT_COMPLETION,
+        default=OpenAIConstants.MAX_DEFAULT_COMPLETION,
         gt=0,
-        le=OpenAIConstants.REPLY_COMPLETION,
+        le=OpenAIConstants.MAX_DEFAULT_COMPLETION,
     )
 
     @property

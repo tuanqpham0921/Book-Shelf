@@ -10,7 +10,7 @@ class ConcreteRequest(BaseLLMRequest):
 
 
 class ConcreteClient(BaseLLMClient):
-    max_prompt_tokens = 100
+    max_input_tokens = 100
 
     async def execute(self, *_): ...
     async def close(self): ...

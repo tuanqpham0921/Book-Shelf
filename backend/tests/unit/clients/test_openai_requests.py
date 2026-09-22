@@ -90,20 +90,25 @@ class TestModelFamilySettings:
 
 
 class TestCompletionCapBounds:
-    def test_a_node_may_raise_its_cap_up_to_the_ceiling(self):
+    """The app-wide guard is both the default and the ceiling, so a node's
+    only move is downward."""
+
+    def test_the_default_is_the_app_wide_guard(self):
+        req = OpenAIBaseRequest(prompt="p", messages=[USER_MSG])
+        assert req.max_completion_tokens == OpenAIConstants.MAX_DEFAULT_COMPLETION
+
+    def test_a_node_may_lower_its_cap(self):
         req = OpenAIBaseRequest(
-            prompt="p",
-            messages=[USER_MSG],
-            max_completion_tokens=OpenAIConstants.REPLY_COMPLETION,
+            prompt="p", messages=[USER_MSG], max_completion_tokens=500
         )
-        assert req.max_completion_tokens == OpenAIConstants.REPLY_COMPLETION
+        assert req.max_completion_tokens == 500
 
     def test_above_the_ceiling_is_refused(self):
         with pytest.raises(ValidationError, match="less than or equal"):
             OpenAIBaseRequest(
                 prompt="p",
                 messages=[USER_MSG],
-                max_completion_tokens=OpenAIConstants.REPLY_COMPLETION + 1,
+                max_completion_tokens=OpenAIConstants.MAX_DEFAULT_COMPLETION + 1,
             )
 
     @pytest.mark.parametrize("bad", [0, -1])
@@ -231,21 +236,18 @@ class TestOpenAIParserRequest:
         req = OpenAIParserRequest(prompt="p", messages=[USER_MSG], tool_models=[ToolA])
         assert (
             req.to_payload()["max_completion_tokens"]
-            == OpenAIConstants.DEFAULT_COMPLETION
+            == OpenAIConstants.MAX_DEFAULT_COMPLETION
         )
 
-    def test_to_payload_honors_a_raised_cap(self):
-        # how the planner and the reply writer ask for more
+    def test_to_payload_honors_a_lowered_cap(self):
+        # how a node tightens the guard when it knows its output is small
         req = OpenAIParserRequest(
             prompt="p",
             messages=[USER_MSG],
             tool_models=[ToolA],
-            max_completion_tokens=OpenAIConstants.REPLY_COMPLETION,
+            max_completion_tokens=500,
         )
-        assert (
-            req.to_payload()["max_completion_tokens"]
-            == OpenAIConstants.REPLY_COMPLETION
-        )
+        assert req.to_payload()["max_completion_tokens"] == 500
 
 
 class TestOpenAIChatRequest:
@@ -263,7 +265,7 @@ class TestOpenAIChatRequest:
         req = OpenAIChatRequest(prompt="p", messages=[USER_MSG], sse_stream=make_sse_stream())
         assert (
             req.to_payload()["max_completion_tokens"]
-            == OpenAIConstants.DEFAULT_COMPLETION
+            == OpenAIConstants.MAX_DEFAULT_COMPLETION
         )
 
 

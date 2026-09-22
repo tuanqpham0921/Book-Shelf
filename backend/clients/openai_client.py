@@ -45,7 +45,7 @@ class OpenAIClient(BaseLLMClient):
         self.base_model           = openai_settings.BASE_MODEL
         self.embedding_model      = openai_settings.EMBEDDING_MODEL
         self.embedding_dimensions = openai_settings.EMBEDDING_DIMENSIONS
-        self.max_prompt_tokens    = OpenAIConstants.MAX_PROMPT_TOKENS
+        self.max_input_tokens     = OpenAIConstants.MAX_INPUT_TOKENS
         
         self.semaphore = asyncio.Semaphore(openai_settings.MAX_CONCURRENCY)
     
@@ -53,9 +53,9 @@ class OpenAIClient(BaseLLMClient):
         """Embed `input`. Raises through the caller on failure — no tracing
         here (see `BaseLLMClient`): the step envelope and the usage promotion
         happen on the app's wrapper, `AppWorkflow.get_embeddings`."""
-        if self.token_count(input) > self.max_prompt_tokens:
+        if self.token_count(input) > self.max_input_tokens:
             raise ValueError(
-                f"Input is too long. Max prompt tokens: {self.max_prompt_tokens}"
+                f"Input is too long. Max input tokens: {self.max_input_tokens}"
             )
 
         async with self.semaphore:
@@ -92,10 +92,10 @@ class OpenAIClient(BaseLLMClient):
         # keys, cannot silently miss a component a new request type adds.
         # (Passing `payload` itself counted its *keys*: 4 tokens.)
         prompt_tokens = self.token_count(json.dumps(payload, default=str))
-        if prompt_tokens > self.max_prompt_tokens:
+        if prompt_tokens > self.max_input_tokens:
             raise ValueError(
                 f"Input is too long: {prompt_tokens} tokens. "
-                f"Max prompt tokens: {self.max_prompt_tokens}"
+                f"Max input tokens: {self.max_input_tokens}"
             )
 
         async with self.semaphore:

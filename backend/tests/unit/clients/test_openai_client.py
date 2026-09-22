@@ -55,9 +55,9 @@ class TestOpenAIClientInit:
         with pytest.raises(ValueError, match="API key"):
             OpenAIClient(make_settings(API_KEY=""))
 
-    def test_sets_max_prompt_tokens(self):
+    def test_sets_max_input_tokens(self):
         client = make_client()
-        assert client.max_prompt_tokens > 0
+        assert client.max_input_tokens > 0
 
     def test_sets_embedding_model(self):
         client = make_client()
@@ -106,7 +106,7 @@ class TestGetEmbeddings:
 
     @pytest.mark.asyncio
     async def test_raises_when_input_too_long(self):
-        self.client.max_prompt_tokens = 1
+        self.client.max_input_tokens = 1
         with pytest.raises(ValueError, match="too long"):
             await self.client.get_embeddings(
                 ["a very long text that exceeds one token"]
@@ -147,7 +147,7 @@ class TestPromptLengthGuard:
 
     @pytest.mark.asyncio
     async def test_tool_schema_counts_toward_the_ceiling(self):
-        self.client.max_prompt_tokens = 50
+        self.client.max_input_tokens = 50
         # short messages, a large tool schema: the guard must still fire
         payload = {
             "model": FAKE_MODEL,

@@ -14,9 +14,12 @@ class AppConfig:
 
 
 class OpenAIConstants:
-    MAX_PROMPT_TOKENS = 25_000
-    DEFAULT_COMPLETION = 2_000  # the planner, and every node's argument parse
-    REPLY_COMPLETION   = 4_000  # the generation stage: the turn's whole prose
+    # App wide limit. Guards against a runaway, not a budget: you are billed
+    # for tokens generated, so a cap costs nothing until it binds — and when
+    # it binds it fails the turn. A node may set a smaller
+    # `max_completion_tokens`; above this is refused.
+    MAX_INPUT_TOKENS       = 25_000  # whole payload, tool schemas included
+    MAX_DEFAULT_COMPLETION = 10_000  # reasoning + visible output together
 
 class FilesLocationConstants:
     """Repository paths resolved from the backend package root."""
