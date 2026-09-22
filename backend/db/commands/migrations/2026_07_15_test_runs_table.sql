@@ -6,10 +6,10 @@
 -- in the old columns is copied over before the columns are dropped, so this
 -- is safe to run on a database that had the previous migrations applied —
 -- and on a fresh one (the copy step no-ops when the columns don't exist is
--- NOT true in plain SQL, so fresh databases should init from db/schema/
+-- NOT true in plain SQL, so fresh databases should init from db/init/
 -- instead of running this).
 --
--- Apply with: make postgres-query FILE=db/schema/migrations/2026_07_15_test_runs_table.sql
+-- Apply with: make postgres-query FILE=db/commands/migrations/2026_07_15_test_runs_table.sql
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS test_runs (

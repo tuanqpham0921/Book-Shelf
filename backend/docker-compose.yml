@@ -1,4 +1,6 @@
 services:
+  # The production image against the compose postgres — `docker compose up app`.
+  # Local development is `make dev`; this is only for exercising the container.
   app:
     build: .
     container_name: book-rec-app
@@ -10,8 +12,11 @@ services:
     environment:
       # Reach the postgres service from the app container
       POSTGRES_HOST: postgres
+      # The image only boots as production: /app is read-only, and
+      # development's log file needs /app/logs (see the Dockerfile)
+      APP_ENVIRONMENT: production
     ports:
-      - "8000:8000"
+      - "8080:8080"
     networks:
       - book-rec-network
   postgres:
@@ -26,9 +31,9 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/schema/00_extensions.sql:/docker-entrypoint-initdb.d/00_extensions.sql:ro
-      - ./db/schema/01_tables.sql:/docker-entrypoint-initdb.d/01_tables.sql:ro
-      - ./db/schema/02_indexes.sql:/docker-entrypoint-initdb.d/02_indexes.sql:ro
+      # runs db/init/*.sql in name order, and only when the data directory is
+      # empty — an existing volume needs the dated migration instead
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 30s

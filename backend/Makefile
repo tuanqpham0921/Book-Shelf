@@ -20,18 +20,6 @@ install:
 dev:
 	LOG_LEVEL=INFO poetry run uvicorn app.main:app --reload --reload-include "*.py" --reload-include "*.env"
 
-# run the ingestion script
-.PHONY: ingestion
-ingestion:
-	LOG_LEVEL=INFO poetry run python -m db.ingestion.main
-
-# expose the local API (make dev) to the internet via ngrok.
-# copy the printed https://*.ngrok-free.dev URL into
-# `make -C ../frontend deploy-tunnel URL=<that url>`
-.PHONY: tunnel
-tunnel:
-	ngrok http 8000
-
 # clear the pycache
 .PHONY: clean
 clean:
@@ -172,6 +160,124 @@ postgres-clear-test-runs:
 	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
 		psql -U $$POSTGRES_USER -d $$POSTGRES_DB -c "TRUNCATE TABLE test_runs;"
 	@echo "test_runs table cleared"
+
+# dump the local container's books table (data only, COPY format) — the seed
+# for neon-bootstrap. No --column-inserts: 5,197 rows x 1024 floats as
+# individual INSERTs would be enormous and slow to replay.
+.PHONY: postgres-dump-books
+postgres-dump-books:
+	@mkdir -p $(MAKEFILE_DIR)data/backup
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		pg_dump -U $$POSTGRES_USER -d $$POSTGRES_DB --table=books --data-only \
+		> $(MAKEFILE_DIR)data/backup/books.sql
+	@echo "books dumped to $(MAKEFILE_DIR)data/backup/books.sql"
+
+# -------------------
+# Neon (managed Postgres)
+# -------------------
+
+# Every target goes through the Neon CLI: `neon psql` resolves the project from
+# the .neon file `neon link` wrote in this folder and fetches the password from
+# your Neon login, so no operator credential sits in config/.env and a mistyped
+# host can never point these at the local container. Direct endpoint, not the
+# -pooler one, which is what dumps and schema changes need.
+
+# psql shell on Neon:   make neon-cli
+# one file or command:  make neon-cli ARGS='-c "SELECT count(*) FROM books;"'
+.PHONY: neon-cli
+neon-cli:
+	neon psql -- $(ARGS)
+
+# seed a fresh Neon database (make postgres-dump-books first). The order is
+# load-bearing: the books load needs the vector type from 00_extensions, and
+# ivfflat builds its centroids from the rows present when the index is created,
+# so 02_indexes runs last — built on an empty table, recall degrades silently.
+.PHONY: neon-bootstrap
+neon-bootstrap:
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/00_extensions.sql
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/01_tables.sql
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)data/backup/books.sql
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/02_indexes.sql
+	@echo "Neon bootstrapped."
+
+# the API against Neon instead of the compose container: config/.env.neon holds
+# only POSTGRES_* values, and process env beats config/.env in pydantic-settings
+.PHONY: dev-neon
+dev-neon:
+	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && $(MAKE) dev
+
+# -------------------
+# Deploy (Cloud Run)
+# -------------------
+
+# The recipe below is the whole description of the service: every flag that
+# shapes the deployed revision is here, so nothing lives only in the console
+# and a redeploy can't quietly drop a setting someone clicked in once.
+CLOUD_RUN_SERVICE := book-shelf-api
+CLOUD_RUN_REGION  := us-east5
+GCP_PROJECT       := tuanqpham0921
+# A dedicated service account, not the compute default (which carries project
+# Editor): this one may only read the two secrets below.
+CLOUD_RUN_SA      := $(CLOUD_RUN_SERVICE)@$(GCP_PROJECT).iam.gserviceaccount.com
+# Firebase serves the site on both hostnames, so both must be allowed.
+ALLOW_ORIGINS     := https://tuanqpham0921.web.app,https://tuanqpham0921.firebaseapp.com
+
+# Deploy the backend. Builds from source via Cloud Build (no cloudbuild.yaml:
+# the Dockerfile and these flags already say everything one would contain),
+# pushes to Artifact Registry, and rolls out a new revision.
+#
+# Database settings are read from config/.env.neon — the same file `dev-neon`
+# uses, so the deployed database and your local Neon runs cannot drift, and the
+# endpoint host stays out of version control. The password is NOT passed here:
+# it and the OpenAI key come from Secret Manager, which is what keeps them out
+# of the revision's env (revisions are immutable and readable forever).
+.PHONY: deploy
+deploy:
+	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && \
+	gcloud run deploy $(CLOUD_RUN_SERVICE) \
+		--source=$(MAKEFILE_DIR) \
+		--project=$(GCP_PROJECT) \
+		--region=$(CLOUD_RUN_REGION) \
+		--service-account=$(CLOUD_RUN_SA) \
+		--allow-unauthenticated \
+		--cpu=1 --memory=1Gi --cpu-boost \
+		--timeout=300 \
+		--min-instances=0 --max-instances=3 --concurrency=5 \
+		--startup-probe=httpGet.path=/ready,initialDelaySeconds=5,periodSeconds=5,timeoutSeconds=5,failureThreshold=6 \
+		--set-env-vars="^@^APP_NAME=book-shelf-backend@APP_ENVIRONMENT=production@APP_ALLOW_ORIGINS=$(ALLOW_ORIGINS)@POSTGRES_HOST=$$POSTGRES_HOST@POSTGRES_PORT=$$POSTGRES_PORT@POSTGRES_DB=$$POSTGRES_DB@POSTGRES_USER=$$POSTGRES_USER@POSTGRES_SSL_MODE=$$POSTGRES_SSL_MODE@POSTGRES_MIN_CONNECTIONS=$$POSTGRES_MIN_CONNECTIONS@POSTGRES_MAX_CONNECTIONS=$$POSTGRES_MAX_CONNECTIONS@OPENAI_BASE_MODEL=gpt-4.1-mini@OPENAI_TOKENIZER_ENCODING=o200k_base@OPENAI_EMBEDDING_MODEL=text-embedding-3-large@OPENAI_EMBEDDING_DIMENSIONS=1024@OPENAI_MAX_CONCURRENCY=10" \
+		--set-secrets=POSTGRES_PASSWORD=postgres-password:latest,OPENAI_API_KEY=openai-api-key:latest
+	@$(MAKE) deploy-check
+
+# `^@^` is load-bearing above: it switches gcloud's list delimiter from `,` to
+# `@`, so the commas inside APP_ALLOW_ORIGINS don't split into malformed vars.
+
+# prove the live revision is serving: /ready runs a real query against Neon,
+# so a 200 here means image, env, secrets and database are all wired up.
+.PHONY: deploy-check
+deploy-check:
+	@URL=$$(gcloud run services describe $(CLOUD_RUN_SERVICE) \
+		--project=$(GCP_PROJECT) --region=$(CLOUD_RUN_REGION) \
+		--format='value(status.url)'); \
+	echo "$$URL"; \
+	curl -fsS -w '\n' "$$URL/ready" || (echo "NOT READY"; exit 1)
+
+# kill switch: drop public access so every request gets a 403 and nothing runs
+# (min-instances=0) or reaches OpenAI. The service and its URL stay; `deploy-on`
+# restores access without a rebuild (`make deploy` also does, since
+# --allow-unauthenticated re-adds this binding).
+.PHONY: deploy-off
+deploy-off:
+	gcloud run services remove-iam-policy-binding $(CLOUD_RUN_SERVICE) \
+		--member=allUsers --role=roles/run.invoker \
+		--region=$(CLOUD_RUN_REGION) --project=$(GCP_PROJECT)
+
+.PHONY: deploy-on
+deploy-on:
+	gcloud run services add-iam-policy-binding $(CLOUD_RUN_SERVICE) \
+		--member=allUsers --role=roles/run.invoker \
+		--region=$(CLOUD_RUN_REGION) --project=$(GCP_PROJECT)
+	@$(MAKE) deploy-check
 
 # -------------------
 # Docker commands

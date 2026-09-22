@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -7,7 +7,9 @@ from config.constants import FilesLocationConstants
 
 class AppSettings(BaseSettings):
     NAME: str
-    ENVIRONMENT: str
+    # a closed set so a typo ("prod") fails at boot rather than falling through
+    # the string comparisons that gate every disk write
+    ENVIRONMENT: Literal["development", "test", "production"]
     # NoDecode: pydantic-settings otherwise tries to JSON-decode env values
     # for list-typed fields before validators run, which breaks on a plain
     # comma-separated string. The field_validator below does the real split.

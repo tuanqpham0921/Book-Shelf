@@ -5,7 +5,7 @@
 -- The old mixed report/reaction table is kept as feedback_legacy (its rows
 -- don't fit the new shape); drop it manually once you no longer need them.
 --
--- Apply with: make postgres-query FILE=db/schema/migrations/2026_07_14_review_queue.sql
+-- Apply with: make postgres-query FILE=db/commands/migrations/2026_07_14_review_queue.sql
 BEGIN;
 
 ALTER TABLE feedback RENAME TO feedback_legacy;

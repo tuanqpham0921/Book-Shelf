@@ -5,7 +5,7 @@
 -- file. Real user chats leave both NULL, so evals can filter with
 -- suite_name IS NULL instead of relying on the session id prefix.
 --
--- Apply with: make postgres-query FILE=db/schema/migrations/2026_07_15_chat_runs_suite_columns.sql
+-- Apply with: make postgres-query FILE=db/commands/migrations/2026_07_15_chat_runs_suite_columns.sql
 BEGIN;
 
 ALTER TABLE chat_runs

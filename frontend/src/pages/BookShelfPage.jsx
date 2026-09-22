@@ -3,10 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import Header from '@/components/Header'
 import DisplayPanel from '@/components/DisplayPanel'
 
-function BookRecommenderPage() {
+function BookShelfPage() {
   const [activeView, setActiveView] = useState('chat')
-  // TODO: change this for production
-  const [backendReady, setBackendReady] = useState(true)
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -46,4 +44,4 @@ function BookRecommenderPage() {
   )
 }
 
-export default BookRecommenderPage
+export default BookShelfPage

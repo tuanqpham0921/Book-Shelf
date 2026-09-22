@@ -11,6 +11,8 @@ here. Eval campaign outputs (reports, notes per run) stay in `backend/evals/resu
 | [roadmap.md](roadmap.md) | V1 phases, release checklist, deferred features |
 | [backlog.md](backlog.md) | Tiered work items (P1/P2/P3) with code references |
 | [eval-strategy.md](eval-strategy.md) | The golden-test mechanism, suite inventory, latest findings, relabel plan |
+| [deployment.md](deployment.md) | Runbook: the staged path to Cloud Run, with an as-built status block at the top. Stage 4 (security) is the open one |
+| [deployment-neon.md](deployment-neon.md) | Runbook: the Neon database — project, bootstrap order, pool sizing, why indexes are built last |
 | [design/node-taxonomy-v1.md](design/node-taxonomy-v1.md) | Decision record: the V1 node set and conversation contract |
 | [design/planner-shape.md](design/planner-shape.md) | Decision record: capability nodes vs. entity + intent (accepted for V1), plus the open planner experiments |
 | [design/execution-pipeline-v1.md](design/execution-pipeline-v1.md) | Design record (proposed): retrieve → filter → analyze → generate, and the three nodes it needs |

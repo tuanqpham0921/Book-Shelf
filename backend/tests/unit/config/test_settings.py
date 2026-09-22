@@ -22,29 +22,9 @@ class TestSQLAlchemySettingsUrl:
             HOST="localhost", PORT=5432, DB="mydb", USER="alice", PASSWORD="secret"
         )
         assert (
-            s.sqlalchemy_url == "postgresql+asyncpg://alice:secret@localhost:5432/mydb"
-        )
-
-    def test_cloudsql_url_format(self):
-        s = make_sqlalchemy(
-            HOST="/cloudsql/project:region:instance",
-            DB="mydb",
-            USER="alice",
-            PASSWORD="secret",
-        )
-        assert (
             s.sqlalchemy_url
-            == "postgresql+asyncpg://alice:secret@/mydb?host=/cloudsql/project:region:instance"
+            == "postgresql+asyncpg://alice:secret@localhost:5432/mydb?ssl=prefer"
         )
-
-    def test_tcp_when_host_does_not_start_with_cloudsql(self):
-        s = make_sqlalchemy(HOST="10.0.0.1", PORT=5432)
-        assert "10.0.0.1:5432" in s.sqlalchemy_url
-
-    def test_cloudsql_when_host_starts_with_cloudsql_prefix(self):
-        s = make_sqlalchemy(HOST="/cloudsql/anything")
-        assert "?host=/cloudsql/anything" in s.sqlalchemy_url
-        assert "@/" in s.sqlalchemy_url  # no host:port in the URL authority
 
     def test_url_contains_asyncpg_driver(self):
         assert make_sqlalchemy().sqlalchemy_url.startswith("postgresql+asyncpg://")
@@ -56,6 +36,35 @@ class TestSQLAlchemySettingsUrl:
     def test_url_contains_database_name(self):
         s = make_sqlalchemy(DB="books")
         assert "books" in s.sqlalchemy_url
+
+
+class TestSQLAlchemySettingsSsl:
+    def test_ssl_mode_defaults_to_asyncpg_default(self):
+        assert make_sqlalchemy().SSL_MODE == "prefer"
+
+    def test_parameter_is_ssl_not_sslmode(self):
+        # asyncpg.connect() takes `ssl=` and has no `sslmode` keyword, and
+        # SQLAlchemy's dialect forwards query parameters to it verbatim.
+        # Emitting `sslmode` — what Neon's dashboard hands you — raises
+        # TypeError at connect time, so assert the spelling, not just the value.
+        url = make_sqlalchemy(SSL_MODE="require").sqlalchemy_url
+        assert "sslmode=" not in url
+        assert url.endswith("?ssl=require")
+
+
+class TestSQLAlchemySettingsCredentialEscaping:
+    def test_password_reserved_characters_are_escaped(self):
+        # an unescaped '@' re-points the host: everything left of the LAST '@'
+        # is the userinfo, so "p@ss" would make "ss@localhost" the authority
+        s = make_sqlalchemy(PASSWORD="p@ss/word#1")
+        assert "p%40ss%2Fword%231" in s.sqlalchemy_url
+        assert "@localhost:5432/mydb" in s.sqlalchemy_url
+
+    def test_ordinary_credentials_are_left_alone(self):
+        # Neon's generated passwords are alphanumeric with underscores, which
+        # quote_plus leaves untouched
+        s = make_sqlalchemy(USER="neondb_owner", PASSWORD="npg_AbC123xyZ")
+        assert "neondb_owner:npg_AbC123xyZ@" in s.sqlalchemy_url
 
 
 class TestOpenAISettings:
@@ -77,11 +86,11 @@ class TestOpenAISettings:
 class TestAppSettings:
     def test_fields_stored_correctly(self):
         s = AppSettings.model_construct(
-            NAME="book-recommender",
+            NAME="book-shelf",
             ENVIRONMENT="test",
             ALLOW_ORIGINS=["http://localhost:3000"],
         )
-        assert s.NAME == "book-recommender"
+        assert s.NAME == "book-shelf"
         assert s.ENVIRONMENT == "test"
         assert s.ALLOW_ORIGINS == ["http://localhost:3000"]
 
@@ -90,14 +99,14 @@ class TestAppSettings:
         # str would substring-match instead, which is a CORS bypass once
         # more than one origin is configured (see field_validator).
         s = AppSettings(
-            NAME="book-recommender",
+            NAME="book-shelf",
             ENVIRONMENT="test",
             ALLOW_ORIGINS="http://localhost:3000, http://localhost:3001",
         )
         assert s.ALLOW_ORIGINS == ["http://localhost:3000", "http://localhost:3001"]
 
     def test_allow_origins_accepts_wildcard(self):
-        s = AppSettings(NAME="book-recommender", ENVIRONMENT="test", ALLOW_ORIGINS="*")
+        s = AppSettings(NAME="book-shelf", ENVIRONMENT="test", ALLOW_ORIGINS="*")
         assert s.ALLOW_ORIGINS == ["*"]
 
 

@@ -16,7 +16,7 @@ CREATE INDEX IF NOT EXISTS chat_runs_session_idx
 -- is the only difference from what SQLAlchemy emits.)
 --
 -- This file only runs at container init; apply to a live database with
---   make postgres-query FILE=db/schema/migrations/2026_08_21_books_search_idx.sql
+--   make postgres-query FILE=db/commands/migrations/2026_08_21_books_search_idx.sql
 CREATE INDEX IF NOT EXISTS books_search_idx
     ON books USING gin (
         to_tsvector('english', coalesce(title, '') || ' ' || coalesce(categories, '') || ' ' || coalesce(description, ''))

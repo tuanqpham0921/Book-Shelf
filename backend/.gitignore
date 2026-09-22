@@ -11,6 +11,8 @@ config/.env*
 
 # Backup Data
 *backup.sql
+# Database dumps — books.sql is well over 100MB of text-format vectors
+data/backup/
 
 # Data & Exports
 *.csv
@@ -28,3 +30,6 @@ chat*.json
 feedback_*.sql
 chat_run*
 log.txt
+
+# Neon project link — written by `neon link`
+.neon

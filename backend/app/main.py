@@ -1,4 +1,3 @@
-import os
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,19 +42,23 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Book Recommender API",
+    title="BookShelf API",
     description="AI-powered book recommendation system",
     version="3.0.0",
     lifespan=lifespan
 )
 
-# CORS configuration for Cloud Run
+# CORS. Origins come from APP_ALLOW_ORIGINS (exact matches, never "*": this
+# sends credentials, and browsers reject the wildcard outright when they are
+# allowed). Methods and headers are the ones frontend/src/api.js actually
+# sends — GET, POST and PUT over application/json — rather than "*", so a new
+# verb or header is a deliberate line here.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.app.ALLOW_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"], # TODO: need to update this
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 # Include routers
@@ -70,22 +73,3 @@ app.include_router(chat_router)
 app.include_router(session_router)
 app.include_router(chat_run_router)
 app.include_router(feedback_router)
-
-# Cloud Run entry point
-if __name__ == "__main__":
-    import uvicorn
-    
-    # Cloud Run provides PORT environment variable
-    port = int(os.environ.get("PORT", 8080))
-    host = os.environ.get("HOST", "0.0.0.0")
-    
-    logger.info(f"🌐 Starting server on {host}:{port}")
-    
-    uvicorn.run(
-        "app.main:app",
-        host=host,
-        port=port,
-        reload=False,  # Never use reload in production
-        access_log=True,
-        log_level="info"
-    )

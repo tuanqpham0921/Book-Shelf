@@ -5,7 +5,7 @@
 -- and the prose only ever existed as SSE deltas, so this is the only copy of
 -- what the turn actually said. Runs before the stage existed leave it NULL.
 --
--- Apply with: make postgres-query FILE=db/schema/migrations/2026_09_10_chat_runs_writer_column.sql
+-- Apply with: make postgres-query FILE=db/commands/migrations/2026_09_10_chat_runs_writer_column.sql
 BEGIN;
 
 ALTER TABLE chat_runs

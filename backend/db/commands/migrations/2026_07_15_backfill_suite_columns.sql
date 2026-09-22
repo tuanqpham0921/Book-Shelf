@@ -7,7 +7,7 @@
 -- so re-running is safe.
 -- Generated from the suite JSONs (evals/suites/) — regenerate rather than edit.
 --
--- Apply with: make postgres-query FILE=db/schema/migrations/2026_07_15_backfill_suite_columns.sql
+-- Apply with: make postgres-query FILE=db/commands/migrations/2026_07_15_backfill_suite_columns.sql
 BEGIN;
 
 UPDATE chat_runs cr

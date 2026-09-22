@@ -1,9 +1,10 @@
-"""Persist one chat_runs row per orchestrated chat turn.
+"""Record each orchestrated chat turn.
 
 The single place that decides which sinks a run goes to:
 - test: nothing
-- development: JSON file (local eyeballing) + database
-- everything else (prod): database only — Cloud Run's filesystem is ephemeral
+- development: JSON files under `logs/<chat_id>/` (local eyeballing)
+- production: nothing yet — the chat_runs insert is off in every environment
+  until Stage 4 turns it back on (docs/deployment.md §4.2)
 """
 
 import logging
@@ -32,21 +33,6 @@ from clients.messages import (
 )
 
 logger = logging.getLogger(__name__)
-
-from pydantic import BaseModel
-class Tracer(BaseModel):
-    name: str | None
-    steps: list["Tracer"]
-
-def to_tracer(record) -> Tracer | None:
-    if not isinstance(record, OperationResult):
-        return None
-
-    steps = [tracer for step in record.steps if (tracer := to_tracer(step))]
-    return Tracer(name=record.name, steps=steps)
-    
-    
-
 
 
 def build_chat_run_row(
@@ -111,78 +97,63 @@ async def record_chat_run(
         )
         return
 
-    app_env = request_context.app_env
-    if app_env == "test":
+    # Only development records anything right now. test stays hermetic, and
+    # production has no sink until Stage 4 turns the chat_runs insert back on.
+    # Files are never the production sink: Cloud Run's filesystem is in-memory,
+    # so each one would cost instance RAM and vanish with the instance.
+    if request_context.app_env != "development":
         return
     # NOTE: if something fails here
     # it'll timeout not error (why?)
 
     try:
-        
-        user_id = request_context.user_message.id
-        
-        row = build_chat_run_row(
-            session_id=request_context.session_id,
-            user_chat_id=request_context.user_message.id,
-            user_message=request_context.user_message.content,
-            record=record,
-            planner=planner.record if planner is not None else None,
-            tasks=task_runner.record if task_runner is not None else None,
-            writer=writer.record if writer is not None else None,
-        )
+        user_dir = FilesLocationConstants.EXPORT_DIR / request_context.user_message.id
 
-        if app_env == "development":
-            # strip_zero_token_usage only touches this local eyeballing copy —
-            # the DB row above keeps every token_usage as recorded, so a
-            # genuinely free step still serializes cost_usd: 0.0 there.
+        # a flat view; strip_zero_token_usage only touches this local
+        # eyeballing copy — the chat_runs row keeps every token_usage as
+        # recorded, so a genuinely free step still serializes cost_usd: 0.0
+        flat = to_serializable(record.flatten())
+        flat = strip_zero_token_usage(remove_empty_values(flat))
+        save_file(flat, file_name="record", path=user_dir)
 
-            # save_file(
-            #     {
-            #         "summary": record.to_summary(),
-            #         "chat_run": strip_zero_token_usage(remove_empty_values(row)),
-            #     },
-            #     file_name=record.id + "_summary",
-            # )
+        # saving the convo history
+        save_file(messages, file_name="convo_history", path=user_dir)
 
-            user_dir = FilesLocationConstants.EXPORT_DIR / user_id
+        # saving the writter. Both of these are None on a turn that never
+        # planned (small talk, a refusal) and the writer is None again when
+        # it declined — without the guards the AttributeError lands in the
+        # except below and the whole recording is logged as failed.
+        if writer is not None:
+            save_file(
+                to_serializable(writer.record), file_name="writer", path=user_dir
+            )
 
-            # a flattern view
-            flat = to_serializable(record.flatten())
-            flat = strip_zero_token_usage(remove_empty_values(flat))
-            save_file(flat, file_name="record", path=user_dir)
+        # save task runner output: one `TaskResult` per goal — the node's
+        # output (with its `preview` books) plus its duration, token counts
+        # and error — which is the turn's source of truth
+        if task_runner is not None:
+            dev_gen = {
+                # exactly what the writer was fed: RecommendationsInput
+                # takes list(task_results.values())
+                "task_results": task_runner.result,
+                # thin for the other reason: `record.input` is built by
+                # to_record_input, where each result's to_summary() wins
+                "writer_input_as_recorded": writer.record.input if writer else None,
+            }
+            save_file(dev_gen, file_name="dev_gen", path=user_dir)
 
-            # just the name
-            # tracer_name = to_tracer(record)
-            # save_file(tracer_name, file_name="tracer_name", path=user_dir)
-
-            # saving the convo history
-            save_file(messages, file_name="convo_history", path=user_dir)
-            
-            # saving the writter. Both of these are None on a turn that never
-            # planned (small talk, a refusal) and the writer is None again when
-            # it declined — without the guards the AttributeError lands in the
-            # except below and the whole recording is logged as failed.
-            if writer is not None:
-                save_file(
-                    to_serializable(writer.record), file_name="writer", path=user_dir
-                )
-
-            # save task runner output: one `TaskResult` per goal — the node's
-            # output (with its `preview` books) plus its duration, token counts
-            # and error — which is the turn's source of truth
-            if task_runner is not None:
-                dev_gen = {
-                    # exactly what the writer was fed: RecommendationsInput
-                    # takes list(task_results.values())
-                    "task_results": task_runner.result,
-                    # thin for the other reason: `record.input` is built by
-                    # to_record_input, where each result's to_summary() wins
-                    "writer_input_as_recorded": writer.record.input if writer else None,
-                }
-                save_file(dev_gen, file_name="dev_gen", path=user_dir)
-
-
-
+        # The chat_runs insert — off in every environment for now. Stage 4
+        # (docs/deployment.md §4.2): uncomment and move above the development
+        # gate, so production records too.
+        # row = build_chat_run_row(
+        #     session_id=request_context.session_id,
+        #     user_chat_id=request_context.user_message.id,
+        #     user_message=request_context.user_message.content,
+        #     record=record,
+        #     planner=planner.record if planner is not None else None,
+        #     tasks=task_runner.record if task_runner is not None else None,
+        #     writer=writer.record if writer is not None else None,
+        # )
         # async with request_context.session_factory() as session:
         #     await ChatRunStore(session).insert_run(row)
         # logger.info("📋 Recorded chat run %s", row["chat_id"])

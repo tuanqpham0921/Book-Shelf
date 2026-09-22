@@ -1,4 +1,4 @@
-name: Backend CI
+name: CI
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
       - dev
 
 env:
-  APP_NAME: book-recommender-backend
+  APP_NAME: book-shelf-backend
   APP_ENVIRONMENT: test
   APP_ALLOW_ORIGINS: http://localhost:3000
 
@@ -53,3 +53,32 @@ jobs:
 
       - name: Run backend integration tests
         run: poetry run pytest tests/integration
+
+  frontend-build:
+    name: Frontend lint and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # Catches a broken bundle before `make deploy` publishes it. Builds in
+      # production mode, so it also proves .env.production parses.
+      - name: Build
+        run: npm run build

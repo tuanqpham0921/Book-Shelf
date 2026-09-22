@@ -17,7 +17,7 @@ export const BooksGrid = ({ books }) => {
 
   return (
     <div className="h-full w-full flex flex-col overflow-y-auto min-h-0 min-w-0">
-      {books.map((book, index) => (
+      {books.map((book) => (
         <BookCardDetailed book={book} key={book.isbn13} />
       ))}
     </div>

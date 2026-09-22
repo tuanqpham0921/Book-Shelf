@@ -11,7 +11,7 @@ const Header = ({ activeView, setActiveView }) => {
             <div className='flex flex-col w-full p-4 pb-0'>
                 <div className='flex items-center justify-between'>
                     <h1 className='flex flex-row text-2xl text-[var(--text-hover)]'>
-                        Book Recommender  <p className='ml-1 mt-1 text-xl text-[var(--text-inactive)]'>(pre-release)</p>
+                        BookShelf  <p className='ml-1 mt-1 text-xl text-[var(--text-inactive)]'>(pre-release)</p>
                     </h1>
 
                     <div className="flex items-center gap-1">
