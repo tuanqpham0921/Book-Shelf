@@ -61,14 +61,14 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 --------------------------
 
-0. fix the session bookstore (should be session factory)
-00. merge this or create a new branch (clean up stuff)
+1. configure the limit better
+2. add rejection and small talks
+3. set up a session db with max tokens
 
 2. format the task runner better
 3. fix the ingestion thing with the ISBN
 4. add limit to task and such
 5. set up the tokens limit per session
-6. deploy (or set up a deploy script)
 
 continue with CI/CD
 * clean up (UI)
