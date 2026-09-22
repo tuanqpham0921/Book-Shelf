@@ -18,14 +18,19 @@ class OpenAIConstants:
     # alike and are unrelated: this one raises before the request is sent.
     MAX_TOKENS = 100_000
 
-    # Completion caps, named by the job a call does rather than by node, so
-    # the arg-parsing slices stay interchangeable. On gpt-5 models this bounds
-    # reasoning *and* visible output together, so these are runaway guards,
-    # not output budgets — sized well above what a healthy call uses.
-    # Tightening one to shape response length truncates the tool call instead.
-    ARGS_PARSE_COMPLETION = 2_000   # a node filling 1-3 argument fields
-    PLAN_COMPLETION       = 4_000   # PlanJane: many goals, whole catalog
-    REPLY_COMPLETION      = 8_000   # the turn's prose, the longest output
+    # Completion caps. `max_completion_tokens` is the only cap the Chat
+    # Completions API takes, and it bounds reasoning *and* visible output
+    # together — there is no separate output-token knob, and `max_tokens` is
+    # deprecated and rejected by reasoning models. So these are runaway
+    # guards, not budgets: a cap costs nothing until it binds, and when it
+    # binds it fails the turn rather than making it cheaper. Size them above
+    # the worst case the schemas permit, never near the expected value.
+    #
+    # Two tiers, because the planner and an argument parse measure the same.
+    # A maximal GoalParseRequest — MAX_SYSTEM_GOALS (10) goals, every string
+    # at its bound — is 1341 tokens; a realistic 10-goal plan is 611.
+    DEFAULT_COMPLETION = 2_000  # the planner, and every node's argument parse
+    REPLY_COMPLETION   = 8_000  # the generation stage: the turn's whole prose
 
 class FilesLocationConstants:
     """Repository paths resolved from the backend package root."""

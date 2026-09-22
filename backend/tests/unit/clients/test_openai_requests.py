@@ -149,7 +149,7 @@ class TestOpenAIParserRequest:
         req = OpenAIParserRequest(prompt="p", messages=[USER_MSG], tool_models=[ToolA])
         assert (
             req.to_payload()["max_completion_tokens"]
-            == OpenAIConstants.ARGS_PARSE_COMPLETION
+            == OpenAIConstants.DEFAULT_COMPLETION
         )
 
     def test_to_payload_honors_a_raised_cap(self):
@@ -181,7 +181,7 @@ class TestOpenAIChatRequest:
         req = OpenAIChatRequest(prompt="p", messages=[USER_MSG], sse_stream=make_sse_stream())
         assert (
             req.to_payload()["max_completion_tokens"]
-            == OpenAIConstants.ARGS_PARSE_COMPLETION
+            == OpenAIConstants.DEFAULT_COMPLETION
         )
 
 

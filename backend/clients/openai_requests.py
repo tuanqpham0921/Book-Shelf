@@ -25,9 +25,9 @@ class OpenAIBaseRequest(BaseLLMRequest):
     seed: int | None = SEED
     reasoning_effort: str | None = 'low'
 
-    # A parse is the common case; the planner and the reply writer say so
-    # themselves. Bounds reasoning + output together on gpt-5 models.
-    max_completion_tokens: int = OpenAIConstants.ARGS_PARSE_COMPLETION
+    # Bounds reasoning + visible output together. Only the reply writer needs
+    # more than the default, and it says so itself.
+    max_completion_tokens: int = OpenAIConstants.DEFAULT_COMPLETION
 
     @model_validator(mode="after")
     def check_tool_message_linkage(self) -> "OpenAIBaseRequest":

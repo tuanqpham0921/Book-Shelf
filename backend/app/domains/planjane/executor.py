@@ -17,7 +17,6 @@ from app.domains.base_workflow import AppWorkflow
 from app.domains.node_input import NodeInput, ParsedInput
 from app.registry import REGISTRY
 from clients import OpenAIParserRequest
-from config.constants import OpenAIConstants
 
 from app.domains.planjane.dial.mermaid import get_goals_mermaid_diagram
 from .external import PlanJaneOutput
@@ -62,9 +61,6 @@ def build_goal_parse_request(query: str) -> OpenAIParserRequest:
         # what gets parsed.
         messages=[UserMessage(content=query)],
         tool_models=[GoalParseRequest],
-        # above the parse default: one plan can carry MAX_SYSTEM_GOALS goals,
-        # each with an instruction, against the whole catalog
-        max_completion_tokens=OpenAIConstants.PLAN_COMPLETION,
     )
 
 
