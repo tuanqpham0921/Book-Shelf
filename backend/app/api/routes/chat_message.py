@@ -14,8 +14,10 @@ from app.orchestration.orchestrator import Orchestrator
 from app.api.dependencies import (
     get_request_context_factory,
     get_orchestrator,
+    get_session_store,
 )
 from app.common.request_context import RequestContext
+from db.stores.session_store import SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,7 @@ async def chat(
     chat_in: ChatIn, # NOTE: this can probably use UserMessage
     orchestrator: Orchestrator = Depends(get_orchestrator),
     request_context_factory: Callable = Depends(get_request_context_factory),
+    session_store: SessionStore = Depends(get_session_store),
 ) -> EventSourceResponse:
     """Send a message to a session with SSE response."""
     if not chat_in.message or not chat_in.message.strip():
@@ -71,6 +74,22 @@ async def chat(
         raise HTTPException(
             status_code=400,
             detail=f"Message is too long. Maximum {2000} characters allowed.",
+        )
+
+    # Third guard, and the only one that touches the database — last, so a blank
+    # or oversized message costs no round trip and mints no session row. The same
+    # round trip creates the session on its first message (POST /session/new
+    # stays stateless) and returns the balance checked here.
+    #
+    # `<= 0`, not "can this turn afford it": the turn is charged afterwards, in
+    # Orchestrator._finalize, so the question is only whether anything is left.
+    remaining_tokens = await session_store.start_turn(session_id)
+    if remaining_tokens <= 0:
+        # No Retry-After: the budget never refills, so there is no window to name
+        raise HTTPException(
+            status_code=429,
+            detail="This session has used up its token budget. "
+            "Start a new chat to keep going.",
         )
 
     request_context = await request_context_factory(

@@ -61,14 +61,19 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 --------------------------
 
-2. set up a session db with max tokens
 3. add rejection and small talks
 4. run evals
 
 2. format the task runner better
 3. fix the ingestion thing with the ISBN
 4. add limit to task and such
-5. set up the tokens limit per session
+
+**Eval suites will 429 now that sessions have a token budget.** `run_suites.py`
+mints one `test_` session and reuses it for the whole suite, so at ~10-20k tokens
+a turn a 50,000 budget covers three to five queries and the rest get refused. The
+flag already exists and is unused — add `--new-session-per-query` to the
+`RUN_SUITE` line in `evals/makefile` (covers all four suite targets), or flip its
+default in the script if direct runs matter too. Not a bug in the budget.
 
 continue with CI/CD
 * clean up (UI)

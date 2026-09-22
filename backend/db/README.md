@@ -32,7 +32,12 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
   pure builder rather than a store method, because only the caller knows the
   label that elides its 1024-float vector from the recorded SQL; it returns a
   `DeferredBookQuery` like every other builder, so `count`/`score_stats`/
-  `materialize` are its execute half),
+  `materialize` are its execute half), `session_store.py` (the token budget:
+  `start_turn`, which upserts the row and returns the balance in one round trip,
+  and `debit`, which subtracts *in SQL* because overlapping turns in one session
+  hold separate database sessions. Both return scalars, never the model —
+  `returning(SessionModel)` gives an ORM entity, so a session already holding
+  that row gets back the stale copy it remembers),
   `chat_run_store.py` (review queue, ordered least-reviewed-first),
   `feedback_store.py` (review upsert).
 - **Deferred queries** (`deferred_query.py`). Retrieval nodes do not fetch rows:
@@ -86,6 +91,7 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
 | Table | Purpose |
 |---|---|
 | `books` | Book catalog + pgvector embeddings |
+| `sessions` | One row per session that has sent a message, carrying `remaining_tokens`. Created on the first message (`POST /session/new` persists nothing) and debited once per turn with the turn's whole spend. PK `session_id`. No FK from `chat_runs.session_id` — rows predating the table simply don't exist. Deliberately no `CHECK (remaining_tokens >= 0)`: a turn is charged after it runs, so the last one overshoots |
 | `chat_runs` | One row per chat turn: user/assistant messages, planner/tasks/writer JSONB (one envelope per layer — `writer` is the reply stage, and the only stored copy of the prose), promoted stats (duration, tokens). PK `chat_id` |
 | `feedback` | One review per (chat_id, session_id), upserted whole. FK `chat_id` → `chat_runs`, CASCADE |
 | `test_runs` | Eval bookkeeping: chat_id FK → `chat_runs` (CASCADE — deleting chat_runs takes test_runs with it) + suite name + case id |

@@ -8,9 +8,14 @@ the orchestrator, so _finalize calls it unconditionally.
 once after the runner. The wiring is what is asserted here — whether the stage
 runs, and what it is fed — not the reply itself, which is
 test_write_recommendations_executor.py.
+
+`TestChargingTheSession` covers the fourth thing `_finalize` does: charge the
+turn to its session's token budget.
 """
 
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.domains.base_workflow import FailedGoalOutput
 from app.domains.books.external import BookAnchorOutput
@@ -18,9 +23,27 @@ from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.domains.planjane import PlanJaneOutput, SystemGoal
 from app.orchestration.orchestrator import Orchestrator
 from app.orchestration.task_runner import TaskResult, TaskRunnerOutput
-from airglider import OperationResult
+from airglider import OperationResult, TokenUsage
 
 # request_context comes from tests/conftest.py
+
+
+@pytest.fixture(autouse=True)
+def debit():
+    """The session charge, patched for every test in this module.
+
+    Every test here drives the real `_finalize`, which now charges the session
+    before recording — and conftest's `session_factory` is a
+    `MagicMock(spec=async_sessionmaker)` whose `execute` is not awaitable, so
+    the real call would log a swallowed `TypeError` in tests that are about
+    something else entirely. The tests that *are* about the charge take this
+    mock by name.
+    """
+    with patch(
+        "app.orchestration.orchestrator.debit_session_tokens",
+        new_callable=AsyncMock,
+    ) as mock_debit:
+        yield mock_debit
 
 
 def _plan() -> PlanJaneOutput:
@@ -201,3 +224,68 @@ class TestWritingTheReply:
 
         root = mock_record.await_args.args[1]
         assert "writer" in [step.name for step in root.steps]
+
+
+class TestChargingTheSession:
+    """`_finalize` charges the turn before it records it — the one write here
+    with money attached."""
+
+    @staticmethod
+    def _triage_costing(total: int):
+        """A triage workflow whose envelope spent `total` tokens."""
+        workflow = AsyncMock()
+        workflow.record = OperationResult(
+            ok=True, token_usage=TokenUsage(total=total, prompt=total)
+        )
+        workflow.result.parse_result = None
+        return workflow
+
+    async def test_the_charge_is_the_whole_turns_spend(self, request_context, debit):
+        """The root envelope, not the runner's — airglider sums `token_usage` up
+        the tree, so the planner's spend (the whole tool catalog) is in it."""
+        with patch(
+            "app.orchestration.orchestrator.TriageWorkflow",
+            return_value=self._triage_costing(1234),
+        ), patch(
+            "app.orchestration.orchestrator.record_chat_run", new_callable=AsyncMock
+        ):
+            await Orchestrator().run(request_context)
+
+        context, record = debit.await_args.args
+        assert context is request_context
+        assert record.token_usage.total == 1234
+
+    async def test_the_charge_lands_even_when_recording_fails(
+        self, request_context, debit
+    ):
+        """Recording is a dev-only file dump; the charge must not queue behind
+        it. This is why the debit goes first in `_finalize`."""
+        with patch(
+            "app.orchestration.orchestrator.TriageWorkflow",
+            return_value=self._triage_costing(99),
+        ), patch(
+            "app.orchestration.orchestrator.record_chat_run",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError,
+        ):
+            await Orchestrator().run(request_context)
+
+        debit.assert_awaited_once()
+
+    async def test_a_failed_charge_does_not_take_down_the_stream(
+        self, request_context, debit
+    ):
+        """`_finalize` is best-effort throughout: the stream still closes, so
+        the client is never left hanging on a database problem."""
+        debit.side_effect = RuntimeError("database is down")
+        request_context.sse_stream.close = AsyncMock()
+
+        with patch(
+            "app.orchestration.orchestrator.TriageWorkflow",
+            return_value=self._triage_costing(10),
+        ), patch(
+            "app.orchestration.orchestrator.record_chat_run", new_callable=AsyncMock
+        ):
+            await Orchestrator().run(request_context)
+
+        request_context.sse_stream.close.assert_awaited()

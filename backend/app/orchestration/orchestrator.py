@@ -10,6 +10,7 @@ from app.domains.node_input import NodeInput
 from app.orchestration.triage import TriageWorkflow
 from app.orchestration.task_runner import TaskRunnerInput, TaskRunnerWorkflow
 from app.orchestration.run_recorder import record_chat_run
+from app.orchestration.token_budget import debit_session_tokens
 from app.orchestration.write_recommendations import (
     GenerateRecommendationsExecutor,
     RecommendationsInput,
@@ -23,6 +24,7 @@ from clients.messages import (
 logger = logging.getLogger(__name__)
 
 SAVE_LOG_TIMEOUT = 60  # seconds
+DEBIT_TOKENS_TIMEOUT = 10  # seconds
 CLOSE_SSE_STREAM_TIMEOUT = 10  # seconds
 CONVERSATION_TIMEOUT = 120  # seconds
 
@@ -212,8 +214,28 @@ class Orchestrator:
         messages: list[APIMessage] | None,
         sse_stream: SSEStream,
     ) -> None:
-        """Record the run, then close the stream. Best-effort — never lets a
-        slow/failing step here take down the other, or the caller."""
+        """Charge the turn, record it, then close the stream. Best-effort —
+        never lets a slow/failing step here take down the others, or the caller.
+
+        The debit goes first because it is the only one of the three with money
+        attached, and it must not queue behind a dev-only file dump:
+        `record_chat_run`'s own `except Exception` cannot catch a
+        `CancelledError` raised inside its `wait_for` — a BaseException since
+        3.8, the same reason `run` shields this whole method.
+
+        `record.token_usage.total` is already final here: the `add_step` roll-up
+        in `run`'s finally happens before the shield.
+        """
+        try:
+            await asyncio.wait_for(
+                debit_session_tokens(request_context, record),
+                timeout=DEBIT_TOKENS_TIMEOUT,
+            )
+        except Exception:
+            logger.warning(
+                f"debit_session_tokens id: {request_context.user_message.id} failed"
+            )
+
         try:
             await asyncio.wait_for(
                 record_chat_run(

@@ -8,6 +8,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 class AppConfig:
     """System-level constants."""
     SESSION_PREFIX   = "session"
+
+    # What a new session may spend, across every call of every turn. Unlike the
+    # per-call caps in OpenAIConstants this is a real budget: it is spent down
+    # once per turn and never refills, so when it runs out the chat route
+    # refuses the next message. The sessions table deliberately has no DEFAULT
+    # on remaining_tokens — this is the only place the number lives.
+    SESSION_TOKEN_BUDGET = 50_000
+
     DATABASE_TIMEOUT = 10.0  # SQLAlchemy engine init / connectivity
     OPENAI_TIMEOUT   = 10.0
     DEFAULT_TIMEOUT  = 10.0
