@@ -12,6 +12,7 @@
 | Shape | cpu 1, memory 1Gi, cpu-boost, timeout 300s, min 0 / max 3 instances, concurrency 5 |
 | Identity | `book-shelf-api@tuanqpham0921.iam.gserviceaccount.com` — not the compute default |
 | Secrets | `POSTGRES_PASSWORD` ← `postgres-password:latest`, `OPENAI_API_KEY` ← `openai-api-key:latest` |
+| OpenAI key | Production has its **own key**, not the one in `config/.env` that `make dev` / `dev-neon` use. `openai-api-key` v2 is the prod key; v1 (the dev key) was disabled 2026-09-22. To rotate: `printf '%s' "$K" \| gcloud secrets versions add openai-api-key --data-file=-`, then `make deploy` — `latest` is resolved when an instance starts |
 | Startup probe | `GET /ready`, 5s delay / 5s period / 6 failures — a revision that can't reach Neon never takes traffic |
 | Database | Neon, not Cloud SQL — see [deployment-neon.md](deployment-neon.md) |
 | Frontend | Firebase Hosting, target `book-rec`; `VITE_API_URL` baked in from `frontend/.env.production` |
