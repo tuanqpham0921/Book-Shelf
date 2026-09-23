@@ -1,5 +1,6 @@
-"""Tests for the session token budget: who may spend (`session_is_out_of_tokens`)
-and what a finished turn cost (`debit_session_tokens`).
+"""Tests for the session token budget at the turn's two ends: opening it
+(`start_session_turn`), who may spend (`session_is_out_of_tokens`) and what a
+finished turn cost (`debit_session_tokens`).
 
 For the charge, two things are load-bearing and neither is the arithmetic (that
 is SQL's job, see test_session_store.py):
@@ -19,6 +20,7 @@ from tests.conftest import fake_session_factory
 from app.orchestration.token_budget import (
     debit_session_tokens,
     session_is_out_of_tokens,
+    start_session_turn,
 )
 
 
@@ -34,9 +36,10 @@ def _record(total: int) -> OperationResult:
 
 @pytest.fixture
 def store() -> MagicMock:
-    """The SessionStore the helper constructs, with `debit` awaitable."""
+    """The SessionStore the two helpers construct, with both calls awaitable."""
     store = MagicMock()
     store.debit = AsyncMock(return_value=49_000)
+    store.start_turn = AsyncMock(return_value=50_000)
     return store
 
 
@@ -48,36 +51,68 @@ def patched_store(store):
         yield cls
 
 
+class TestOpeningTheTurn:
+    """`start_session_turn` — the turn's first round trip, which both creates
+    the row on a first message and reports the balance about to be judged."""
+
+    async def test_it_hands_back_the_balance(
+        self, request_context, store, patched_store
+    ):
+        step = await start_session_turn(request_context)
+
+        assert step.unwrap() == 50_000
+
+    async def test_it_is_a_step_of_its_own(self, request_context, patched_store):
+        """A `@task`, so the round trip's duration and any failure land in the
+        trace under their own name rather than folded into whatever ran next.
+        `Orchestrator.run` hangs it on the turn's root with `add_step`."""
+        step = await start_session_turn(request_context)
+
+        assert isinstance(step, OperationResult)
+        assert step.name.endswith("start_session_turn")
+        assert step.ok is True
+
+    async def test_it_opens_its_own_session(self, make_request_context, patched_store):
+        """Like the debit: the turn runs after the handler that started it has
+        returned, so nothing built at the request boundary is still open."""
+        factory = fake_session_factory()
+        ctx = make_request_context(session_factory=factory)
+
+        await start_session_turn(ctx)
+
+        factory.begin.assert_called_once_with()
+        factory.assert_not_called()
+        opened = factory.begin.return_value.__aenter__.return_value
+        patched_store.assert_called_once_with(opened)
+
+    async def test_a_failed_read_comes_back_as_a_failed_step(
+        self, request_context, store
+    ):
+        """It does not raise — a `@task` reports through its envelope, which is
+        what lets `run` record the failure before deciding to stop on it."""
+        store.start_turn = AsyncMock(side_effect=RuntimeError("connection refused"))
+
+        with patch("app.orchestration.token_budget.SessionStore", return_value=store):
+            step = await start_session_turn(request_context)
+
+        assert step.ok is False
+        assert step.runtime_error is not None
+
+
 class TestWhoMaySpend:
-    """The decision, which reads the balance off the context rather than the
-    database — the route put it there in the round trip that created the row."""
+    """The decision, on the balance the opening round trip just read."""
 
     @pytest.mark.parametrize("remaining", [0, -1, -50_000])
-    def test_a_spent_session_is_refused_in_production(
-        self, make_request_context, remaining
-    ):
+    def test_a_spent_session_is_refused(self, remaining):
         """Negative included: a turn is charged after it runs, so a session's
         last turn ends in the red."""
-        ctx = make_request_context(app_env="production", remaining_tokens=remaining)
-
-        assert session_is_out_of_tokens(ctx) is True
+        assert session_is_out_of_tokens(remaining) is True
 
     @pytest.mark.parametrize("remaining", [1, 50_000])
-    def test_anything_left_is_enough(self, make_request_context, remaining):
+    def test_anything_left_is_enough(self, remaining):
         """`<= 0`, not "can this turn afford it" — the charge comes afterwards,
         so one token buys a whole turn."""
-        ctx = make_request_context(app_env="production", remaining_tokens=remaining)
-
-        assert session_is_out_of_tokens(ctx) is False
-
-    @pytest.mark.parametrize("app_env", ["development", "test"])
-    def test_nothing_is_refused_outside_production(self, make_request_context, app_env):
-        """The row is still created and still debited there — only the refusal is
-        production-only, so that `make dev` and the eval suites (one session for
-        a whole suite) are not cut off partway."""
-        ctx = make_request_context(app_env=app_env, remaining_tokens=-10_000)
-
-        assert session_is_out_of_tokens(ctx) is False
+        assert session_is_out_of_tokens(remaining) is False
 
 
 class TestWhatGetsCharged:

@@ -4,7 +4,6 @@ import logging
 from typing import Any, AsyncGenerator, Callable
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sse_starlette.event import ServerSentEvent
 from sse_starlette.sse import EventSourceResponse
 from starlette.background import BackgroundTask
@@ -15,10 +14,8 @@ from app.orchestration.orchestrator import Orchestrator
 from app.api.dependencies import (
     get_request_context_factory,
     get_orchestrator,
-    get_sqlalchemy_session_factory,
 )
 from app.common.request_context import RequestContext
-from db.stores.session_store import SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +62,6 @@ async def chat(
     chat_in: ChatIn, # NOTE: this can probably use UserMessage
     orchestrator: Orchestrator = Depends(get_orchestrator),
     request_context_factory: Callable = Depends(get_request_context_factory),
-    session_factory: async_sessionmaker[AsyncSession] = Depends(
-        get_sqlalchemy_session_factory
-    ),
 ) -> EventSourceResponse:
     """Send a message to a session with SSE response."""
     if not chat_in.message or not chat_in.message.strip():
@@ -79,26 +73,15 @@ async def chat(
             detail=f"Message is too long. Maximum {2000} characters allowed.",
         )
 
-    # The session's token budget — the only thing here that touches the database,
-    # and last, so a blank or oversized message costs no round trip and mints no
-    # session row. The same round trip creates the session on its first message
-    # (POST /session/new stays stateless) and returns what it has left to spend.
-    #
-    # Read here but *judged* in the orchestrator, which is where a refusal can be
-    # timed, recorded on the turn, and said to the user in the stream. Here it
-    # could only be an HTTP 429, and the frontend renders any non-200 on this
-    # route as "Oops something went wrong" — losing the one thing the user needs
-    # to be told. It is read in the handler because the context is built from it
-    # and the orchestrator has no way to look it up mid-stream.
-    #
-    # Its own session rather than the request-scoped dependency: the balance is
-    # written back from `Orchestrator._finalize`, long after this handler has
-    # returned, so nothing here should hold a session open on the turn's behalf.
-    async with session_factory.begin() as session:
-        remaining_tokens = await SessionStore(session).start_turn(session_id)
-
+    # Nothing here touches the database. The session's token budget — creating
+    # the row on a first message, reading the balance, judging it, charging it
+    # back — is the turn's own work, and the turn runs after this handler has
+    # returned; `Orchestrator.run` opens it with `start_session_turn` and
+    # refuses a spent session in the stream, where the user can actually be
+    # told why. A refusal here could only be an HTTP status, and the frontend
+    # renders any non-200 on this route as its own "Oops something went wrong".
     request_context = await request_context_factory(
-        session_id, UserMessage(content=chat_in.message), remaining_tokens
+        session_id, UserMessage(content=chat_in.message)
     )
     logger.info(f"🚀 Starting chat for session: {request_context.session_id}")
 

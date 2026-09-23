@@ -42,13 +42,6 @@ class RequestContext(BaseModel):
     app_env: str
     session_id: str
 
-    # What this session had left to spend when the turn arrived, read once at the
-    # request boundary — the route's `start_turn`, which is also what creates the
-    # row. A snapshot, not a running total: the turn is charged at the end,
-    # against the row. `Orchestrator` is the only reader — it refuses a turn with
-    # nothing left.
-    remaining_tokens: int
-
     # The turn's message — identity, not input: the wire `chat_id` and
     # `user_chat_id` in chat_runs both come from its id, and it outlives every
     # node in the plan while `NodeInput.instruction` changes at each dispatch.

@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from config import AppConfig
 from clients.messages import UserMessage
 from app.common.sse_stream import SSEStream
 from app.common.request_context import RequestContext
@@ -43,9 +42,6 @@ def make_request_context():
         defaults = dict(
             app_env="test",
             session_id="sess_1",
-            # a budget nothing has spent from; the guard that reads it only
-            # bites in production anyway, so "test" makes it doubly irrelevant
-            remaining_tokens=AppConfig.SESSION_TOKEN_BUDGET,
             user_message=UserMessage(content="Find me a book"),
             llm_client=MagicMock(spec=OpenAIClient),
             sse_stream=SSEStream(),

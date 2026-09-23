@@ -15,6 +15,7 @@ from app.orchestration.token_budget import (
     OUT_OF_TOKENS_MESSAGE,
     debit_session_tokens,
     session_is_out_of_tokens,
+    start_session_turn,
 )
 from app.orchestration.write_recommendations import (
     GenerateRecommendationsExecutor,
@@ -105,18 +106,28 @@ class Orchestrator:
             # errors, times out, or is stopped before 'complete' fires.
             await sse_stream.send_chat_id(request_context.user_message.id)
 
+            # Opens the turn: one round trip that creates the sessions row on a
+            # first message and reports the balance. Attached by hand because
+            # `run` builds this root rather than being a unit of work itself,
+            # so nothing is in scope to adopt the step — and attached before
+            # the unwrap, so a read that failed is still on the record.
+            budget_step = await start_session_turn(request_context)
+            record.add_step(budget_step)
+            # Nothing after this can be judged or charged without it, so a
+            # failed read stops the turn here rather than spending against a
+            # balance nobody could see.
+            remaining_tokens = budget_step.unwrap()
+
             # On the record before anything is spent, so a turn's cost can be
             # read against what the session had left to spend it from.
-            record.add_details(
-                f"session tokens remaining: {request_context.remaining_tokens}"
-            )
-            if session_is_out_of_tokens(request_context):
+            record.add_details(f"session tokens remaining: {remaining_tokens}")
+            if session_is_out_of_tokens(remaining_tokens):
                 # Told, not refused. The route's response is an SSE stream, so
                 # this arrives as the turn's one event and the client renders it
                 # verbatim; an HTTP status could only come out as the frontend's
                 # generic "something went wrong". The finally block still runs:
-                # the turn is recorded — no steps, so not ok — and the stream is
-                # closed there.
+                # the turn is recorded — with the balance read as its one step —
+                # and the stream is closed there.
                 record.add_details("refused: session out of tokens")
                 logger.warning(
                     f"🚫 Out of tokens, refusing the turn: "
@@ -126,7 +137,6 @@ class Orchestrator:
                 return
 
             await sse_stream.send_ui_loading("Starting conversation...")
-
             triage_workflow = TriageWorkflow(request_context, messages=messages)
             await asyncio.wait_for(
                 triage_workflow(

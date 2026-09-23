@@ -32,9 +32,36 @@ from app.orchestration.orchestrator import (
 )
 from app.orchestration.task_runner import TaskResult, TaskRunnerOutput
 from app.orchestration.token_budget import OUT_OF_TOKENS_MESSAGE
-from airglider import OperationResult, TokenUsage
+from airglider import OperationResult, Response, TokenUsage
 
 # request_context comes from tests/conftest.py
+
+
+def _balance(remaining: int) -> OperationResult:
+    """What `start_session_turn` hands back: a `@task` returns its payload in an
+    envelope, which `run` attaches to the turn's root and then unwraps."""
+    return OperationResult(
+        name="app.orchestration.token_budget.start_session_turn",
+        ok=True,
+        response=Response(result=remaining, output_type="int"),
+    )
+
+
+@pytest.fixture(autouse=True)
+def start_turn():
+    """The turn's opening balance read, patched for every test in this module.
+
+    `Orchestrator.run` now opens the session's turn itself, and the real call
+    would go through conftest's mock `session_factory` to a `SessionStore` on a
+    `MagicMock` session — a failed step, which `run` stops on. The tests that
+    are *about* the balance take this mock by name and set its envelope.
+    """
+    with patch(
+        "app.orchestration.orchestrator.start_session_turn",
+        new_callable=AsyncMock,
+        return_value=_balance(AppConfig.SESSION_TOKEN_BUDGET),
+    ) as mock_start:
+        yield mock_start
 
 
 @pytest.fixture(autouse=True)
@@ -364,17 +391,16 @@ class TestBestEffortCleanup:
 
 
 class TestRefusingAnExhaustedSession:
-    """The other end of the budget. The route reads the balance and puts it on
-    the context; this is the only place it is judged — with a message rather than
-    a status code, because the route's response is an SSE stream and the client
+    """The other end of the budget. `run` reads the balance itself, as its first
+    step, and this is the only place it is judged — with a message rather than a
+    status code, because the route's response is an SSE stream and the client
     renders a non-200 as its own generic error."""
 
     @staticmethod
-    def _context(make_request_context, app_env="production", remaining_tokens=0):
-        ctx = make_request_context(
-            app_env=app_env, remaining_tokens=remaining_tokens
-        )
+    def _context(make_request_context, start_turn, remaining_tokens=0):
+        ctx = make_request_context()
         ctx.sse_stream.send_error = AsyncMock()
+        start_turn.return_value = _balance(remaining_tokens)
         return ctx
 
     @staticmethod
@@ -391,63 +417,77 @@ class TestRefusingAnExhaustedSession:
             await Orchestrator().run(ctx)
         return triage_cls, record
 
-    async def test_a_spent_session_gets_no_turn(self, make_request_context):
+    async def test_a_spent_session_gets_no_turn(
+        self, make_request_context, start_turn
+    ):
         """Nothing is even planned — the refusal is ahead of triage, which is
         the first thing that costs money."""
-        triage_cls, _ = await self._turn(self._context(make_request_context))
+        ctx = self._context(make_request_context, start_turn)
+
+        triage_cls, _ = await self._turn(ctx)
 
         triage_cls.assert_not_called()
 
-    async def test_the_user_is_told_why(self, make_request_context):
+    async def test_the_user_is_told_why(self, make_request_context, start_turn):
         """Verbatim: the client renders an `error` event's text as-is, so this
         string is what actually reaches the screen."""
-        ctx = self._context(make_request_context)
+        ctx = self._context(make_request_context, start_turn)
 
         await self._turn(ctx)
 
         ctx.sse_stream.send_error.assert_awaited_once_with(OUT_OF_TOKENS_MESSAGE)
 
-    async def test_a_negative_balance_counts_as_spent(self, make_request_context):
+    async def test_a_negative_balance_counts_as_spent(
+        self, make_request_context, start_turn
+    ):
         """It goes negative by design — a turn is charged after it runs, so a
         session's last turn overshoots into the red."""
-        ctx = self._context(make_request_context, remaining_tokens=-3_000)
+        ctx = self._context(make_request_context, start_turn, remaining_tokens=-3_000)
 
         triage_cls, _ = await self._turn(ctx)
 
         triage_cls.assert_not_called()
 
-    async def test_one_token_left_is_enough(self, make_request_context):
+    async def test_one_token_left_is_enough(self, make_request_context, start_turn):
         """`<= 0`, not "can this turn afford it": the charge comes afterwards, so
         the only question is whether anything was left."""
-        ctx = self._context(make_request_context, remaining_tokens=1)
+        ctx = self._context(make_request_context, start_turn, remaining_tokens=1)
 
         triage_cls, _ = await self._turn(ctx)
 
         triage_cls.assert_called_once()
 
-    async def test_nothing_is_refused_outside_production(self, make_request_context):
-        """Development and the eval suites read and debit the same way but are
-        never cut off — a suite reuses one session for every case in it."""
-        ctx = self._context(make_request_context, app_env="development")
+    async def test_an_unreadable_balance_stops_the_turn(
+        self, make_request_context, start_turn
+    ):
+        """`run` unwraps the opening step, so a database that cannot be reached
+        stops the turn there rather than letting it spend against a balance
+        nobody could see."""
+        start_turn.return_value = OperationResult(name="start_session_turn")
 
-        triage_cls, _ = await self._turn(ctx)
+        triage_cls, _ = await self._turn(make_request_context())
 
-        triage_cls.assert_called_once()
+        triage_cls.assert_not_called()
 
-    async def test_the_refusal_is_on_the_turns_record(self, make_request_context):
+    async def test_the_refusal_is_on_the_turns_record(
+        self, make_request_context, start_turn
+    ):
         """So a refused turn reads as one, rather than as a turn that did
-        nothing for no reason: it has no steps, so `ok` is False either way."""
-        _, record = await self._turn(self._context(make_request_context))
+        nothing for no reason. Its one step is the balance read that refused
+        it."""
+        ctx = self._context(make_request_context, start_turn)
+
+        _, record = await self._turn(ctx)
 
         assert "refused: session out of tokens" in record.await_args.args[1].details
 
-    async def test_the_balance_is_recorded_on_every_turn(self, make_request_context):
+    async def test_the_balance_is_recorded_on_every_turn(
+        self, make_request_context, start_turn
+    ):
         """Tracking rather than enforcement, which is why it is not inside the
         guard: what the session had before this turn, so the turn's cost can be
         read against it."""
-        ctx = self._context(
-            make_request_context, app_env="development", remaining_tokens=1_234
-        )
+        ctx = self._context(make_request_context, start_turn, remaining_tokens=1_234)
 
         _, record = await self._turn(ctx)
 

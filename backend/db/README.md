@@ -70,9 +70,10 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
 
   `session_store.py` (the token budget:
   `start_turn`, which upserts the row and returns the balance in one round trip
-  — called from the chat route, in its own `begin()` block, because the balance
-  has to be on `RequestContext` before the turn starts and the orchestrator
-  cannot look it up mid-stream — and `debit`, which subtracts *in SQL* because
+  — called from `Orchestrator.run` as the turn's first step, through
+  `token_budget.start_session_turn`, since 2026-09-23; it ran in the chat route
+  before that, which was the last thing holding a request-scoped session open on
+  the turn's behalf — and `debit`, which subtracts *in SQL* because
   overlapping turns in one session hold separate database sessions. Both return
   scalars, never the model — `returning(SessionModel)` gives an ORM entity, so a
   session already holding that row gets back the stale copy it remembers),

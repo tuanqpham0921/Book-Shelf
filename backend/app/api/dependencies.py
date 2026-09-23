@@ -93,19 +93,13 @@ async def get_request_context_factory(
     from clients.messages import UserMessage
     from app.common.request_context import RequestContext
 
-    async def create_context(
-        session_id: str, user_message: UserMessage, remaining_tokens: int
-    ):
+    async def create_context(session_id: str, user_message: UserMessage):
         # The factory, never a session or a store built on one: this runs in
         # the handler, and the turn it serves runs after the handler returns.
         # Each unit of work opens its own through `RequestContext.store`.
         return RequestContext(
             app_env=app_env,
             session_id=session_id,
-            # the route has already read it; passed in rather than looked up
-            # again, so the balance a turn is judged against is the one that
-            # its own `start_turn` returned
-            remaining_tokens=remaining_tokens,
             user_message=user_message,
             llm_client=llm_client,
             sse_stream=sse_stream,
