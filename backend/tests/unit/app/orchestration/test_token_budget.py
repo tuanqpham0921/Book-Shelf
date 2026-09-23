@@ -5,8 +5,8 @@ For the charge, two things are load-bearing and neither is the arithmetic (that
 is SQL's job, see test_session_store.py):
 
 - **Which database session it writes on.** Its own, opened from
-  `session_factory`, never a store off `ctx.stores` — that one's scope is gone by
-  the time this runs.
+  `session_factory` through `ctx.store`, because this runs inside the
+  orchestrator's shielded cleanup and outlives the request.
 - **That it never raises.** It is called from `Orchestrator._finalize`, where an
   exception would cost the user their reply over a bookkeeping problem.
 """
@@ -14,9 +14,8 @@ is SQL's job, see test_session_store.py):
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker
-
 from airglider import OperationResult, TokenUsage
+from tests.conftest import fake_session_factory
 from app.orchestration.token_budget import (
     debit_session_tokens,
     session_is_out_of_tokens,
@@ -103,30 +102,20 @@ class TestWhichDatabaseSessionItUses:
     async def test_it_opens_its_own_session(
         self, make_request_context, store, patched_store
     ):
-        """From `session_factory`, because this runs inside the orchestrator's
-        shielded cleanup and outlives the request — by which point the stores'
-        session is long out of scope."""
-        factory = MagicMock(spec=async_sessionmaker)
+        """Its own, from `session_factory`: this runs inside the orchestrator's
+        shielded cleanup and outlives the request, so anything built at the
+        request boundary is long out of scope by now."""
+        factory = fake_session_factory()
         ctx = make_request_context(session_factory=factory)
 
         await debit_session_tokens(ctx, _record(10))
 
-        factory.assert_called_once_with()
-        opened = factory.return_value.__aenter__.return_value
+        # `.begin()`, so the write is committed when the block exits — the
+        # store does not commit for itself
+        factory.begin.assert_called_once_with()
+        factory.assert_not_called()
+        opened = factory.begin.return_value.__aenter__.return_value
         patched_store.assert_called_once_with(opened)
-
-    async def test_it_does_not_reach_for_a_store_on_the_request(
-        self, request_context, store, patched_store
-    ):
-        """`ctx.stores` holds stores built on the request-scoped session; using
-        one here would write on a connection nothing owns, and silently succeed."""
-        book_store = request_context.stores[
-            next(iter(request_context.stores))
-        ]
-
-        await debit_session_tokens(request_context, _record(10))
-
-        assert not book_store.method_calls
 
 
 class TestItNeverRaises:
@@ -138,9 +127,8 @@ class TestItNeverRaises:
             await debit_session_tokens(request_context, _record(10))
 
     async def test_an_unopenable_session_is_swallowed(self, make_request_context):
-        factory = MagicMock(
-            spec=async_sessionmaker, side_effect=RuntimeError("pool exhausted")
-        )
+        factory = fake_session_factory()
+        factory.begin.side_effect = RuntimeError("pool exhausted")
 
         await debit_session_tokens(
             make_request_context(session_factory=factory), _record(10)

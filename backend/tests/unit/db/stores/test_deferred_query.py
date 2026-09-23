@@ -1,4 +1,4 @@
-"""Tests for `DeferredBookQuery` and `BookStore.title_query`.
+"""Tests for `DeferredBookQuery` and the module-level query builders.
 
 Two things are covered. First, regression coverage for the SQL-injection fix:
 `text(f"'{value}'")` used to splice user-controlled strings directly into the
@@ -15,22 +15,23 @@ are derived on `DeferredBookQuery` itself (`count_stmt` / `score_stats_stmt` /
 in sight.
 
 `TestScoredIntersect` covers what `Combine_Intersect` builds, and replaced
-`TestFilterQuery` when `BookStore.filter_query` was deleted the same day: a
+`TestFilterQuery` when `filter_query` was deleted the same day: a
 bound now reaches an intersection as its own deferred query rather than as a
 `BookMetadataFilter` a filter node parsed.
 """
 
-from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import select
 
 from db.schema import BookMetadataFilter, BookModel
 from db.stores import (
-    BookStore,
     DeferredBookQuery,
     compile_sql,
     embedding_search_stmt,
+    lexical_query,
+    numeric_traits_query,
+    title_query,
 )
 
 INJECTION_PAYLOAD = "x' OR 1=1 --"
@@ -41,23 +42,22 @@ def _compiled_sql(stmt) -> str:
 
 
 def _title(title: str = "Dune") -> DeferredBookQuery:
-    # the session is never touched: title_query only builds
-    return BookStore(MagicMock()).title_query(title)
+    return title_query(title)
 
 
 def _intersected(*queries: DeferredBookQuery) -> DeferredBookQuery:
-    """What `Combine_Intersect` builds. Replaced `BookStore.filter_query` on
+    """What `Combine_Intersect` builds. Replaced `filter_query` on
     2026-08-24: bounds reach an intersection as their own deferred query
     (`_traits`) rather than as a `BookMetadataFilter` parsed by a filter node."""
     return DeferredBookQuery.compose(list(queries), op="and", label="intersected")
 
 
 def _lexical(*keywords: str) -> DeferredBookQuery:
-    return BookStore(MagicMock()).lexical_query(keywords=list(keywords) or ["ninja"])
+    return lexical_query(keywords=list(keywords) or ["ninja"])
 
 
 def _traits(**bounds) -> DeferredBookQuery:
-    return BookStore(MagicMock()).numeric_traits_query(BookMetadataFilter(**bounds))
+    return numeric_traits_query(BookMetadataFilter(**bounds))
 
 
 class TestTitleQuery:
@@ -293,7 +293,7 @@ class TestScoreStatsStmt:
         # None rather than a row of zeroes: "no degree of match" and "every
         # match scored 0.0" are different facts. numeric_traits_query emits no
         # score, so it falls back to rating and has nothing to summarize.
-        no_score = BookStore(MagicMock()).numeric_traits_query(
+        no_score = numeric_traits_query(
             BookMetadataFilter(max_pages=300)
         )
         assert no_score.score_stats_stmt() is None

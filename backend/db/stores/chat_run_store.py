@@ -14,9 +14,12 @@ class ChatRunStore(BaseStore[ChatRunModel]):
         super().__init__(session, ChatRunModel)
 
     async def insert_run(self, row: Dict[str, Any]) -> None:
-        """Insert one chat run row (keys must match ChatRunModel columns)."""
+        """Insert one chat run row (keys must match ChatRunModel columns).
+
+        Staged, not committed: the `session_factory.begin()` block this store
+        was built inside flushes and commits it on exit.
+        """
         self.session.add(ChatRunModel(**row))
-        await self.session.commit()
 
     async def get_all(
         self,

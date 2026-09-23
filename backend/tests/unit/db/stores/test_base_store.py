@@ -2,18 +2,22 @@
 goes through.
 
 The point of the funnel is that there is exactly one place to put what should
-hold for every query. Today that is two things: the compiled SQL at DEBUG, and
-the timeout. So the test that matters most is the last one here — that no store
-method has quietly gone around it by calling `self.session.execute` itself.
+hold for every query. Today that is the compiled SQL at DEBUG; the timeout used
+to live here too and now belongs to the engine (`db/async_engine.py`), because
+Postgres cancelling its own query leaves the connection usable and
+`asyncio.wait_for` did not.
+
+So the tests that matter most are the last two — that no store method has
+quietly gone around the funnel by calling `self.session.execute` itself, and
+that none commits, since the transaction belongs to whoever opened the session.
 """
 
-import asyncio
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import select
 
-from config import AppConfig
 from db.schema import SessionModel
 from db.stores.base_store import BaseStore
 
@@ -39,46 +43,29 @@ class TestExecuteStatement:
         assert await _Store(session).execute_statement(stmt) == "the result"
         session.execute.assert_awaited_once_with(stmt)
 
-    async def test_a_statement_that_hangs_is_given_up_on(self, session, monkeypatch):
-        """`asyncio.wait_for`, so the bound covers the whole await — including the
-        wait for a connection out of the pool, which Postgres' own
-        statement_timeout cannot see, because nothing has reached it yet.
+    async def test_it_does_not_wrap_the_await_in_a_timeout(self, session):
+        """The bound is the engine's now — Postgres' `statement_timeout` and
+        asyncpg's `command_timeout`, both set in `get_async_engine`. Nothing
+        here may cancel the await: a coroutine cancelled mid-execute leaves the
+        connection in a state SQLAlchemy no longer knows, while the server
+        cancelling its own query hands the connection back usable.
 
-        The bound is read off the constant rather than written here, so this fails
-        if the timeout stops coming from config instead of passing vacuously.
+        Asserted as "the statement is awaited exactly once and returns", which
+        is what a `wait_for` wrapper would change.
         """
-        monkeypatch.setattr(AppConfig, "DATABASE_TIMEOUT", 0.01)
+        stmt = select(SessionModel)
 
-        async def never_finishes(_):
-            await asyncio.Event().wait()
+        result = await _Store(session).execute_statement(stmt)
 
-        session.execute = never_finishes
+        assert result == "the result"
+        session.execute.assert_awaited_once_with(stmt)
 
-        with pytest.raises(TimeoutError):
-            await _Store(session).execute_statement(select(SessionModel))
+    async def test_it_logs_the_compiled_sql_at_debug(self, session, caplog):
+        """The one thing the funnel is still for."""
+        with caplog.at_level(logging.DEBUG, logger="db.stores.base_store"):
+            await _Store(session).execute_statement(select(SessionModel.session_id))
 
-    async def test_the_statement_is_cancelled_rather_than_left_running(
-        self, session, monkeypatch
-    ):
-        """Which is also why a timed-out session is finished: SQLAlchemy no
-        longer knows the connection's state, so the caller must let it go rather
-        than retry on it. Every caller does — a store lives for one request."""
-        monkeypatch.setattr(AppConfig, "DATABASE_TIMEOUT", 0.01)
-        cancelled = asyncio.Event()
-
-        async def never_finishes(_):
-            try:
-                await asyncio.Event().wait()
-            except asyncio.CancelledError:
-                cancelled.set()
-                raise
-
-        session.execute = never_finishes
-
-        with pytest.raises(TimeoutError):
-            await _Store(session).execute_statement(select(SessionModel))
-
-        assert cancelled.is_set()
+        assert any("sessions.session_id" in record.message for record in caplog.records)
 
 
 class TestEveryStoreGoesThroughIt:
@@ -90,13 +77,27 @@ class TestEveryStoreGoesThroughIt:
         is the readiness probe, has no store, and must answer whether the
         database is reachable at all rather than run a statement on one.
         """
-        from pathlib import Path
+        assert _stores_containing("self.session.execute(") == ["base_store.py"]
 
-        stores = Path(__file__).parents[4] / "db" / "stores"
-        offenders = [
-            path.name
-            for path in sorted(stores.glob("*.py"))
-            if "self.session.execute(" in path.read_text()
-        ]
+    def test_no_store_commits_for_itself(self):
+        """The transaction belongs to whoever opened the session — the
+        `session_factory.begin()` block in `RequestContext.store` and in
+        `get_sqlalchemy_session`, which commits on a clean exit.
 
-        assert offenders == ["base_store.py"]
+        A store that commits mid-block closes that transaction early, and the
+        next statement in the block then raises `InvalidRequestError`. It is a
+        trap rather than a crash, which is why it is guarded here.
+        """
+        assert _stores_containing("self.session.commit(") == []
+
+
+def _stores_containing(needle: str) -> list[str]:
+    """The store modules whose source contains `needle`, by filename."""
+    from pathlib import Path
+
+    stores = Path(__file__).parents[4] / "db" / "stores"
+    return [
+        path.name
+        for path in sorted(stores.glob("*.py"))
+        if needle in path.read_text()
+    ]

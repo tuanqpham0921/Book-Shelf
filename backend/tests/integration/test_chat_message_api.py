@@ -22,18 +22,18 @@ from unittest.mock import MagicMock
 
 import httpx
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker
 from sse_starlette.sse import AppStatus
 
 from app.api.dependencies import (
     get_orchestrator,
     get_request_context_factory,
-    get_session_store,
+    get_sqlalchemy_session_factory,
 )
 from app.common.request_context import RequestContext
 from app.common.sse_stream import SSEStream
 from app.main import app
 from clients import OpenAIClient
+from tests.conftest import fake_session_factory
 
 pytestmark = pytest.mark.integration
 
@@ -76,11 +76,16 @@ class FakeOrchestrator:
 
 
 @pytest.fixture
-def client_for():
+def client_for(monkeypatch):
     """Factory: pass the session store the route should use, get an AsyncClient
     against the real app with it injected, plus the orchestrator that will be
     handed the turn. Overrides are cleared after the test so app state never
-    leaks between tests."""
+    leaks between tests.
+
+    The store is injected by patching the class the route constructs rather
+    than by a dependency override: since the balance is read inside the route's
+    own `session_factory.begin()` block, there is no `get_session_store` to
+    override any more."""
     orchestrator = FakeOrchestrator()
 
     async def _context_factory(session_id, user_message, remaining_tokens):
@@ -92,13 +97,17 @@ def client_for():
             remaining_tokens=remaining_tokens,
             user_message=user_message,
             llm_client=MagicMock(spec=OpenAIClient),
-            stores={},
             sse_stream=SSEStream(),
-            session_factory=MagicMock(spec=async_sessionmaker),
+            session_factory=fake_session_factory(),
         )
 
     def _make(store):
-        app.dependency_overrides[get_session_store] = lambda: store
+        monkeypatch.setattr(
+            "app.api.routes.chat_message.SessionStore", lambda session: store
+        )
+        app.dependency_overrides[get_sqlalchemy_session_factory] = (
+            lambda: fake_session_factory()
+        )
         app.dependency_overrides[get_orchestrator] = lambda: orchestrator
         app.dependency_overrides[get_request_context_factory] = (
             lambda: _context_factory

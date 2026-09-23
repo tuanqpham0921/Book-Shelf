@@ -16,10 +16,13 @@ class AppConfig:
     # on remaining_tokens — this is the only place the number lives.
     SESSION_TOKEN_BUDGET = 50_000
 
-    # The ceiling on any one statement a store runs, in seconds — applied in
-    # BaseStore.execute_statement, which every store method goes through. It
-    # bounds the whole await (waiting for a pooled connection included), which
-    # is why it is asyncio-side rather than Postgres' own statement_timeout.
+    # The ceiling on any one statement a store runs, in seconds. Applied by the
+    # engine (db/async_engine.py), which derives all three layers from it:
+    # Postgres' statement_timeout, asyncpg's command_timeout as the backstop
+    # above it, and pool_timeout for the wait on a connection. Enforced there
+    # rather than around the await, so a query that runs long is cancelled by
+    # the server and the connection survives — cancelling mid-execute leaves it
+    # in a state SQLAlchemy no longer knows.
     DATABASE_TIMEOUT = 10.0
     OPENAI_TIMEOUT   = 10.0
     DEFAULT_TIMEOUT  = 10.0

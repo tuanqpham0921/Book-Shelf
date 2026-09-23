@@ -27,37 +27,61 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
   becomes one, and the index silently stops being used: ~5ms back to ~520ms).
   `tests/unit/db/stores/test_lexical_query.py` guards both halves.
 - `stores/` — repository pattern; routes/workflows never touch sessions directly.
+
+  **Who owns the session, and for how long.** A store is short-lived by
+  construction: it is built inside a `session_factory.begin()` block, which
+  opens the session, commits on a clean exit and rolls back on an exception.
+  Two places do that — `RequestContext.store(SomeStore)` for anything in a
+  turn, and `get_sqlalchemy_session` for the plain HTTP routes, where the
+  request *is* the unit of work. Nothing holds a store across a turn: the SSE
+  chat route returns before any node runs, so a store built at the request
+  boundary would be on a session that was already closed.
+
+  It follows that **no store commits for itself** — the block does. A store
+  that commits closes that transaction early, and the next statement in the
+  block then raises `InvalidRequestError`.
+
   `base_store.py` — **the single execute path: every store method goes through
   `execute_statement`**, never `self.session.execute`, because that is the one
-  place what should hold for every query lives. Today that is the compiled SQL at
-  DEBUG and an `AppConfig.DATABASE_TIMEOUT` ceiling (asyncio-side, so it bounds
-  the wait for a pooled connection too — which Postgres' own `statement_timeout`
-  cannot see). A timed-out session is finished, not retryable: cancelling
-  mid-execute leaves the connection in a state SQLAlchemy no longer knows, which
-  is fine here because a store lives for one request.
-  `book_store.py` (primary store: the
-  deferred-query API below, plus the module-level `embedding_search_stmt` — a
-  pure builder rather than a store method, because only the caller knows the
-  label that elides its 1024-float vector from the recorded SQL; it returns a
-  `DeferredBookQuery` like every other builder, so `count`/`score_stats`/
-  `materialize` are its execute half), `session_store.py` (the token budget:
-  `start_turn`, which upserts the row and returns the balance in one round trip —
-  called from the chat route, because that handler is the last moment the
-  request-scoped session is open; the balance then travels on `RequestContext` to
-  the orchestrator, which is what judges it —
-  and `debit`, which subtracts *in SQL* because overlapping turns in one session
-  hold separate database sessions. Both return scalars, never the model —
-  `returning(SessionModel)` gives an ORM entity, so a session already holding
-  that row gets back the stale copy it remembers),
+  place what should hold for every query lives. Today that is the compiled SQL
+  at DEBUG. The `AppConfig.DATABASE_TIMEOUT` ceiling used to be here too, as an
+  `asyncio.wait_for`; it moved to the engine (`async_engine.py`) because
+  cancelling the await left the connection in a state SQLAlchemy no longer
+  knew, while Postgres cancelling its own query hands it back usable. The
+  constant now drives three things there: `statement_timeout` (the server's own
+  cancel — surfaces as a `DBAPIError` with sqlstate 57014), `command_timeout`
+  (asyncpg's client-side backstop, set above it, for a connection that never
+  reaches the server) and `pool_timeout` (the wait for a connection, which is
+  the part Postgres genuinely cannot see).
+
+  `book_store.py` — **the builders are module-level pure functions and the
+  store is only the execute half.** `title_query`, `author_query`,
+  `lexical_query`, `numeric_traits_query` and `embedding_search_stmt` build a
+  `DeferredBookQuery` from a search dimension and need no session, so a node can
+  build, record and compose a query without holding a connection;
+  `count`/`score_stats`/`materialize` on `BookStore` are what actually go to
+  Postgres. (`embedding_search_stmt` was the documented exception to this before
+  2026-09-23 — only its caller knows the label that elides its 1024-float vector
+  from the recorded SQL — and the exception became the rule.)
+
+  `session_store.py` (the token budget:
+  `start_turn`, which upserts the row and returns the balance in one round trip
+  — called from the chat route, in its own `begin()` block, because the balance
+  has to be on `RequestContext` before the turn starts and the orchestrator
+  cannot look it up mid-stream — and `debit`, which subtracts *in SQL* because
+  overlapping turns in one session hold separate database sessions. Both return
+  scalars, never the model — `returning(SessionModel)` gives an ORM entity, so a
+  session already holding that row gets back the stale copy it remembers),
   `chat_run_store.py` (review queue, ordered least-reviewed-first),
   `feedback_store.py` (review upsert).
 - **Deferred queries** (`deferred_query.py`). Retrieval nodes do not fetch rows:
-  `BookStore.title_query()` / `author_query()` / `lexical_query()` /
-  `numeric_traits_query()` and the module-level `embedding_search_stmt()` build a
-  statement, `count()` runs only a `COUNT`
+  the module-level `title_query()` / `author_query()` / `lexical_query()` /
+  `numeric_traits_query()` / `embedding_search_stmt()` build a
+  statement, `BookStore.count()` runs only a `COUNT`
   over it, and the statement itself rides downstream on the node's output.
-  The split is two questions: **building from a dimension and executing live on
-  the store** (they need the model and the session.
+  The split is two questions: **building from a dimension** (a pure function —
+  it needs the model and nothing else) **and executing live on the store** (it
+  needs the session).
   `numeric_traits_query()` applies `metadata_predicates` to the whole catalog,
   which is what lets bounds *be* a search; since 2026-08-24 that is the only
   reading of a bound there is, and `filter_query()` — which ANDed the same

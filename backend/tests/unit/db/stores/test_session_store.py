@@ -66,9 +66,12 @@ class TestDebit:
     async def test_the_amount_is_the_spend_it_was_given(self, session):
         assert 500 in statement_of(session).compile().params.values()
 
-    async def test_it_commits(self, session):
-        # each write method commits itself; BaseStore has no helper for it
-        session.commit.assert_awaited_once()
+    async def test_it_does_not_commit(self, session):
+        """The `session_factory.begin()` block this store is built inside owns
+        the transaction and commits it on exit. Committing here would close
+        that transaction early, and the next statement in the block would
+        raise."""
+        session.commit.assert_not_awaited()
 
 
 class TestDebitReturnValue:

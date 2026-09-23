@@ -1,10 +1,8 @@
-import asyncio
 import logging
 from typing import TypeVar, Generic
 from sqlalchemy.ext.asyncio import AsyncSession
 from abc import ABC
 
-from config import AppConfig
 from db.stores.deferred_query import compile_sql
 
 logger = logging.getLogger(__name__)
@@ -23,19 +21,20 @@ class BaseStore(Generic[T], ABC):
         """Run one statement — the single execute path for every store.
 
         Store methods go through here rather than calling `self.session.execute`
-        themselves, so that the two things worth having on every query are in
-        one place: the compiled SQL at DEBUG, and the timeout below.
+        themselves, so that what should hold for every query lives in one place:
+        today the compiled SQL at DEBUG.
 
-        The timeout is asyncio-side rather than Postgres' `statement_timeout`
-        because what needs bounding is the whole await, including the wait for a
-        connection out of the pool — which the server cannot see, since nothing
-        has reached it yet. The cost is that the session is not reusable
-        afterwards: cancelling mid-execute leaves the connection in a state
-        SQLAlchemy no longer knows, so a caller must let the session go rather
-        than retry on it. Every caller does — a store lives for one request.
+        **No timeout here, and no commit anywhere in a store.** Both belong to
+        whoever opened the session. `AppConfig.DATABASE_TIMEOUT` is enforced by
+        the engine (`db/async_engine.py`) as Postgres' `statement_timeout`, so a
+        long query is cancelled by the server and the connection comes back
+        usable; the `asyncio.wait_for` that used to be here cancelled
+        mid-execute instead, which left the connection in a state SQLAlchemy no
+        longer knew and the server still running the query. The transaction
+        boundary is the `session_factory.begin()` block a store is built inside
+        (`RequestContext.store`) — a store that commits for itself closes that
+        transaction early, and the next statement in the block raises.
         """
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Executing statement: %s", compile_sql(stmt))
-        return await asyncio.wait_for(
-            self.session.execute(stmt), timeout=AppConfig.DATABASE_TIMEOUT
-        )
+        return await self.session.execute(stmt)

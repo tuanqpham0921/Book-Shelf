@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from app.common.request_context import RequestContext
 from app.domains.node_input import NodeInput, WorkflowInput
 
 if TYPE_CHECKING:
@@ -63,8 +62,6 @@ class NodeSpec:
         output: The result payload the executor fills in.
         executor: The workflow that runs it. None for a node that is registered
             for planning but not yet runnable.
-        context: The services view this node needs, narrowed off the request
-            context at dispatch. The default is the widest one.
     """
 
     node_type: str
@@ -73,7 +70,6 @@ class NodeSpec:
     output: type["NodeWorkflowOutput"]
     executor: type["AppWorkflow"] | None = None
     input: type[WorkflowInput] = NodeInput
-    context: type[RequestContext] = RequestContext
 
     def __post_init__(self) -> None:
         field = self.request.model_fields.get("node_type")

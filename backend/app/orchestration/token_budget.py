@@ -56,20 +56,14 @@ async def debit_session_tokens(
     """Subtract this turn's spend from its session. Never raises — a lost debit
     must not break a chat response.
 
-    Its own database session from `session_factory`, never a store off
-    `ctx.stores`, for two independent reasons:
-
-    - This runs from `Orchestrator._finalize`, inside `asyncio.shield`, so on the
-      client-disconnect path it deliberately outlives the request. That is what
-      `RequestContext.session_factory` is documented for.
-    - The stores' `AsyncSession` is already out of scope regardless: FastAPI
-      exits yield-dependencies when the *handler returns*, which for an SSE
-      endpoint is before the first event is sent (fastapi 0.115 — the ordering
-      changed in 0.106, so check this if that pin moves).
-
-    And it would fail quietly rather than loudly: SQLAlchemy's `close()` is a
-    reset, not a terminal close, so a write on that session would autobegin and
-    commit on a connection nothing owns.
+    Its own database session, like every other unit of work, and here that is
+    load-bearing rather than merely uniform: this runs from
+    `Orchestrator._finalize` inside `asyncio.shield`, so on the
+    client-disconnect path it deliberately outlives the request. Anything built
+    at the request boundary is long gone by then — FastAPI exits
+    yield-dependencies when the *handler returns*, which for an SSE endpoint is
+    before the first event is sent. `ctx.store()` is what makes that a
+    non-question.
     """
     try:
         spent = record.token_usage.total
@@ -79,10 +73,8 @@ async def debit_session_tokens(
             # nothing here to write.
             return
 
-        async with request_context.session_factory() as session:
-            remaining = await SessionStore(session).debit(
-                request_context.session_id, spent
-            )
+        async with request_context.store(SessionStore) as store:
+            remaining = await store.debit(request_context.session_id, spent)
 
         if remaining is None:
             # No row means nothing created it — the chat route does that on the

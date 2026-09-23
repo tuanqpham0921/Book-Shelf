@@ -46,7 +46,6 @@ class FeedbackStore(BaseStore[FeedbackModel]):
             .returning(FeedbackModel)
         )
         result = await self.execute_statement(stmt)
-        await self.session.commit()
         return result.scalar_one()
 
     async def get_by_chat_id(self, chat_id: str) -> List[FeedbackModel]:

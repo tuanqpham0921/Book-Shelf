@@ -154,8 +154,8 @@ async def record_chat_run(
         #     tasks=task_runner.record if task_runner is not None else None,
         #     writer=writer.record if writer is not None else None,
         # )
-        # async with request_context.session_factory() as session:
-        #     await ChatRunStore(session).insert_run(row)
+        # async with request_context.store(ChatRunStore) as store:
+        #     await store.insert_run(row)
         # logger.info("📋 Recorded chat run %s", row["chat_id"])
     except Exception:
         logger.exception("Failed to record chat run")

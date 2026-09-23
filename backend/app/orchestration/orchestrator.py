@@ -5,7 +5,6 @@ import time
 from app.common.sse_stream import SSEStream
 from app.common.request_context import RequestContext
 
-from app.domains.books.external import BookRequestContext
 from app.domains.node_input import NodeInput
 from app.orchestration.triage import TriageWorkflow
 from app.orchestration.task_runner import TaskRunnerInput, TaskRunnerWorkflow
@@ -196,33 +195,19 @@ class Orchestrator:
 
         Returns the workflow so the caller can hang its record on the turn's
         tree, matching how triage and the runner are handled; None when there
-        was nothing to write about or nowhere to write from.
+        was nothing to write about.
 
-        Two ways to decline, both quiet:
-
-        - **No results.** A plan whose every goal was unreachable leaves an
-          empty map. There is no evidence to write from, so the stage would
-          only invent one — the same failure the `ValueError` in its `run`
-          guards against.
-        - **No book store on this request.** Narrowing is what a node's
-          `NodeSpec.context` did at dispatch; this stage has no spec, so it
-          narrows here. A `LookupError` means the services it needs are not on
-          this request, which is a deployment problem rather than a turn that
-          should die — the cards already streamed, so the user loses the prose
-          and nothing else.
+        One way to decline, and it is quiet: a plan whose every goal was
+        unreachable leaves an empty map. There is no evidence to write from, so
+        the stage would only invent one — the same failure the `ValueError` in
+        its `run` guards against.
         """
         results = list(task_runner.result.task_results.values())
         if not results:
             logger.warning("No task results to write a reply from")
             return None
 
-        try:
-            ctx = BookRequestContext.narrow(request_context)
-        except LookupError as e:
-            logger.warning(f"Skipping the reply: {e}")
-            return None
-
-        writer = GenerateRecommendationsExecutor(ctx, messages=messages)
+        writer = GenerateRecommendationsExecutor(request_context, messages=messages)
         await asyncio.wait_for(
             writer(RecommendationsInput(results=results)),
             timeout=CONVERSATION_TIMEOUT,

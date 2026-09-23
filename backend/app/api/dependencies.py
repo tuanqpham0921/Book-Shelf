@@ -4,10 +4,8 @@ from typing import AsyncGenerator
 from fastapi import Request, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.stores.book_store import BookStore
 from db.stores.chat_run_store import ChatRunStore
 from db.stores.feedback_store import FeedbackStore
-from db.stores.session_store import SessionStore
 from clients import OpenAIClient
 from app.common.sse_stream import SSEStream
 from app.orchestration.orchestrator import Orchestrator
@@ -43,22 +41,21 @@ def get_sqlalchemy_session_factory(request: Request):
 async def get_sqlalchemy_session(
     session_factory=Depends(get_sqlalchemy_session_factory),
 ) -> AsyncGenerator[AsyncSession, None]:
-    """Get a SQLAlchemy session"""
-    async with session_factory() as session:
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+    """One session and one transaction for the length of a request.
 
+    `.begin()` rather than `()`: it commits on a clean exit, rolls back on an
+    exception and closes either way, which is why no store commits for itself
+    (see `BaseStore.execute_statement`). The commit therefore lands when the
+    dependency is torn down, after the handler has returned its value — fine
+    here because `expire_on_commit=False` keeps the returned rows readable.
 
-async def get_book_store(
-    session: AsyncSession = Depends(get_sqlalchemy_session),
-) -> BookStore:
-    """Get BookStore instance with injected session."""
-    return BookStore(session)
+    Only the plain HTTP routes use this, because only there is the request the
+    unit of work. `/session/{id}/message` streams its response and outlives
+    this scope entirely; it opens its own sessions through
+    `RequestContext.store`.
+    """
+    async with session_factory.begin() as session:
+        yield session
 
 
 async def get_chat_run_store(
@@ -75,13 +72,6 @@ async def get_feedback_store(
     return FeedbackStore(session)
 
 
-async def get_session_store(
-    session: AsyncSession = Depends(get_sqlalchemy_session),
-) -> SessionStore:
-    """Get SessionStore instance with injected session."""
-    return SessionStore(session)
-
-
 def get_app_env(request: Request) -> str:
     """Get the app environment"""
     app_env = getattr(request.app.state, "app_env", None)
@@ -95,7 +85,6 @@ def get_sse_stream() -> SSEStream:
 
 async def get_request_context_factory(
     llm_client=Depends(get_openai_client),
-    book_store=Depends(get_book_store),
     sse_stream=Depends(get_sse_stream),
     app_env: str = Depends(get_app_env),
     session_factory=Depends(get_sqlalchemy_session_factory),
@@ -107,21 +96,18 @@ async def get_request_context_factory(
     async def create_context(
         session_id: str, user_message: UserMessage, remaining_tokens: int
     ):
-        # The *widest* context, always — this runs before there is a plan, so
-        # it cannot know which nodes will run, and wiring per-node views here
-        # would make this module import every slice. The task runner narrows
-        # it at dispatch, via NodeSpec.context.
+        # The factory, never a session or a store built on one: this runs in
+        # the handler, and the turn it serves runs after the handler returns.
+        # Each unit of work opens its own through `RequestContext.store`.
         return RequestContext(
             app_env=app_env,
             session_id=session_id,
             # the route has already read it; passed in rather than looked up
-            # again, because the orchestrator runs after this request's
-            # database session is out of scope
+            # again, so the balance a turn is judged against is the one that
+            # its own `start_turn` returned
             remaining_tokens=remaining_tokens,
             user_message=user_message,
             llm_client=llm_client,
-            # keyed by class; a domain's context narrows to its own store
-            stores={BookStore: book_store},
             sse_stream=sse_stream,
             session_factory=session_factory,
         )

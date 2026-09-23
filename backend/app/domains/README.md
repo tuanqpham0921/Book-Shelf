@@ -164,19 +164,35 @@ properties off the `RequestContext` it holds. Context and input split on
 lifetime: services are built once per HTTP request, an input is assembled per
 dispatch.
 
-**A node declares the services view it needs too**, as `NodeSpec.context`.
-`RequestContext.stores` is a `dict[type, BaseStore]` — the opaque carrier that
-lets `app/common/` hold a `BookStore` without importing the books domain — and
-a domain turns it into a typed field with a `narrow()`:
-`BookRequestContext.narrow(ctx)` resolves `store` once, at dispatch, so a
-request missing it fails there (naming the store) rather than at the first
-query. `BookWorkflow.store` is then a plain field read, and `RequestContext`
-never grows a field per domain.
+**The database is the exception to "built once per request", and a node opens
+its own.** `RequestContext` carries the session *factory* and nothing else
+database-shaped; `ctx.store(BookStore)` is an async context manager that opens
+one session inside `session_factory.begin()`, yields the store, and commits and
+closes on the way out:
 
-Those stores are constructed on the FastAPI request-scoped session (see
-`get_sqlalchemy_session` in `app/api/dependencies.py`). **Don't rebuild them
-lazily from `ctx.session_factory`** — that opens a *different* session, so a
-read in one node and a write in another quietly stop sharing a transaction.
+```python
+async with self.ctx.store(BookStore) as store:
+    total = await store.count(query)
+```
+
+Per use, not per request, because the turn runs *after* the HTTP handler has
+returned — FastAPI exits yield-dependencies when the handler returns, which for
+the SSE chat route is before the first event is sent. A store parked on the
+context at request time would spend the whole turn on a session that was
+already closed. It is also what lets `Orchestrator._finalize` write after the
+request is over, inside its `asyncio.shield`.
+
+Two rules follow. **Keep the block around the round trip and nothing else** — it
+holds a pooled connection and an open transaction while entered, and building a
+query needs no store at all (`title_query`, `lexical_query` and the rest are
+module-level functions in `db/stores/book_store.py`). And **no store commits
+for itself**: the block owns the transaction, and a store that commits closes it
+early, so the next statement in the block raises.
+
+This replaced `NodeSpec.context`, `RequestContext.stores` and
+`BookRequestContext.narrow()`, which resolved one store for one domain at
+dispatch — machinery that only existed because the store had to be built
+somewhere earlier than it was used.
 
 ## Naming: Workflow, Executor
 

@@ -11,8 +11,11 @@ class SessionStore(BaseStore[SessionModel]):
     """SQLAlchemy-based session token-budget data access layer.
 
     "Session" here is the chat session, not the SQLAlchemy one — `self.session`
-    is the latter, which is the split `get_sqlalchemy_session` already names on
-    the dependency side.
+    is the latter.
+
+    Neither method commits: like every store, this one is built inside a
+    `session_factory.begin()` block that owns the transaction and commits it on
+    exit (see `BaseStore.execute_statement`).
     """
 
     def __init__(self, session: AsyncSession):
@@ -51,7 +54,6 @@ class SessionStore(BaseStore[SessionModel]):
             .returning(SessionModel.remaining_tokens)
         )
         result = await self.execute_statement(stmt)
-        await self.session.commit()
         return result.scalar_one()
 
     async def debit(self, session_id: str, spent: int) -> int | None:
@@ -79,7 +81,6 @@ class SessionStore(BaseStore[SessionModel]):
             .execution_options(synchronize_session=False)
         )
         result = await self.execute_statement(stmt)
-        await self.session.commit()
         # None rather than a raise: the caller is the orchestrator's cleanup,
         # where a missing row is worth a warning and nothing more.
         return result.scalar_one_or_none()

@@ -17,14 +17,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.domains.books.external import BookAnchorOutput, BookRequestContext
+from app.domains.books.external import BookAnchorOutput
 from app.domains.books.find_similar_books.executor import (
     CANDIDATE_POOL_SIZE,
     MAX_ANCHOR_BOOKS,
     FindSimilarBooksExecutor,
 )
 from app.domains.books.find_similar_books.external import SimilarBooksInput
-from db.stores import BookStore
+from db.stores import title_query
 
 ANCHOR_ROW = {
     "isbn13": "9780441013593",
@@ -44,20 +44,18 @@ POOL_STATS = {"count": 250, "min": 0.41, "max": 0.83, "avg": 0.57}
 
 def _anchor(num_books: int = 1) -> BookAnchorOutput:
     # a real query object: the executor composes it, and `compose` is not faked
-    store = BookStore(MagicMock())  # the session is never touched by the build
-    return BookAnchorOutput(num_books=num_books, query=store.title_query("Dune"))
+    return BookAnchorOutput(num_books=num_books, query=title_query("Dune"))
 
 
 @pytest.fixture
-def node(request_context):
+def node(request_context, book_store):
     """The executor with its two boundaries stubbed, ready to run."""
-    store = request_context.stores[BookStore]
     # `materialize` is awaited twice and must answer differently each time:
     # first the anchor books the fold reads, then the preview off the pool
-    store.materialize = AsyncMock(side_effect=[[ANCHOR_ROW], [POOL_ROW]])
-    store.score_stats = AsyncMock(return_value=POOL_STATS)
+    book_store.materialize = AsyncMock(side_effect=[[ANCHOR_ROW], [POOL_ROW]])
+    book_store.score_stats = AsyncMock(return_value=POOL_STATS)
 
-    wf = FindSimilarBooksExecutor(BookRequestContext.narrow(request_context))
+    wf = FindSimilarBooksExecutor(request_context)
     wf.run_llm_args_parse = AsyncMock(
         return_value=MagicMock(semantic_input="a sweeping desert epic")
     )
@@ -124,10 +122,10 @@ class TestTheHappyPath:
         assert "NOT IN" in str(out.query.stmt.compile()).upper()
 
     @pytest.mark.asyncio
-    async def test_an_empty_pool_is_an_answer_not_a_failure(self, node):
+    async def test_an_empty_pool_is_an_answer_not_a_failure(self, node, book_store):
         """Nothing cleared the similarity floor. The node ran correctly and
         found nothing, so it finalizes `ok` and skips the preview fetch."""
-        node.store.score_stats = AsyncMock(return_value=None)
+        book_store.score_stats = AsyncMock(return_value=None)
 
         result = await node(
             SimilarBooksInput(instruction="books like Dune", anchors=[_anchor()])
@@ -138,12 +136,12 @@ class TestTheHappyPath:
         assert out.num_books == 0
         assert out.score is None
         # the anchor fetch, and nothing after it
-        assert node.store.materialize.await_count == 1
+        assert book_store.materialize.await_count == 1
 
 
 class TestItRefusesBeforeSpending:
     @pytest.mark.asyncio
-    async def test_an_over_cap_anchor_never_reaches_the_database(self, node):
+    async def test_an_over_cap_anchor_never_reaches_the_database(self, node, book_store):
         result = await node(
             SimilarBooksInput(
                 instruction="books like Dune", anchors=[_anchor(MAX_ANCHOR_BOOKS + 1)]
@@ -152,24 +150,24 @@ class TestItRefusesBeforeSpending:
 
         assert not result.ok
         # the whole point of counting off the anchors instead of the store
-        node.store.materialize.assert_not_awaited()
+        book_store.materialize.assert_not_awaited()
         node.get_embeddings.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_an_anchor_that_matched_nothing_is_refused(self, node):
+    async def test_an_anchor_that_matched_nothing_is_refused(self, node, book_store):
         result = await node(
             SimilarBooksInput(instruction="books like Dune", anchors=[_anchor(0)])
         )
 
         assert not result.ok
-        node.store.materialize.assert_not_awaited()
+        book_store.materialize.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_anchors_with_no_descriptions_is_a_dead_end(self, node):
+    async def test_anchors_with_no_descriptions_is_a_dead_end(self, node, book_store):
         """With no argument parse there is no second half to search on, so a
         fold that comes back empty ends the node instead of falling through to
         an embedding of nothing."""
-        node.store.materialize = AsyncMock(
+        book_store.materialize = AsyncMock(
             return_value=[{"isbn13": "9780441013593", "title": "Dune"}]
         )
 

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from config import AppConfig
 from config.settings import SQLAlchemySettings
 from db.async_engine import (
     check_connection,
@@ -73,10 +74,37 @@ class TestGetAsyncEngine:
             get_async_engine(make_settings())
         assert mock_create.call_args.kwargs["pool_recycle"] == 1800
 
-    def test_pool_timeout_is_60_seconds(self):
+    def test_pool_timeout_is_the_database_timeout(self):
+        """The wait for a connection out of the pool — one of the three layers
+        `AppConfig.DATABASE_TIMEOUT` now drives, since `BaseStore` no longer
+        wraps the await."""
         with patch("db.async_engine.create_async_engine") as mock_create:
             get_async_engine(make_settings())
-        assert mock_create.call_args.kwargs["pool_timeout"] == 60
+        assert mock_create.call_args.kwargs["pool_timeout"] == AppConfig.DATABASE_TIMEOUT
+
+    def test_postgres_cancels_its_own_long_queries(self):
+        """`statement_timeout` as a startup parameter, in milliseconds and as a
+        string — asyncpg validates `server_settings` as `dict[str, str]`.
+
+        This is what replaced the `asyncio.wait_for` in `execute_statement`:
+        the server cancels the query and hands the connection back usable,
+        where cancelling the await left it in a state SQLAlchemy no longer knew.
+        """
+        with patch("db.async_engine.create_async_engine") as mock_create:
+            get_async_engine(make_settings())
+        server_settings = mock_create.call_args.kwargs["connect_args"]["server_settings"]
+        assert server_settings["statement_timeout"] == str(
+            int(AppConfig.DATABASE_TIMEOUT * 1000)
+        )
+
+    def test_the_client_side_backstop_sits_above_the_servers_own_cancel(self):
+        """`command_timeout` covers a connection that never reaches the server,
+        which `statement_timeout` cannot see. Deliberately the longer of the
+        two, so the server's cancel wins whenever it can hear the query."""
+        with patch("db.async_engine.create_async_engine") as mock_create:
+            get_async_engine(make_settings())
+        command_timeout = mock_create.call_args.kwargs["connect_args"]["command_timeout"]
+        assert command_timeout > AppConfig.DATABASE_TIMEOUT
 
 
 class TestGetSessionFactory:

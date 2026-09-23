@@ -11,7 +11,6 @@ method rather than a pure function only because the piles are worth recording
 even when they do not stop the run, which is what the last test pins.
 """
 
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,16 +21,12 @@ from app.domains.books.find_similar_books.executor import (
     FindSimilarBooksExecutor,
 )
 from app.domains.books.schemas import Book
-from db.stores import BookStore
+from db.stores import title_query
 
 
 def _anchors(*counts: int) -> ParsedDependents:
-    store = BookStore(MagicMock())  # never executed: title_query only builds
     return ParsedDependents.from_anchors(
-        [
-            BookAnchorOutput(num_books=n, query=store.title_query("Dune"))
-            for n in counts
-        ]
+        [BookAnchorOutput(num_books=n, query=title_query("Dune")) for n in counts]
     )
 
 
@@ -45,9 +40,7 @@ def _rows(n: int) -> ParsedDependents:
 
 @pytest.fixture
 def node(request_context):
-    from app.domains.books.external import BookRequestContext
-
-    return FindSimilarBooksExecutor(BookRequestContext.narrow(request_context))
+    return FindSimilarBooksExecutor(request_context)
 
 
 class TestNothingToBeSimilarTo:

@@ -4,7 +4,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from app.common.request_context import RequestContext
 from app.domains.base_workflow import (
     AppWorkflow,
     FailedGoalOutput,
@@ -225,14 +224,13 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
     ) -> tuple[AppWorkflow, WorkflowInput] | str:
         """Everything that has to be true before a goal can run, or why not.
 
-        Four ways to come back a `str` — no spec, a spec with no executor, a
-        context that can't be narrowed, an input that can't be assembled —
-        logged apart because they mean different things, but all four skip one
-        goal rather than abort the plan. The string is the *reason*, written as
-        prose: it becomes the goal's `FailedGoalOutput`, which a generation
-        node hands to the reply writer verbatim — so the internals (schema
-        names, missing-field lists) go to the log and `add_details`, never
-        into it.
+        Three ways to come back a `str` — no spec, a spec with no executor, an
+        input that can't be assembled — logged apart because they mean
+        different things, but all three skip one goal rather than abort the
+        plan. The string is the *reason*, written as prose: it becomes the
+        goal's `FailedGoalOutput`, which a generation node hands to the reply
+        writer verbatim — so the internals (schema names, missing-field lists)
+        go to the log and `add_details`, never into it.
 
         The assembly failure is the hook for the agentic version: the named
         field is enough to ask the planner for a goal that produces it and
@@ -253,13 +251,6 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
             return "this isn't something the system can do yet"
 
         try:
-            ctx: RequestContext = spec.context.narrow(self.ctx)
-        except LookupError as e:
-            logger.warning(f"Skipping task {goal.id} ({node_type}): {e}")
-            self.add_details(f"{goal.id}: {e}")
-            return "a part of the system it needed was unavailable"
-
-        try:
             node_input = build_input(
                 spec.input, goal.instruction, self._dependency_outputs(goal, results)
             )
@@ -277,7 +268,7 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
                 or "it was missing something it needed"
             )
 
-        return spec.executor(ctx, messages=self.messages), node_input
+        return spec.executor(self.ctx, messages=self.messages), node_input
 
     def _record_failure(
         self,

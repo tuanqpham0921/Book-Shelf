@@ -1,4 +1,3 @@
-from app.domains.books.external import BookRequestContext
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindByNumericTraitsExecutor
@@ -13,7 +12,6 @@ SPEC = NodeSpec(
     input=FindByNumericTraitsInput,
     output=FindByNumericTraitsOutput,
     executor=FindByNumericTraitsExecutor,
-    context=BookRequestContext,
 )
 
 __all__ = [
