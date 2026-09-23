@@ -77,7 +77,10 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
   overlapping turns in one session hold separate database sessions. Both return
   scalars, never the model — `returning(SessionModel)` gives an ORM entity, so a
   session already holding that row gets back the stale copy it remembers),
-  `chat_run_store.py` (review queue, ordered least-reviewed-first),
+  `chat_run_store.py` (`insert_run`, one row per turn — written by
+  `run_recorder._insert_chat_run` in production only, on its own session like
+  the debit; it *stages* the row and the `begin()` block commits it — plus the
+  review queue, ordered least-reviewed-first),
   `feedback_store.py` (review upsert).
 - **Deferred queries** (`deferred_query.py`). Retrieval nodes do not fetch rows:
   the module-level `title_query()` / `author_query()` / `lexical_query()` /

@@ -58,6 +58,12 @@ There is no auth yet — a known pre-deploy blocker (docs/backlog.md, Security P
    planner and the reply are billed alongside the tasks. It runs first of the three
    cleanup steps, on its own database session, and never raises. A turn that spent
    nothing — a refusal — writes nothing.
-5. Every turn is recorded to the `chat_runs` table (planner/tasks JSONB) —
-   that's what the review page and eval reports read. Requests are stateless: nothing
-   reads prior turns back (single-turn by design for V1).
+5. `Orchestrator._finalize` then records the turn — **one sink per environment**
+   (`orchestration/run_recorder.py`, since 2026-09-23). Production inserts one
+   `chat_runs` row (planner/tasks/writer JSONB), which is what the review page and
+   the eval reports read and the only durable copy a deployed turn gets; Cloud
+   Run's filesystem is in-memory, so files are never the production sink.
+   Development writes JSON files under `logs/<chat_id>/` instead — no row, so a
+   local turn finishes whether or not Postgres is up. Test writes nothing. Either
+   way it never raises. Requests are stateless: nothing reads prior turns back
+   (single-turn by design for V1).

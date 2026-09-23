@@ -26,7 +26,7 @@ the console), and `make -C frontend deploy` for the site.
 | 1 — container builds | ✅ |
 | 2 — on Cloud Run | ✅ (deployed private, opened in Stage 5) |
 | 3 — database | ✅ **via Neon**, not Cloud SQL; the Cloud SQL stage below is superseded |
-| 4 — security | ⏳ **open.** CORS (4.3) is done; the admin gate (4.1), recording (4.2) and message bounds (4.4) are not. Secrets + service account (4.5) are done |
+| 4 — security | ⏳ **open.** CORS (4.3) and recording (4.2) are done; the admin gate (4.1) and message bounds (4.4) are not. Secrets + service account (4.5) are done |
 | 5 — public | ✅ |
 | 6 — docs | ✅ |
 
@@ -34,8 +34,10 @@ the console), and `make -C frontend deploy` for the site.
 `PUT /feedback/review` and `GET /feedback` take no credential, and
 `POST /session/{id}/message` spends OpenAI budget for anyone who calls it. The
 standing mitigations are a hard monthly spend cap on the OpenAI account plus
-`--concurrency=5 × --max-instances=3` as a throughput ceiling. Recording is off,
-so `/chat_runs` returns nothing today — 4.1 and 4.2 belong in the same change.
+`--concurrency=5 × --max-instances=3` as a throughput ceiling. **Recording was
+turned on in 4.2 (2026-09-23) while 4.1 is still open**, so `/chat_runs` now
+serves real turns — user messages included — to anyone who asks. That makes the
+admin gate the one blocking item in this stage.
 
 ## Context (the starting state, 2026-09-17)
 
@@ -72,7 +74,9 @@ an unprotected endpoint live.
 
 ### Two things worth knowing before you start
 
-**Nothing is recorded in production today.** `record_chat_run`
+**Nothing is recorded in production today.** *(Starting state, 2026-09-17.
+Superseded by 4.2 on 2026-09-23 — production now inserts a `chat_runs` row.)*
+`record_chat_run`
 (`app/orchestration/run_recorder.py`) returns immediately for any environment
 but `development`, and the `chat_runs` insert — the commented block at the end
 of that function — is off in *every* environment. So a deployed instance writes
@@ -419,20 +423,28 @@ plaintext. So **do not ship `/review` publicly.** Keep the token in your *local*
 without it, serving `/` and `/blog`. A genuinely public review page needs real
 auth (Firebase Auth) and is separate work — don't fake it with a bundled token.
 
-### 4.2 Turn recording
+### 4.2 Turn recording ✅ (2026-09-23)
 
-In `record_chat_run` (`app/orchestration/run_recorder.py`), uncomment the
-`chat_runs` insert block at the end of the function (the `build_chat_run_row`
-call plus the `ChatRunStore(...).insert_run`) and move it **above** the
-`app_env != "development"` gate, so production records too; widen that gate's
-comment and the module docstring to match, and flip
-`test_non_development_records_nothing` for production. Without it the deployed
-app records nothing at all, and `/chat_runs` stays permanently empty.
+`record_chat_run` (`app/orchestration/run_recorder.py`) now picks one sink per
+environment instead of returning early for everything but development:
+**production** inserts one `chat_runs` row through `ctx.store(ChatRunStore)`,
+**development** writes its JSON files, **test** writes nothing. The two sinks
+are `_insert_chat_run` and `_save_turn_files`, chosen in one place and wrapped
+in one `try`, because the rule is the same for both — recording never costs the
+user their reply.
 
-Sequencing note: because prod starts with an empty `chat_runs` and the recorder
-is off, **today's disclosure risk is prospective, not retroactive.** It becomes
-real the moment you uncomment these lines — which is why they belong in the same
-stage as the gate, not before it.
+**The sequencing note below was not honoured, and 4.1 is still open.** The
+insert was turned on ahead of the gate at the owner's direction, so from this
+revision on, every production turn's user message and full envelope tree is
+readable over an unauthenticated `GET /chat_runs`. The disclosure risk is now
+retroactive as well as prospective: 4.1 no longer merely prevents a leak, it has
+a growing table behind it. Until it lands, the standing mitigations are the
+`deploy-off` kill switch and the throughput ceiling.
+
+Original note, kept because it is the reason 4.1 is now urgent: because prod
+started with an empty `chat_runs` and the recorder was off, today's disclosure
+risk was prospective, not retroactive — which is why the insert belonged in the
+same stage as the gate.
 
 ### 4.3 CORS ✅ (2026-09-19)
 

@@ -1,9 +1,10 @@
 """Tests for run_recorder: column mapping and serialization fidelity of
 build_chat_run_row (private attrs like _refusal must survive), and the
-env-dependent sink selection in record_chat_run (development → files only,
-test and production → nothing, write failures swallowed)."""
+env-dependent sink selection in record_chat_run (production → one row and no
+file, development → files and no row, test → nothing, failures swallowed
+either way)."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -158,6 +159,22 @@ class TestBuildChatRunRow:
         assert goal["_refusal_reasons"] == ["just to populate a private attr"]
 
 
+@pytest.fixture
+def chat_run_store():
+    """The `ChatRunStore` that `ctx.store(ChatRunStore)` builds.
+
+    The real `RequestContext.store` still runs, so `session_factory.begin()` is
+    entered and this class is constructed on whatever session it hands over —
+    which is what `test_production_opens_its_own_session` reads back.
+    `insert_run` has to be an `AsyncMock`: a plain `MagicMock` return value is
+    not awaitable, and the `TypeError` would be swallowed as a failed
+    recording rather than surfacing as a failed test.
+    """
+    with patch("app.orchestration.run_recorder.ChatRunStore") as cls:
+        cls.return_value.insert_run = AsyncMock()
+        yield cls
+
+
 class TestRecordChatRun:
     async def test_missing_record_records_nothing(self, make_request_context):
         # app_env="development" (not "test") so this exercises the
@@ -172,13 +189,10 @@ class TestRecordChatRun:
         mock_save.assert_not_called()
         mock_store_cls.assert_not_called()
 
-    @pytest.mark.parametrize("app_env", ["test", "production"])
-    async def test_non_development_records_nothing(
-        self, make_request_context, app_env
-    ):
-        # production included: Cloud Run's filesystem is in-memory, and the
-        # chat_runs insert stays off until Stage 4 (docs/deployment.md §4.2)
-        ctx = make_request_context(app_env=app_env)
+    async def test_test_env_records_nothing(self, make_request_context):
+        """Hermetic by default: the fixture's `app_env` is "test", so a suite
+        that forgets to set one writes no file and opens no session."""
+        ctx = make_request_context(app_env="test")
         planner = _make_planner_record()
 
         with patch("app.orchestration.run_recorder.save_file") as mock_save, patch(
@@ -191,6 +205,59 @@ class TestRecordChatRun:
         mock_save.assert_not_called()
         mock_store_cls.assert_not_called()
         ctx.session_factory.assert_not_called()
+
+    async def test_production_writes_one_row_and_no_file(
+        self, make_request_context, chat_run_store
+    ):
+        """Cloud Run's filesystem is in-memory, so the row is the only durable
+        copy a deployed turn gets — and the only reason `/chat_runs` and the
+        eval reports have anything to read."""
+        ctx = make_request_context(app_env="production")
+        planner = _make_planner_record()
+
+        with patch("app.orchestration.run_recorder.save_file") as mock_save:
+            await record_chat_run(
+                ctx, _make_root_record(planner), _make_workflow(planner)
+            )
+
+        mock_save.assert_not_called()
+        insert_run = chat_run_store.return_value.insert_run
+        insert_run.assert_awaited_once()
+        row = insert_run.await_args.args[0]
+        assert row["chat_id"] == ctx.user_message.id
+        assert row["session_id"] == "sess_1"
+        assert row["user_message"] == "Find me a book"
+        assert row["planner"]["ok"] is True
+
+    async def test_production_opens_its_own_session(
+        self, make_request_context, chat_run_store
+    ):
+        """Like the token debit: this runs from `_finalize`, which is shielded
+        and outlives the request, so nothing opened at the request boundary is
+        still there. `.begin()`, so the block commits — `insert_run` only
+        stages the row."""
+        ctx = make_request_context(app_env="production")
+        planner = _make_planner_record()
+
+        await record_chat_run(ctx, _make_root_record(planner), _make_workflow(planner))
+
+        factory = ctx.session_factory
+        factory.begin.assert_called_once_with()
+        factory.assert_not_called()
+        opened = factory.begin.return_value.__aenter__.return_value
+        chat_run_store.assert_called_once_with(opened)
+
+    async def test_a_failed_insert_is_swallowed(
+        self, make_request_context, chat_run_store
+    ):
+        ctx = make_request_context(app_env="production")
+        planner = _make_planner_record()
+        chat_run_store.return_value.insert_run = AsyncMock(
+            side_effect=RuntimeError("connection refused")
+        )
+
+        # must not raise — a lost row cannot cost the user their reply
+        await record_chat_run(ctx, _make_root_record(planner), _make_workflow(planner))
 
     async def test_development_writes_files_only(self, make_request_context):
         ctx = make_request_context(app_env="development")
@@ -224,7 +291,8 @@ class TestRecordChatRun:
         # no row in the file carries a subtree
         assert not any("steps" in span for span in spans)
 
-        # the chat_runs insert is off in every environment until Stage 4
+        # files *instead of* a row, not alongside one: a local turn finishes
+        # whether or not Postgres is up
         mock_store_cls.assert_not_called()
         ctx.session_factory.assert_not_called()
 
