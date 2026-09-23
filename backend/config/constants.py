@@ -14,7 +14,7 @@ class AppConfig:
     # once per turn and never refills, so when it runs out the deployed service
     # refuses the next message. The sessions table deliberately has no DEFAULT
     # on remaining_tokens — this is the only place the number lives.
-    SESSION_TOKEN_BUDGET = 50_000
+    SESSION_TOKEN_BUDGET = 200_000
 
     # The ceiling on any one statement a store runs, in seconds. Applied by the
     # engine (db/async_engine.py), which derives every layer from it, each one
