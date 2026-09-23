@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import time
+from typing import Any, Coroutine
 
+from config import AppConfig
 from app.common.sse_stream import SSEStream
 from app.common.request_context import RequestContext
 
@@ -27,9 +29,49 @@ from clients.messages import (
 logger = logging.getLogger(__name__)
 
 SAVE_LOG_TIMEOUT = 60  # seconds
-DEBIT_TOKENS_TIMEOUT = 10  # seconds
 CLOSE_SSE_STREAM_TIMEOUT = 10  # seconds
 CONVERSATION_TIMEOUT = 120  # seconds
+
+# Above the engine's own worst case, not level with it — the same ladder
+# `db/async_engine.py` builds out of this constant, one rung further out. A
+# debit can wait `pool_timeout` for a connection and *then* run its statement,
+# so a ceiling equal to `DATABASE_TIMEOUT` would cancel a charge that was about
+# to succeed. This is the one cleanup step with money attached, and cancelling
+# it mid-statement is also the one cancel here that can reach a live
+# connection. Leave it the loosest thing that still terminates.
+DEBIT_TOKENS_TIMEOUT = AppConfig.DATABASE_TIMEOUT * 3  # seconds
+
+
+async def _best_effort(
+    coro: Coroutine[Any, Any, Any], timeout: float, what: str, turn_id: str
+) -> None:
+    """Run one cleanup step under a ceiling, and never raise.
+
+    The ceiling is not redundant with the database's own timeouts, because
+    `_finalize` runs inside `asyncio.shield` — nothing outside can stop these,
+    so this is what makes them terminate at all. It also covers what Postgres
+    cannot see: the wait for a connection, the connect handshake, and the two
+    steps here that never touch a database.
+
+    **The timeout gets its own branch because it is the only thing that
+    normally arrives.** `debit_session_tokens` and `record_chat_run` both
+    swallow their own exceptions, so a step that broke has already been logged
+    with its traceback by the time we get here; what reaches this function is
+    the `TimeoutError` that `wait_for` raises after cancelling them — and their
+    own `except Exception` could not have caught that, since `CancelledError`
+    has been a `BaseException` since 3.8. Logging both cases as one anonymous
+    warning lost the distinction and the cause with it.
+    """
+    try:
+        await asyncio.wait_for(coro, timeout=timeout)
+    except TimeoutError:
+        logger.warning(
+            "⏱️ %s gave up after %ss and was cancelled — turn %s", what, timeout, turn_id
+        )
+    except Exception:
+        # Reachable from `sse_stream.close()`, which catches nothing of its
+        # own. With the traceback: an exception that got this far is a surprise.
+        logger.exception("%s failed — turn %s", what, turn_id)
 
 
 class Orchestrator:
@@ -228,44 +270,39 @@ class Orchestrator:
         never lets a slow/failing step here take down the others, or the caller.
 
         The debit goes first because it is the only one of the three with money
-        attached, and it must not queue behind a dev-only file dump:
-        `record_chat_run`'s own `except Exception` cannot catch a
-        `CancelledError` raised inside its `wait_for` — a BaseException since
-        3.8, the same reason `run` shields this whole method.
+        attached, and it must not queue behind a dev-only file dump. Each step
+        gets its own ceiling and its own log line — see `_best_effort`, which
+        is also where the reason a ceiling is still needed lives.
 
         `record.token_usage.total` is already final here: the `add_step` roll-up
         in `run`'s finally happens before the shield.
         """
-        try:
-            await asyncio.wait_for(
-                debit_session_tokens(request_context, record),
-                timeout=DEBIT_TOKENS_TIMEOUT,
-            )
-        except Exception:
-            logger.warning(
-                f"debit_session_tokens id: {request_context.user_message.id} failed"
-            )
+        turn_id = request_context.user_message.id
 
-        try:
-            await asyncio.wait_for(
-                record_chat_run(
-                    request_context,
-                    record,
-                    triage_workflow,
-                    task_runner,
-                    writer,
-                    messages,
-                ),
-                timeout=SAVE_LOG_TIMEOUT,
-            )
-        except Exception:
-            logger.warning(
-                f"record_chat_run id: {request_context.user_message.id} timed out"
-            )
+        await _best_effort(
+            debit_session_tokens(request_context, record),
+            DEBIT_TOKENS_TIMEOUT,
+            "debit_session_tokens",
+            turn_id,
+        )
 
-        try:
-            await asyncio.wait_for(sse_stream.close(), timeout=CLOSE_SSE_STREAM_TIMEOUT)
-        except Exception:
-            logger.warning(
-                f"sse_stream.close() id: {request_context.user_message.id} timed out"
-            )
+        await _best_effort(
+            record_chat_run(
+                request_context,
+                record,
+                triage_workflow,
+                task_runner,
+                writer,
+                messages,
+            ),
+            SAVE_LOG_TIMEOUT,
+            "record_chat_run",
+            turn_id,
+        )
+
+        await _best_effort(
+            sse_stream.close(),
+            CLOSE_SSE_STREAM_TIMEOUT,
+            "sse_stream.close",
+            turn_id,
+        )

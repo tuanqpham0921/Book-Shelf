@@ -106,6 +106,16 @@ class TestGetAsyncEngine:
         command_timeout = mock_create.call_args.kwargs["connect_args"]["command_timeout"]
         assert command_timeout > AppConfig.DATABASE_TIMEOUT
 
+    def test_opening_a_connection_is_bounded_as_well(self):
+        """`command_timeout` bounds commands, and while a connection is still
+        being opened there is nothing to run one on. Left to itself asyncpg
+        waits 60s there — longer than every other layer put together, and the
+        wait `pool_pre_ping` falls back to when it drops a dead connection."""
+        with patch("db.async_engine.create_async_engine") as mock_create:
+            get_async_engine(make_settings())
+        connect_timeout = mock_create.call_args.kwargs["connect_args"]["timeout"]
+        assert connect_timeout == AppConfig.DATABASE_TIMEOUT
+
 
 class TestGetSessionFactory:
     def test_returns_async_sessionmaker(self):

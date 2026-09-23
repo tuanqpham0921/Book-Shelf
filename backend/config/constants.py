@@ -17,12 +17,14 @@ class AppConfig:
     SESSION_TOKEN_BUDGET = 50_000
 
     # The ceiling on any one statement a store runs, in seconds. Applied by the
-    # engine (db/async_engine.py), which derives all three layers from it:
-    # Postgres' statement_timeout, asyncpg's command_timeout as the backstop
-    # above it, and pool_timeout for the wait on a connection. Enforced there
-    # rather than around the await, so a query that runs long is cancelled by
-    # the server and the connection survives — cancelling mid-execute leaves it
-    # in a state SQLAlchemy no longer knows.
+    # engine (db/async_engine.py), which derives every layer from it, each one
+    # sitting above what it backs up: Postgres' statement_timeout, asyncpg's
+    # command_timeout above that, and pool_timeout and the connect timeout for
+    # the two waits Postgres cannot see. Enforced there rather than around the
+    # await, so a query that runs long is cancelled by the server and the
+    # connection survives — cancelling mid-execute leaves it in a state
+    # SQLAlchemy no longer knows. Orchestrator.DEBIT_TOKENS_TIMEOUT is one rung
+    # further out again, since a debit pays those waits before its statement.
     DATABASE_TIMEOUT = 10.0
     OPENAI_TIMEOUT   = 10.0
     DEFAULT_TIMEOUT  = 10.0

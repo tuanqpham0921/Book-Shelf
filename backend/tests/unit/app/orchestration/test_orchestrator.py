@@ -14,15 +14,22 @@ turn to its session's token budget. `TestRefusingAnExhaustedSession` is the othe
 end of that budget — the route reads the balance, this is where it is judged.
 """
 
+import asyncio
+import logging
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
+from config import AppConfig
 from app.domains.base_workflow import FailedGoalOutput
 from app.domains.books.external import BookAnchorOutput
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.domains.planjane import PlanJaneOutput, SystemGoal
-from app.orchestration.orchestrator import Orchestrator
+from app.orchestration.orchestrator import (
+    DEBIT_TOKENS_TIMEOUT,
+    Orchestrator,
+    _best_effort,
+)
 from app.orchestration.task_runner import TaskResult, TaskRunnerOutput
 from app.orchestration.token_budget import OUT_OF_TOKENS_MESSAGE
 from airglider import OperationResult, TokenUsage
@@ -291,6 +298,69 @@ class TestChargingTheSession:
             await Orchestrator().run(request_context)
 
         request_context.sse_stream.close.assert_awaited()
+
+
+class TestBestEffortCleanup:
+    """Every step in `_finalize` runs under its own ceiling and logs its own
+    outcome.
+
+    The ceiling is not the engine's timeouts restated: `_finalize` runs inside
+    `asyncio.shield`, so nothing outside can stop these — it is what makes them
+    terminate at all — and two of the three never touch a database.
+    """
+
+    async def test_a_step_that_runs_out_of_time_names_itself_and_the_turn(
+        self, caplog
+    ):
+        """The old single `except Exception` logged neither which step it was
+        nor why, so a timeout and a crash read identically in the console."""
+
+        async def forever():
+            await asyncio.Event().wait()
+
+        with caplog.at_level(logging.WARNING):
+            await _best_effort(forever(), 0.01, "debit_session_tokens", "turn_abc")
+
+        assert "debit_session_tokens" in caplog.text
+        assert "turn_abc" in caplog.text
+        assert "0.01" in caplog.text
+
+    async def test_a_step_that_runs_out_of_time_is_cancelled(self):
+        """`wait_for` cancels what it gave up on, so nothing is left running
+        behind the shield after `_finalize` returns."""
+        cancelled = asyncio.Event()
+
+        async def forever():
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        await _best_effort(forever(), 0.01, "record_chat_run", "turn_abc")
+
+        assert cancelled.is_set()
+
+    async def test_an_unexpected_failure_is_logged_with_its_traceback(self, caplog):
+        """Both recorders swallow their own exceptions, so anything arriving
+        here is a surprise worth the stack — `sse_stream.close()` is the one
+        step with no `except` of its own."""
+
+        async def boom():
+            raise RuntimeError("the stream is already gone")
+
+        with caplog.at_level(logging.ERROR):
+            await _best_effort(boom(), 1, "sse_stream.close", "turn_abc")
+
+        assert "the stream is already gone" in caplog.text
+        assert "Traceback" in caplog.text
+
+    async def test_the_debit_ceiling_sits_above_the_databases_own(self):
+        """Level with `DATABASE_TIMEOUT` it would cancel a debit that had spent
+        `pool_timeout` waiting for a connection and was about to succeed — and
+        a cancel here is the one in `_finalize` that can reach a live
+        connection."""
+        assert DEBIT_TOKENS_TIMEOUT > AppConfig.DATABASE_TIMEOUT * 2
 
 
 class TestRefusingAnExhaustedSession:

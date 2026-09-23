@@ -36,10 +36,10 @@ def get_async_engine(sqlalchemy_settings: SQLAlchemySettings) -> AsyncEngine:
         # this drops a connection that died with it instead of failing a request
         pool_pre_ping=True,
         pool_recycle=1800,  # Recycle connections every 30 minutes
-        # The three halves of AppConfig.DATABASE_TIMEOUT. Here rather than
-        # around the await in BaseStore, because a query cancelled from the
-        # asyncio side leaves the connection in a state SQLAlchemy no longer
-        # knows, while the server cancelling its own query does not.
+        # Every layer of AppConfig.DATABASE_TIMEOUT. Here rather than around
+        # the await in BaseStore, because a query cancelled from the asyncio
+        # side leaves the connection in a state SQLAlchemy no longer knows,
+        # while the server cancelling its own query does not.
         pool_timeout=AppConfig.DATABASE_TIMEOUT,  # waiting for a connection
         connect_args={
             # Postgres cancels the query itself and the connection stays
@@ -54,6 +54,12 @@ def get_async_engine(sqlalchemy_settings: SQLAlchemySettings) -> AsyncEngine:
             # This is what covers a connection that never reaches the server;
             # it surfaces as a bare asyncio TimeoutError.
             "command_timeout": AppConfig.DATABASE_TIMEOUT + 2,
+            # Opening the connection, which `command_timeout` does not cover —
+            # it bounds commands, and there is no connection to run one on yet.
+            # Without this a black-holed TCP connect waits out asyncpg's own
+            # default of 60s, which is longer than anything else here and is
+            # what `pool_pre_ping` falls back to when it drops a dead one.
+            "timeout": AppConfig.DATABASE_TIMEOUT,
         },
         # echo=settings.debug, # Log SQL queries in debug mode
     )

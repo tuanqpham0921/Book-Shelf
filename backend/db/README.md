@@ -48,11 +48,15 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
   `asyncio.wait_for`; it moved to the engine (`async_engine.py`) because
   cancelling the await left the connection in a state SQLAlchemy no longer
   knew, while Postgres cancelling its own query hands it back usable. The
-  constant now drives three things there: `statement_timeout` (the server's own
-  cancel — surfaces as a `DBAPIError` with sqlstate 57014), `command_timeout`
-  (asyncpg's client-side backstop, set above it, for a connection that never
-  reaches the server) and `pool_timeout` (the wait for a connection, which is
-  the part Postgres genuinely cannot see).
+  constant now drives four things there, each layer set above the one it backs
+  up: `statement_timeout` (the server's own cancel — surfaces as a `DBAPIError`
+  with sqlstate 57014), `command_timeout` (asyncpg's client-side backstop, for
+  a connection that never reaches the server), and `pool_timeout` plus
+  asyncpg's connect `timeout` — the wait for a connection and the wait to open
+  one, the two parts Postgres genuinely cannot see. The connect bound matters
+  more than it looks: asyncpg's own default there is 60s, longer than every
+  other layer together, and it is what `pool_pre_ping` falls back to whenever
+  it drops a connection Neon suspended.
 
   `book_store.py` — **the builders are module-level pure functions and the
   store is only the execute half.** `title_query`, `author_query`,
