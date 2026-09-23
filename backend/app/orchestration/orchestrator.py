@@ -14,7 +14,6 @@ from app.orchestration.run_recorder import record_chat_run
 from app.orchestration.token_budget import (
     OUT_OF_TOKENS_MESSAGE,
     debit_session_tokens,
-    session_is_out_of_tokens,
     start_session_turn,
 )
 from app.orchestration.write_recommendations import (
@@ -111,23 +110,12 @@ class Orchestrator:
             # `run` builds this root rather than being a unit of work itself,
             # so nothing is in scope to adopt the step — and attached before
             # the unwrap, so a read that failed is still on the record.
+            await sse_stream.send_ui_loading("Checking Budget...")
             budget_step = await start_session_turn(request_context)
             record.add_step(budget_step)
-            # Nothing after this can be judged or charged without it, so a
-            # failed read stops the turn here rather than spending against a
-            # balance nobody could see.
             remaining_tokens = budget_step.unwrap()
-
-            # On the record before anything is spent, so a turn's cost can be
-            # read against what the session had left to spend it from.
             record.add_details(f"session tokens remaining: {remaining_tokens}")
-            if session_is_out_of_tokens(remaining_tokens):
-                # Told, not refused. The route's response is an SSE stream, so
-                # this arrives as the turn's one event and the client renders it
-                # verbatim; an HTTP status could only come out as the frontend's
-                # generic "something went wrong". The finally block still runs:
-                # the turn is recorded — with the balance read as its one step —
-                # and the stream is closed there.
+            if remaining_tokens <= 0:
                 record.add_details("refused: session out of tokens")
                 logger.warning(
                     f"🚫 Out of tokens, refusing the turn: "
@@ -147,11 +135,20 @@ class Orchestrator:
             )
 
             # No plan when triage handled the turn without planning (small
-            # talk, a refusal, a cache miss on a failed planner): nothing for
-            # the runner to execute. A bare read, not `unwrap()` — triage has
-            # already told the user what its own failure means.
-            plan = triage_workflow.result.parse_result
-            if triage_workflow.record.ok and plan and plan.accepted_goals:
+            # talk, a refusal, a cache miss on a failed planner): `parse_result`
+            # is None and there is nothing for the runner to execute.
+            #
+            # `record.unwrap()`, because `unwrap` lives on the envelope and not
+            # on the workflow — `triage_workflow.record` is what the decorator
+            # built. A triage that *failed* stops the turn right here: the
+            # `StepFailure` lands in the `except Exception` below, which stamps
+            # it on the turn and sends the generic error. That is on top of
+            # whatever triage already said for itself, and deliberate — a
+            # failed triage read as "no plan" would answer the turn with
+            # silence.
+            plan = triage_workflow.record.unwrap().parse_result
+            if plan and plan.accepted_goals:
+                await sse_stream.send_ui_loading("Starting Tasks...")
                 task_runner = TaskRunnerWorkflow(request_context, messages=messages)
                 await asyncio.wait_for(
                     # the only place triage and the runner are wired together,
@@ -160,7 +157,7 @@ class Orchestrator:
                     timeout=CONVERSATION_TIMEOUT,
                 )
                 writer = await self._write_reply(request_context, task_runner, messages)
-
+            
             # chat_id lets the client attach feedback to the chat_runs row
             await sse_stream.send(
                 "complete",
@@ -168,7 +165,6 @@ class Orchestrator:
             )
             await sse_stream.close()
             logger.info("✅ Orchestration completed successfully")
-
         except asyncio.CancelledError as e:
             # client disconnected mid-turn — the finally block still records
             # what we have, then this propagates so the task is really cancelled

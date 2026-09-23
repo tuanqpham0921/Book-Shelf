@@ -1,6 +1,9 @@
 """Tests for the session token budget at the turn's two ends: opening it
-(`start_session_turn`), who may spend (`session_is_out_of_tokens`) and what a
-finished turn cost (`debit_session_tokens`).
+(`start_session_turn`) and what a finished turn cost (`debit_session_tokens`).
+
+The decision between them is one `remaining_tokens <= 0` in `Orchestrator.run`,
+so it is tested where it is made — `TestRefusingAnExhaustedSession` in
+test_orchestrator.py.
 
 For the charge, two things are load-bearing and neither is the arithmetic (that
 is SQL's job, see test_session_store.py):
@@ -19,7 +22,6 @@ from airglider import OperationResult, TokenUsage
 from tests.conftest import fake_session_factory
 from app.orchestration.token_budget import (
     debit_session_tokens,
-    session_is_out_of_tokens,
     start_session_turn,
 )
 
@@ -97,22 +99,6 @@ class TestOpeningTheTurn:
 
         assert step.ok is False
         assert step.runtime_error is not None
-
-
-class TestWhoMaySpend:
-    """The decision, on the balance the opening round trip just read."""
-
-    @pytest.mark.parametrize("remaining", [0, -1, -50_000])
-    def test_a_spent_session_is_refused(self, remaining):
-        """Negative included: a turn is charged after it runs, so a session's
-        last turn ends in the red."""
-        assert session_is_out_of_tokens(remaining) is True
-
-    @pytest.mark.parametrize("remaining", [1, 50_000])
-    def test_anything_left_is_enough(self, remaining):
-        """`<= 0`, not "can this turn afford it" — the charge comes afterwards,
-        so one token buys a whole turn."""
-        assert session_is_out_of_tokens(remaining) is False
 
 
 class TestWhatGetsCharged:

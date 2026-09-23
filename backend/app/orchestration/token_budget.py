@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # What the user is told, as the turn's one and only event. Says what to do next,
 # and names no number: a balance is not something a reader can act on.
 OUT_OF_TOKENS_MESSAGE = (
-    "This session has used up its token budget. Start a new chat to keep going."
+    "This session has used up its token budget. Start a new session by refreshing the page."
 )
 
 @task
@@ -51,23 +51,6 @@ async def start_session_turn(request_context: RequestContext) -> int:
     """
     async with request_context.store(SessionStore) as store:
         return await store.start_turn(request_context.session_id)
-
-
-def session_is_out_of_tokens(remaining_tokens: int) -> bool:
-    """Whether this turn should be refused before any work starts.
-
-    `<= 0`, not "can this turn afford it": a turn is charged after it runs (see
-    `debit_session_tokens`), so a session's last turn legitimately ends in the
-    red and the only question here is whether anything was left.
-
-    **Enforced in every environment since 2026-09-23.** It used to be production
-    only, so `make dev` and the eval suites — which reuse one session for a whole
-    run (evals/run_suites.py) — were never cut off partway. With the gate gone
-    they are: at 10–20k tokens a turn, a 50,000 budget stops a suite after three
-    or four cases, so a long suite needs a session per case or a larger
-    `AppConfig.SESSION_TOKEN_BUDGET`.
-    """
-    return remaining_tokens <= 0
 
 
 async def debit_session_tokens(

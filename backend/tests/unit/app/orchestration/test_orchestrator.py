@@ -32,6 +32,7 @@ from app.orchestration.orchestrator import (
 )
 from app.orchestration.task_runner import TaskResult, TaskRunnerOutput
 from app.orchestration.token_budget import OUT_OF_TOKENS_MESSAGE
+from app.orchestration.triage import TriageOutput
 from airglider import OperationResult, Response, TokenUsage
 
 # request_context comes from tests/conftest.py
@@ -100,11 +101,21 @@ def _plan() -> PlanJaneOutput:
     )
 
 
-def _triage_with_plan(plan):
-    """A triage workflow that produced `plan`, or none at all."""
+def _triage_with_plan(plan, token_usage=None):
+    """A triage workflow that produced `plan`, or none at all.
+
+    The plan rides on the *record's* payload, because that is where `run` reads
+    it from: `triage_workflow.record.unwrap()`. For a real workflow that is the
+    same object `.result` returns (`Workflow.result` is `self.record.result`) —
+    the difference is only the verb, which stops the turn when triage failed
+    rather than reading a failure as "no plan".
+    """
     workflow = AsyncMock()
-    workflow.record = OperationResult(ok=True)
-    workflow.result.parse_result = plan
+    workflow.record = OperationResult(
+        ok=True,
+        response=Response(result=TriageOutput(parse_result=plan)),
+        token_usage=token_usage or TokenUsage(),
+    )
     return workflow
 
 
@@ -128,13 +139,11 @@ def _runner_with(outputs):
 
 class TestOrchestratorRun:
     async def test_records_chat_run(self, request_context):
-        mock_workflow = AsyncMock()
-        mock_workflow.record = OperationResult(ok=True)
-        # explicit: an AsyncMock would auto-create `.result.parse_result` as a
-        # MagicMock, and the orchestrator feeds that straight into
-        # TaskRunnerInput, which rejects it. None is the real "triage produced
-        # no plan" answer, and it is what keeps this test about the hand-off.
-        mock_workflow.result.parse_result = None
+        # None is the real "triage produced no plan" answer, and it is what
+        # keeps this test about the hand-off. Left implicit and an AsyncMock
+        # would auto-create the payload as a MagicMock, which the orchestrator
+        # feeds straight into TaskRunnerInput, which rejects it.
+        mock_workflow = _triage_with_plan(None)
 
         with patch(
             "app.orchestration.orchestrator.TriageWorkflow",
@@ -269,12 +278,9 @@ class TestChargingTheSession:
     @staticmethod
     def _triage_costing(total: int):
         """A triage workflow whose envelope spent `total` tokens."""
-        workflow = AsyncMock()
-        workflow.record = OperationResult(
-            ok=True, token_usage=TokenUsage(total=total, prompt=total)
+        return _triage_with_plan(
+            None, token_usage=TokenUsage(total=total, prompt=total)
         )
-        workflow.result.parse_result = None
-        return workflow
 
     async def test_the_charge_is_the_whole_turns_spend(self, request_context, debit):
         """The root envelope, not the runner's — airglider sums `token_usage` up
