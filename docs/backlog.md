@@ -80,14 +80,17 @@ Shape-level planner questions live in
   portions labelled `in_domain`, `small_talk`, `out_of_scope` (plainly not a book app's
   job), `security` (misuse) or `gibberish` before the planner runs. The planner is asked the
   `in_domain` portions only; a message with none gets one fixed reply. Still open from the
-  original item: rewording a continuation query ("that one we talked about"), which the
-  split deliberately does not handle yet, and whether that belongs to the clarification
-  node (roadmap Phase 1).
-- **Project questions past the basics have no node.** The decomposition labels "how do
-  you pick similar books?" `in_domain` on purpose (only name / what-can-you-do is
-  `small_talk`), but no capability answers it, so the planner returns no goals and the
-  turn ends with triage's "I couldn't understand your request". Needs either a fixed
-  reply per question, an FAQ node, or the writer answering from a project blurb.
+  original item: continuation queries ("that one we talked about"). The split's prompt
+  already passes a follow-up that relates to earlier turns *when it is given them*, but
+  nothing supplies them — turns are recorded, never read back — so today a follow-up that
+  can't stand alone is labelled `gibberish`. Also open: whether rewording it belongs to
+  the clarification node (roadmap Phase 1).
+- **Project and session questions have no node.** The decomposition labels "how do you
+  pick similar books?" and "how many messages do I have left?" `in_domain` on purpose
+  (only name / what-can-you-do is `small_talk`), but no capability answers them, so the
+  planner returns no goals and the turn ends with triage's "I couldn't understand your
+  request". Needs either a fixed reply per question, an FAQ node, or the writer answering
+  from a project blurb.
 - **The prompt-injection / preflight parse is not well designed or tested.** It needs its
   own tests *before* more nodes are added, and it matters more inside nodes than in the
   planner — a node's arguments are where an injected string actually lands. (A pre-check
