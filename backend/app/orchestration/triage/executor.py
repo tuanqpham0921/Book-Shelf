@@ -46,7 +46,11 @@ MAX_COMPLETION_TOKENS = 2_000
 # so nothing a prompt injection steers ever reaches the user.
 REPLIES: dict[TriageVerdict, str] = {
     TriageVerdict.SECURITY: (
-        "That's not something I can help with. I'm BookShelf, a book "
+        "I can't help with that. I can help you find books, authors, or your "
+        "next read."
+    ),
+    TriageVerdict.OUT_OF_SCOPE: (
+        "That's outside what I can help with. I'm BookShelf, a book "
         "recommender, so ask me about a book, an author, or what to read next."
     ),
     TriageVerdict.SMALL_TALK: (

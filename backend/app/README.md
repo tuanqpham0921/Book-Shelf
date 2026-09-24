@@ -45,9 +45,9 @@ There is no auth yet — a known pre-deploy blocker (docs/backlog.md, Security P
    tokens do. Otherwise the turn goes to `TriageWorkflow`
    (`orchestration/triage/`), which decides whether to plan at all — replay a
    cached plan, or split the message with a gpt-5-mini query decomposition
-   into portions labelled in_domain, small talk, security or gibberish. The
-   planner is asked the in_domain portions only; a message with none gets one
-   fixed reply and no plan.
+   into portions labelled in_domain, small talk, out of scope, security or
+   gibberish. The planner is asked the in_domain portions only; a message with
+   none gets one fixed reply and no plan.
 2. `PlanJaneExecutor` (`domains/planjane/`) parses the message into goals against the
    live tool catalog and streams the plan's Mermaid diagram over SSE.
 3. `TaskRunnerWorkflow` (`orchestration/task_runner.py`) runs the accepted goals in dependency

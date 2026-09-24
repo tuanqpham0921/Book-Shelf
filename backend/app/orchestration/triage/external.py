@@ -23,6 +23,7 @@ class TriageVerdict(str, Enum):
 
     IN_DOMAIN = "in_domain"
     SMALL_TALK = "small_talk"
+    OUT_OF_SCOPE = "out_of_scope"
     SECURITY = "security"
     GIBBERISH = "gibberish"
 

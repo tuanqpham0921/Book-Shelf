@@ -77,8 +77,8 @@ Shape-level planner questions live in
 
 - ~~**Small talk and gibberish become system goals.**~~ **Fixed 2026-09-24.** Triage's
   gpt-5-mini query decomposition (`app/orchestration/triage/`) splits the message into
-  portions labelled `in_domain`, `small_talk`, `security` (malicious, or plainly not a
-  book app's job) or `gibberish` before the planner runs. The planner is asked the
+  portions labelled `in_domain`, `small_talk`, `out_of_scope` (plainly not a book app's
+  job), `security` (misuse) or `gibberish` before the planner runs. The planner is asked the
   `in_domain` portions only; a message with none gets one fixed reply. Still open from the
   original item: rewording a continuation query ("that one we talked about"), which the
   split deliberately does not handle yet, and whether that belongs to the clarification

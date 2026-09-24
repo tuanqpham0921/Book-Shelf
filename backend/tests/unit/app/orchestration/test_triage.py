@@ -288,7 +288,12 @@ class TestQueryDecomposition:
 
     @pytest.mark.parametrize(
         "verdict",
-        [TriageVerdict.SMALL_TALK, TriageVerdict.SECURITY, TriageVerdict.GIBBERISH],
+        [
+            TriageVerdict.SMALL_TALK,
+            TriageVerdict.OUT_OF_SCOPE,
+            TriageVerdict.SECURITY,
+            TriageVerdict.GIBBERISH,
+        ],
     )
     async def test_a_message_with_no_book_ask_gets_its_reply_and_no_plan(
         self, orchestrator, verdict
@@ -310,7 +315,8 @@ class TestQueryDecomposition:
     @pytest.mark.parametrize(
         "verdicts, winner",
         [
-            ([TriageVerdict.SMALL_TALK, TriageVerdict.SECURITY], TriageVerdict.SECURITY),
+            ([TriageVerdict.OUT_OF_SCOPE, TriageVerdict.SECURITY], TriageVerdict.SECURITY),
+            ([TriageVerdict.SMALL_TALK, TriageVerdict.OUT_OF_SCOPE], TriageVerdict.OUT_OF_SCOPE),
             ([TriageVerdict.GIBBERISH, TriageVerdict.SMALL_TALK], TriageVerdict.SMALL_TALK),
         ],
     )
@@ -329,7 +335,7 @@ class TestQueryDecomposition:
         with _splits_into(
             ("hi!", TriageVerdict.SMALL_TALK),
             ("find Dune.", TriageVerdict.IN_DOMAIN),
-            ("what's the weather?", TriageVerdict.SECURITY),
+            ("what's the weather?", TriageVerdict.OUT_OF_SCOPE),
             ("And books like it.", TriageVerdict.IN_DOMAIN),
         ), patch.object(
             orchestrator.sse_stream, "send_chars", new_callable=AsyncMock
