@@ -3,16 +3,21 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 from clients.messages import AssistantMessage, UserMessage
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.domains.node_input import NodeInput
-from app.orchestration import triage
 from app.orchestration.triage import (
-    TriageWorkflow,
+    QueryPortion,
     TriageOutput,
-    load_cached_parse_output,
+    TriageVerdict,
+    TriageWorkflow,
 )
+from app.orchestration.triage import cache
+from app.orchestration.triage.cache import load_cached_parse_output
+from app.orchestration.triage.executor import REPLIES, build_decomposition_request
+from app.orchestration.triage.schemas import QueryDecomposition
 from app.domains.planjane import PlanJaneOutput, SystemGoal
 from airglider import OperationResult, Response, RuntimeErrorInfo, TokenUsage
 from common.utils import load_json, save_file, to_serializable
@@ -86,8 +91,8 @@ def cache_dir(tmp_path):
     """The dev cache, relocated to a tmp dir with one message mapped. Both
     sides of a `cache_mapping` entry are the message itself — it is also the
     file name."""
-    with patch.object(triage, "CACHE_DIR", tmp_path), patch.dict(
-        triage.cache_mapping, {CACHED_MESSAGE: CACHED_MESSAGE}, clear=True
+    with patch.object(cache, "CACHE_DIR", tmp_path), patch.dict(
+        cache.cache_mapping, {CACHED_MESSAGE: CACHED_MESSAGE}, clear=True
     ):
         yield tmp_path
 
@@ -175,6 +180,25 @@ def _mock_child_workflow(step_result: OperationResult, output) -> AsyncMock:
     return workflow
 
 
+def _splits_into(*portions: tuple[str, TriageVerdict]):
+    """The decomposition's LLM call, answered with `portions` as (text,
+    verdict) pairs. Patched one level below `decompose_query`, so the step's
+    own envelope is still the real one."""
+    decomposition = QueryDecomposition(
+        reasoning="test",
+        portions=[QueryPortion(text=text, verdict=v) for text, v in portions],
+    )
+    return patch.object(
+        TriageWorkflow, "run_llm_args_parse", AsyncMock(return_value=decomposition)
+    )
+
+
+def _planner_with_a_plan() -> AsyncMock:
+    return _mock_child_workflow(
+        OperationResult(ok=True), PlanJaneOutput(accepted_goals=[_make_goal()])
+    )
+
+
 class TestTriageWorkflowRuntimeErrorPropagation:
     """self.record.runtime_error must come from whichever child step
     actually crashed."""
@@ -186,8 +210,8 @@ class TestTriageWorkflowRuntimeErrorPropagation:
             PlanJaneOutput(),
         )
 
-        with patch(
-            "app.orchestration.triage.PlanJaneExecutor",
+        with _splits_into(("test", TriageVerdict.IN_DOMAIN)), patch(
+            "app.orchestration.triage.executor.PlanJaneExecutor",
             return_value=parse_workflow,
         ):
             await orchestrator.run(NodeInput(instruction="test"))
@@ -254,3 +278,131 @@ class TestTriageOutputSaveFileRoundTrip:
 
         assert loaded_goal["_refusal"] == original_goal._refusal
         assert loaded_goal["_refusal_reasons"] == original_goal.refusal_reasons
+
+
+class TestQueryDecomposition:
+    """The split between the cache and the planner: the planner is asked the
+    `in_domain` portions only, a message with none gets one fixed reply and
+    ends the turn without a plan, and a split that fails sends the whole
+    message on."""
+
+    @pytest.mark.parametrize(
+        "verdict",
+        [TriageVerdict.SMALL_TALK, TriageVerdict.SECURITY, TriageVerdict.GIBBERISH],
+    )
+    async def test_a_message_with_no_book_ask_gets_its_reply_and_no_plan(
+        self, orchestrator, verdict
+    ):
+        with _splits_into(("test", verdict)), patch.object(
+            orchestrator.sse_stream, "send_chars", new_callable=AsyncMock
+        ) as send_chars, patch(
+            "app.orchestration.triage.executor.PlanJaneExecutor"
+        ) as planner_cls:
+            record = await orchestrator(NodeInput(instruction="test"))
+
+        send_chars.assert_awaited_once_with(REPLIES[verdict])
+        planner_cls.assert_not_called()
+        # a handled turn: ok, and no plan for the orchestrator to run
+        assert record.ok
+        assert orchestrator.result.parse_result is None
+        assert [p.verdict for p in orchestrator.result.portions] == [verdict]
+
+    @pytest.mark.parametrize(
+        "verdicts, winner",
+        [
+            ([TriageVerdict.SMALL_TALK, TriageVerdict.SECURITY], TriageVerdict.SECURITY),
+            ([TriageVerdict.GIBBERISH, TriageVerdict.SMALL_TALK], TriageVerdict.SMALL_TALK),
+        ],
+    )
+    async def test_several_portions_get_one_reply_by_priority(
+        self, orchestrator, verdicts, winner
+    ):
+        with _splits_into(*[("part", v) for v in verdicts]), patch.object(
+            orchestrator.sse_stream, "send_chars", new_callable=AsyncMock
+        ) as send_chars:
+            await orchestrator(NodeInput(instruction="test"))
+
+        send_chars.assert_awaited_once_with(REPLIES[winner])
+
+    async def test_the_planner_is_asked_the_book_portions_only(self, orchestrator):
+        planner = _planner_with_a_plan()
+        with _splits_into(
+            ("hi!", TriageVerdict.SMALL_TALK),
+            ("find Dune.", TriageVerdict.IN_DOMAIN),
+            ("what's the weather?", TriageVerdict.SECURITY),
+            ("And books like it.", TriageVerdict.IN_DOMAIN),
+        ), patch.object(
+            orchestrator.sse_stream, "send_chars", new_callable=AsyncMock
+        ) as send_chars, patch(
+            "app.orchestration.triage.executor.PlanJaneExecutor",
+            return_value=planner,
+        ):
+            record = await orchestrator(NodeInput(instruction="the whole message"))
+
+        # in message order, so a pronoun keeps its referent
+        planner.assert_awaited_once_with(
+            NodeInput(instruction="find Dune. And books like it.")
+        )
+        # the other portions are dropped, not answered
+        send_chars.assert_not_awaited()
+        assert record.ok
+        assert len(orchestrator.result.portions) == 4
+        assert orchestrator.result.parse_result.accepted_goals
+
+    async def test_a_failed_split_sends_the_whole_message(self, orchestrator):
+        planner = _planner_with_a_plan()
+        with patch.object(
+            TriageWorkflow,
+            "run_llm_args_parse",
+            AsyncMock(side_effect=RuntimeError("model unavailable")),
+        ), patch(
+            "app.orchestration.triage.executor.PlanJaneExecutor",
+            return_value=planner,
+        ):
+            record = await orchestrator(NodeInput(instruction="books like Dune"))
+
+        planner.assert_awaited_once_with(NodeInput(instruction="books like Dune"))
+        assert record.ok
+        assert orchestrator.result.portions is None
+        assert any("decomposition failed" in detail for detail in record.details)
+
+    async def test_a_cached_plan_skips_the_split(self, orchestrator, cache_dir):
+        save_file(
+            PlanJaneOutput(accepted_goals=[_make_goal()]),
+            file_name=CACHED_MESSAGE,
+            path=cache_dir,
+            remove_empty=False,
+        )
+        split = AsyncMock()
+        with patch.object(TriageWorkflow, "run_llm_args_parse", split):
+            record = await orchestrator(NodeInput(instruction=CACHED_MESSAGE))
+
+        split.assert_not_awaited()
+        assert record.ok
+        assert orchestrator.result.portions is None
+
+    def test_every_verdict_but_in_domain_has_a_reply(self):
+        assert set(REPLIES) == set(TriageVerdict) - {TriageVerdict.IN_DOMAIN}
+
+    def test_an_empty_split_is_rejected(self):
+        # a validation error fails the step, which sends the whole message on
+        with pytest.raises(ValidationError):
+            QueryDecomposition(reasoning="test", portions=[])
+        with pytest.raises(ValidationError):
+            QueryPortion(text="", verdict=TriageVerdict.IN_DOMAIN)
+
+    def test_request_is_the_cheap_model_splitting_the_message(self):
+        req = build_decomposition_request("books like Dune")
+
+        assert req.model == "gpt-5-mini"
+        assert req.tool_models == [QueryDecomposition]
+        assert len(req.messages) == 1
+        assert isinstance(req.messages[0], UserMessage)
+        assert req.messages[0].content == "books like Dune"
+
+    def test_portions_survive_a_json_round_trip(self):
+        portion = QueryPortion(text="hi", verdict=TriageVerdict.SMALL_TALK)
+        output = TriageOutput(portions=[portion])
+        restored = TriageOutput.model_validate_json(output.model_dump_json())
+
+        assert restored.portions == [portion]

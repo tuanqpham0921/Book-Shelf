@@ -1,7 +1,7 @@
 """PlanJane — the planner. Turns a user message into an ordered plan of goals.
 
 What decides *whether* to call it (cache, small talk, out of scope) is not in
-here: that is `app/orchestration/triage.py`, one layer up.
+here: that is `app/orchestration/triage/`, one layer up.
 
 `external.py` holds what the plan *is* (`SystemGoal`, `PlanJaneOutput`,
 `ExecutionOrder`) and is the address for it; `schemas.py` holds what the LLM

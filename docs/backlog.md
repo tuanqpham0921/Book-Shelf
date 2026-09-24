@@ -75,15 +75,26 @@ line numbers may drift, the file and symbol names are the stable part.
 Shape-level planner questions live in
 [design/planner-shape.md](design/planner-shape.md); these are the concrete work items.
 
-- **Small talk and gibberish become system goals.** They should be filtered before the
-  goal stage — a pre-check that classifies small talk / gibberish, or rewords a
-  continuation query, rather than letting the goal generator invent a node for "hello".
-  Overlaps with the clarification node (roadmap Phase 1): decide whether this is a cheap
-  pre-classifier or just another thing the clarification node handles.
+- ~~**Small talk and gibberish become system goals.**~~ **Fixed 2026-09-24.** Triage's
+  gpt-5-mini query decomposition (`app/orchestration/triage/`) splits the message into
+  portions labelled `in_domain`, `small_talk`, `security` (malicious, or plainly not a
+  book app's job) or `gibberish` before the planner runs. The planner is asked the
+  `in_domain` portions only; a message with none gets one fixed reply. Still open from the
+  original item: rewording a continuation query ("that one we talked about"), which the
+  split deliberately does not handle yet, and whether that belongs to the clarification
+  node (roadmap Phase 1).
+- **Project questions past the basics have no node.** The decomposition labels "how do
+  you pick similar books?" `in_domain` on purpose (only name / what-can-you-do is
+  `small_talk`), but no capability answers it, so the planner returns no goals and the
+  turn ends with triage's "I couldn't understand your request". Needs either a fixed
+  reply per question, an FAQ node, or the writer answering from a project blurb.
 - **The prompt-injection / preflight parse is not well designed or tested.** It needs its
   own tests *before* more nodes are added, and it matters more inside nodes than in the
   planner — a node's arguments are where an injected string actually lands. (A pre-check
-  node was tried and reverted in commit `ed34d95`.)
+  node was tried and reverted in commit `ed34d95`.) Since 2026-09-24 a *clear* injection
+  is split off by triage's query decomposition and never reaches the planner. But the
+  split fails open, only catches the obvious cases, and the reply writer still reads the
+  user's whole message — so the writer and node arguments are still unprotected.
 - ~~**A similarity ask with a quantitative constraint has nowhere to put it.**~~ **Fixed
   2026-08-24.** "Books like Dune but under 300 pages" is now `Retrieve_by_Title` →
   `Analyze_Similar_Books`, plus `Retrieve_by_Numeric_Traits`, joined by `Combine_Intersect`.

@@ -1,88 +1,82 @@
-"""Triage — what happens to a turn before, and instead of, planning.
+"""Triage's flow — what happens to a turn before, and instead of, planning.
+`run` is the table of contents; everything else sits where the flow reaches it.
 
 Sits between `Orchestrator` (transport) and `PlanJane` (produce a plan), and
-decides whether to plan at all: replay a cached plan, answer small talk, refuse
-out-of-scope, or hand the turn to the planner.
+decides whether to plan at all: replay a cached plan, turn the message away
+with a fixed reply, or hand the planner the book part of it.
 
-Not in `app/domains/` because it is not a capability — no `NodeSpec.executor`
-will point at it. A workflow rather than methods on `Orchestrator` because
+Same reading rule as the slices (domains/README.md): this file is the flow,
+with the request builder as a module-level pure function beside it.
+`schemas.py` is what the decomposition's LLM fills in, `external.py` is what
+the layers around triage read back, `cache.py` is the dev plan replay.
+
+Not in `app/domains/` because it is not a capability — no `NodeSpec` will ever
+point at it. A workflow rather than methods on `Orchestrator` because
 `Orchestrator` owns no envelope, so a cache hit or a refusal would produce no
 step in the trace tree.
 """
 
 import logging
-from typing import Any
 
-from app.common.request_context import RequestContext  # noqa: F401  (re-export shape)
-from app.domains.base_workflow import AppWorkflow, NodeWorkflowOutput
+from app.common.prompt_loader import load_prompt
+from app.domains.base_workflow import AppWorkflow
 from app.domains.node_input import NodeInput
-from app.domains.planjane import ExecutionOrder, PlanJaneExecutor, PlanJaneOutput
-from common.utils.json_handler import load_json
-from config import FilesLocationConstants
+from app.domains.planjane import PlanJaneExecutor
+from airglider import task
+from clients import OpenAIParserRequest
+from clients.messages import UserMessage
+
+from .cache import load_cached_parse_output
+from .external import TriageOutput, TriageVerdict
+from .schemas import QueryDecomposition
 
 logger = logging.getLogger(__name__)
 
-# TODO: remove for prod
-CACHE_DIR = FilesLocationConstants.PROJECT_ROOT / "playground" / "files" / "cache"
-cache_mapping = {
-    "Show me books similar to Pride and Prejudice": "Show me books similar to Pride and Prejudice",
-    "Find books like 1984 or Brave New World": "Find books like 1984 or Brave New World",
-    "Find books like 1984 or Brave New World, Dune, Brave New World": "Find books like 1984 or Brave New World, Dune, Brave New World",
+DECOMPOSE_PROMPT_PATH = "orchestration/triage/prompts/decompose_query.txt"
+
+# The answer copies the message back: at most 2,000 characters (~500 tokens)
+# plus a sentence of reasoning. The rest is headroom for reasoning tokens,
+# which count against this cap. Running out means no tool call, and the whole
+# message goes to the planner.
+MAX_COMPLETION_TOKENS = 2_000
+
+# The whole of what a message with no book ask in it gets back — one reply,
+# from the first verdict here that any of its portions carries, so the order
+# is the priority. Fixed text rather than something the decomposition writes,
+# so nothing a prompt injection steers ever reaches the user.
+REPLIES: dict[TriageVerdict, str] = {
+    TriageVerdict.SECURITY: (
+        "That's not something I can help with. I'm BookShelf, a book "
+        "recommender, so ask me about a book, an author, or what to read next."
+    ),
+    TriageVerdict.SMALL_TALK: (
+        "Hi! I'm BookShelf, Tuan's book recommender. I can look up a book by "
+        "title or author, find books on a subject or by pages, year or rating, "
+        "and suggest books like ones you already love. What would you like to read?"
+    ),
+    TriageVerdict.GIBBERISH: (
+        "I couldn't make sense of that. Could you rephrase it? For example: "
+        '"books like Dune".'
+    ),
 }
 
 
-def load_cached_parse_output(user_text: str) -> PlanJaneOutput | None:
-    """Replay a recorded plan instead of calling the LLM, for the messages in
-    cache_mapping. None when there is no usable entry, so the caller falls
-    through to the real planner. The files are whole triage record dumps."""
-    file_name = cache_mapping.get(user_text)
-    if not file_name:
-        return None
+def build_decomposition_request(query: str) -> OpenAIParserRequest:
+    """Ask a cheap model to split the message into labelled portions.
 
-    data = load_json(file_name, path=CACHE_DIR)
-    if not isinstance(data, dict):
-        return None
-
-    try:
-        return PlanJaneOutput.model_validate(data)
-    except Exception as e:
-        logger.warning(f"Could not replay cached plan {file_name}: {e}")
-        return None
-
-
-# NOTE: this is okay for now
-# this should store conversation summary, failed tasks, internal summary message
-# for llm — maybe also referenced books or things from processing the steps
-class TriageOutput(NodeWorkflowOutput):
-    session_id: str | None = None
-
-    # The plan, when triage produced one. None means the turn was handled
-    # without planning, or failed before the planner returned.
-    #
-    # The name is a *serialized* path: evals/report_system_goals.py, the cache
-    # files and every chat_runs row all key on `parse_result`. Renaming it to
-    # `plan` means changing all four in lockstep.
-    parse_result: PlanJaneOutput | None = None
-
-    def to_summary(self) -> dict[str, Any]:
-        return {"plan": self.parse_result.to_summary() if self.parse_result else None}
-
-    @property
-    def diagram(self) -> str | None:
-        """The plan's Mermaid diagram, rendered by PlanJane. Surfaced here
-        because `chat_runs.mermaid` is promoted out of this envelope and the
-        review page reads it."""
-        return self.parse_result.diagram if self.parse_result else None
-
-    def execution_order(self) -> ExecutionOrder | None:
-        if not self.parse_result:
-            return None
-        return self.parse_result.execution_order()
-
-    def accepted_goals_ids(self) -> list[str] | None:
-        if not self.parse_result:
-            return None
-        return self.parse_result.accepted_goals_ids()
+    Cheap on purpose: it runs ahead of every planned turn, and it only has to
+    tell a book ask from everything else — the planner still decides what it
+    can actually do. The message goes in as the `UserMessage` it is; the
+    prompt tells the model to split it, never follow it.
+    """
+    return OpenAIParserRequest(
+        prompt=load_prompt(prompt_path=DECOMPOSE_PROMPT_PATH),
+        model="gpt-5-mini",
+        reasoning_effort="low",
+        messages=[UserMessage(content=query)],
+        tool_models=[QueryDecomposition],
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
+    )
 
 
 class TriageWorkflow(AppWorkflow[TriageOutput]):
@@ -104,7 +98,35 @@ class TriageWorkflow(AppWorkflow[TriageOutput]):
                 self.finalize_result(ok=True)
                 return
 
-        # 2. plan. A bare await, not `unwrap()`: triage decides what a failed
+        # 2. split the message before the planner's price is paid. A bare
+        # await: a split that failed sends the whole message on — the planner
+        # keeps its own trust boundary — rather than stopping the turn
+        step = await self.decompose_query(query)
+        if step.ok:
+            decomposition: QueryDecomposition = step.result
+            portions = decomposition.portions
+            self.result.portions = portions
+            verdicts = ", ".join(portion.verdict.value for portion in portions)
+            self.add_details(f"portions: {verdicts} — {decomposition.reasoning}")
+
+            # the planner is asked the book part only; every other portion
+            # stops here
+            book_ask = [p.text for p in portions if p.verdict is TriageVerdict.IN_DOMAIN]
+            if not book_ask:
+                # nothing to plan is a handled turn, not a failure: ok, no
+                # plan, so the orchestrator skips the runner and the reply
+                present = {portion.verdict for portion in portions}
+                reply = next(text for v, text in REPLIES.items() if v in present)
+                await self.sse_stream.send_chars(reply)
+                self.finalize_result(ok=True)
+                return
+            query = " ".join(book_ask)
+        else:
+            self.add_details(
+                "query decomposition failed; passing the whole message to the planner"
+            )
+
+        # 3. plan. A bare await, not `unwrap()`: triage decides what a failed
         # planner means (a specific message to the user), so it wants the
         # envelope
         planner = PlanJaneExecutor(self.ctx, messages=self.messages)
@@ -113,7 +135,7 @@ class TriageWorkflow(AppWorkflow[TriageOutput]):
         # the workflow pre-initializes its output, so this is never None
         self.result.parse_result = planner.result
 
-        # 3. triage owns what a planner failure means to the user
+        # 4. triage owns what a planner failure means to the user
         if not planner_record.ok:
             if planner_record.runtime_error:
                 self.record.runtime_error = planner_record.runtime_error
@@ -121,6 +143,12 @@ class TriageWorkflow(AppWorkflow[TriageOutput]):
             self.finalize_result(ok=False)
             return
 
-        # ok with no goals is a handled turn, not a failure — PlanJane already
-        # streamed the reply (small talk / out-of-scope / refusals)
+        # PlanJane's ok means a plan came out of this turn
         self.finalize_result(ok=True)
+
+    @task
+    async def decompose_query(self, query: str) -> QueryDecomposition:
+        """The decomposition as its own step, so its spend and duration read
+        apart from the planner's, and a failure is an envelope `run` can
+        inspect rather than an exception that ends the turn."""
+        return await self.run_llm_args_parse(build_decomposition_request(query))
