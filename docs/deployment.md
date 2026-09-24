@@ -446,13 +446,29 @@ started with an empty `chat_runs` and the recorder was off, today's disclosure
 risk was prospective, not retroactive — which is why the insert belonged in the
 same stage as the gate.
 
+### 4.6 Firebase App Check (2026-09-24, code done; console setup pending)
+
+Every route but `/health`, `/ping` and `/ready` now requires a Firebase App
+Check token in `X-Firebase-AppCheck`. `require_app_check`
+(`app/api/dependencies.py`) verifies it with PyJWT against Firebase's public
+JWKS (RS256, audience `projects/<number>`, issuer
+`https://firebaseappcheck.googleapis.com/<number>`), applied per router in
+`app/main.py`. It is enforced exactly when `APP_FIREBASE_PROJECT_NUMBER` is
+set, which the `deploy` recipe does (`GCP_PROJECT_NUMBER`). The frontend mints
+tokens with the reCAPTCHA Enterprise provider in `src/api.js`, from the
+`VITE_FIREBASE_*` / `VITE_RECAPTCHA_SITE_KEY` values in `.env.production`.
+
+**What it is not:** authentication. A visitor can copy a live token out of
+devtools and replay it with curl until it expires (1 hour by default). It stops
+scripts that never load the page, not a person who does, so 4.1 stays open.
+
 ### 4.3 CORS ✅ (2026-09-19)
 
 `app/main.py` sets `allow_credentials=True`, so `*` was not merely sloppy —
 browsers reject it outright. Exact origins now come from `APP_ALLOW_ORIGINS`
 (set by the `deploy` recipe), `allow_methods` is `["GET","POST","PUT","OPTIONS"]`
 and `allow_headers` is `["Content-Type"]` — the verbs and the one header
-`frontend/src/api.js` actually sends. `X-Admin-Token` joins the header list when
+`frontend/src/api.js` actually sends (`X-Firebase-AppCheck` joined them 2026-09-24, see 4.6). `X-Admin-Token` joins the header list when
 4.1 lands, not before.
 
 `ngrok-skip-browser-warning` is gone from `api.js`, along with `make tunnel` and

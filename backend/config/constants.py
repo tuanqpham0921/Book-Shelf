@@ -25,6 +25,11 @@ class AppConfig:
     # connection survives — cancelling mid-execute leaves it in a state
     # SQLAlchemy no longer knows. Orchestrator.DEBIT_TOKENS_TIMEOUT is one rung
     # further out again, since a debit pays those waits before its statement.
+    # Firebase App Check's public signing keys. Firebase asks callers to cache
+    # them for no more than six hours, which is the lifespan used.
+    APP_CHECK_JWKS_URL      = "https://firebaseappcheck.googleapis.com/v1/jwks"
+    APP_CHECK_JWKS_LIFESPAN = 6 * 60 * 60
+
     DATABASE_TIMEOUT = 10.0
     OPENAI_TIMEOUT   = 10.0
     DEFAULT_TIMEOUT  = 10.0

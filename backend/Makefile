@@ -233,6 +233,9 @@ dev-neon:
 CLOUD_RUN_SERVICE := book-shelf-api
 CLOUD_RUN_REGION  := us-east5
 GCP_PROJECT       := tuanqpham0921
+# Setting it turns Firebase App Check on (app/api/dependencies.py): every route
+# but health then needs a token minted for the web app in this project.
+GCP_PROJECT_NUMBER := 286869228046
 # A dedicated service account, not the compute default (which carries project
 # Editor): this one may only read the two secrets below.
 CLOUD_RUN_SA      := $(CLOUD_RUN_SERVICE)@$(GCP_PROJECT).iam.gserviceaccount.com
@@ -261,7 +264,7 @@ deploy:
 		--timeout=300 \
 		--min-instances=0 --max-instances=3 --concurrency=5 \
 		--startup-probe=httpGet.path=/ready,initialDelaySeconds=5,periodSeconds=5,timeoutSeconds=5,failureThreshold=6 \
-		--set-env-vars="^@^APP_NAME=book-shelf-backend@APP_ENVIRONMENT=production@APP_ALLOW_ORIGINS=$(ALLOW_ORIGINS)@POSTGRES_HOST=$$POSTGRES_HOST@POSTGRES_PORT=$$POSTGRES_PORT@POSTGRES_DB=$$POSTGRES_DB@POSTGRES_USER=$$POSTGRES_USER@POSTGRES_SSL_MODE=$$POSTGRES_SSL_MODE@POSTGRES_MIN_CONNECTIONS=$$POSTGRES_MIN_CONNECTIONS@POSTGRES_MAX_CONNECTIONS=$$POSTGRES_MAX_CONNECTIONS@OPENAI_BASE_MODEL=gpt-4.1-mini@OPENAI_TOKENIZER_ENCODING=o200k_base@OPENAI_EMBEDDING_MODEL=text-embedding-3-large@OPENAI_EMBEDDING_DIMENSIONS=1024@OPENAI_MAX_CONCURRENCY=10" \
+		--set-env-vars="^@^APP_NAME=book-shelf-backend@APP_ENVIRONMENT=production@APP_ALLOW_ORIGINS=$(ALLOW_ORIGINS)@APP_FIREBASE_PROJECT_NUMBER=$(GCP_PROJECT_NUMBER)@POSTGRES_HOST=$$POSTGRES_HOST@POSTGRES_PORT=$$POSTGRES_PORT@POSTGRES_DB=$$POSTGRES_DB@POSTGRES_USER=$$POSTGRES_USER@POSTGRES_SSL_MODE=$$POSTGRES_SSL_MODE@POSTGRES_MIN_CONNECTIONS=$$POSTGRES_MIN_CONNECTIONS@POSTGRES_MAX_CONNECTIONS=$$POSTGRES_MAX_CONNECTIONS@OPENAI_BASE_MODEL=gpt-4.1-mini@OPENAI_TOKENIZER_ENCODING=o200k_base@OPENAI_EMBEDDING_MODEL=text-embedding-3-large@OPENAI_EMBEDDING_DIMENSIONS=1024@OPENAI_MAX_CONCURRENCY=10" \
 		--set-secrets=POSTGRES_PASSWORD=postgres-password:latest,OPENAI_API_KEY=openai-api-key:latest
 	@$(MAKE) deploy-check
 

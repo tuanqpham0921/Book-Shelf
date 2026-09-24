@@ -1,9 +1,11 @@
 import logging
 from typing import AsyncGenerator
 
-from fastapi import Request, HTTPException, Depends
+import jwt
+from fastapi import Request, HTTPException, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings, AppConfig
 from db.stores.chat_run_store import ChatRunStore
 from db.stores.feedback_store import FeedbackStore
 from clients import OpenAIClient
@@ -107,3 +109,42 @@ async def get_request_context_factory(
         )
 
     return create_context
+
+
+# `PyJWKClient` caches the key set, so it is built once rather than per request.
+_app_check_keys = jwt.PyJWKClient(
+    AppConfig.APP_CHECK_JWKS_URL, lifespan=AppConfig.APP_CHECK_JWKS_LIFESPAN
+)
+
+
+def require_app_check(
+    x_firebase_appcheck: str | None = Header(default=None),
+) -> None:
+    """Refuse a request that doesn't carry a valid Firebase App Check token.
+
+    The token proves the request came from the registered web app on
+    tuanqpham0921.web.app, attested by reCAPTCHA. It is not authentication: a
+    visitor can copy a live token out of their browser and replay it with curl
+    until it expires. What it stops is the scripted caller who has never loaded
+    the page.
+
+    A plain `def`, so FastAPI runs it on the threadpool: fetching the key set
+    is a blocking HTTP call, made once per cache lifespan.
+    """
+    project_number = settings.app.FIREBASE_PROJECT_NUMBER
+    if project_number is None:
+        return
+    if not x_firebase_appcheck:
+        raise HTTPException(status_code=401, detail="Missing App Check token")
+    try:
+        signing_key = _app_check_keys.get_signing_key_from_jwt(x_firebase_appcheck)
+        jwt.decode(
+            x_firebase_appcheck,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=f"projects/{project_number}",
+            issuer=f"https://firebaseappcheck.googleapis.com/{project_number}",
+        )
+    except jwt.PyJWTError as exc:
+        logger.warning("Rejected App Check token: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid App Check token")

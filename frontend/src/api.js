@@ -1,6 +1,36 @@
+import { initializeApp } from 'firebase/app';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider, getToken } from 'firebase/app-check';
+
 // Supplied at build time by Vite: .env.development for `npm run dev`,
 // .env.production for `npm run build` (both committed — the URL is public).
 const BASE_URL = import.meta.env.VITE_API_URL
+
+// Firebase App Check: the backend refuses every route but health without a
+// token proving the request came from this site. Only the production build
+// carries the reCAPTCHA key, so `npm run dev` sends no token — and the local
+// backend, with no APP_FIREBASE_PROJECT_NUMBER, asks for none. These values
+// identify the app and are public by design; they are not secrets.
+const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+const appCheck = RECAPTCHA_SITE_KEY
+  ? initializeAppCheck(
+      initializeApp({
+        apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+        appId: import.meta.env.VITE_FIREBASE_APP_ID,
+        projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+      }),
+      {
+        provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_SITE_KEY),
+        isTokenAutoRefreshEnabled: true,
+      }
+    )
+  : null;
+
+async function appCheckHeaders() {
+  if (!appCheck) return {};
+  // cached by the SDK and refreshed before it expires, so this is usually free
+  const { token } = await getToken(appCheck);
+  return { 'X-Firebase-AppCheck': token };
+}
 
 const DEFAULT_TIMEOUT_MS = 120000; // 2 minutes
 
@@ -30,6 +60,7 @@ async function fetch_api(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
   try {
     const res = await fetch(url, {
       ...options,
+      headers: { ...options.headers, ...(await appCheckHeaders()) },
       signal: combinedSignal
     });
 
