@@ -24,7 +24,7 @@ Architecture overview lives in the root [CLAUDE.md](../../CLAUDE.md); V1 plans i
 | GET | `/ready` | Readiness (orchestrator + DB); 503 when not ready |
 | POST | `/session/new` | Mints an env-prefixed session id. Writes nothing — the `sessions` row is created by the first message, not here |
 | POST | `/session/{session_id}/message` | The chat endpoint — streams SSE events. 400 on a blank or >2000-char message. Reads the session's token budget (which is also what creates its row); a session with nothing left is refused by the orchestrator as an `error` event, not a status code |
-| PUT | `/session/{session_id}/message/{chat_id}/feedback` | The chat's thumbs up/down (`FeedbackIn`), upserted as that session's `feedback` row with no comments. 404 unless the run is recorded and this session produced it (`ChatRunStore.belongs_to`) |
+| PUT | `/session/{session_id}/message/{chat_id}/feedback` | The chat's thumbs up/down and comments (`FeedbackIn`: `ReviewIn` without the ids, comments capped by `AppConfig.FEEDBACK_MAX_COMMENTS`/`FEEDBACK_COMMENT_LENGTH`), upserted whole as that session's `feedback` row. 404 unless the run is recorded and this session produced it (`ChatRunStore.belongs_to`) |
 | GET | `/chat_runs` | Review queue, least-reviewed first (`limit`/`offset`/`session_id`). **Not served in production** |
 | PUT | `/feedback/review` | Upsert one review per (chat_id, session_id) — see `ReviewIn`. **Not served in production** |
 | GET | `/feedback?chat_id=` | List reviews for one run. **Not served in production** |

@@ -125,14 +125,15 @@ async function sendChatMessage(sessionId, message, abortSignal = null, timeoutMs
   return res.body;
 }
 
-// Like or dislike one of this session's own replies; re-sending replaces the
-// earlier reaction. The backend 404s a chat run this session didn't produce,
-// or one it hasn't finished recording yet.
-async function sendFeedback(sessionId, chatId, liked) {
+// Save this session's feedback on one of its own replies: the like/dislike
+// plus the full comments list ({title, message, positive} each), which
+// replaces the earlier version whole. The backend 404s a chat run this
+// session didn't produce, or one it hasn't finished recording yet.
+async function sendFeedback(sessionId, chatId, { liked = null, comments = [] }) {
   const res = await fetch_api(BASE_URL + `/session/${sessionId}/message/${chatId}/feedback`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ liked })
+    body: JSON.stringify({ liked, comments })
   });
   return await res.json();
 }

@@ -28,6 +28,12 @@ class AppConfig:
     MESSAGES_PER_IP        = 30
     MESSAGES_PER_IP_WINDOW = 60 * 60  # seconds
 
+    # Bounds on one feedback row's comment list, which the chat can write in
+    # production. The frontend's feedback popup and review editor stop at the
+    # same numbers.
+    FEEDBACK_MAX_COMMENTS   = 20
+    FEEDBACK_COMMENT_LENGTH = 500
+
     # The ceiling on any one statement a store runs, in seconds. Applied by the
     # engine (db/async_engine.py), which derives every layer from it, each one
     # sitting above what it backs up: Postgres' statement_timeout, asyncpg's

@@ -1,9 +1,10 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useRef, useEffect, useState, lazy, Suspense } from 'react'
-import { Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Copy, Check } from 'lucide-react';
 import { BookGridStack } from '@/components/book/BooksGrid';
 import TaskSection from '@/components/chatbot/TaskSection';
+import ChatFeedback from '@/components/chatbot/ChatFeedback';
 
 // Dynamic import for MermaidDiagram (large library)
 const MermaidDiagram = lazy(() => import('@/components/MermaidDiagram'));
@@ -49,7 +50,7 @@ function renderSection(section, responseId, sectionIndex) {
     // Books section
     if (section.type === 'books' && section.books && section.books.length > 0) {
         return (
-            <div key={key} className="book-cards-container mb-5">
+            <div key={key} className="book-cards-container mb-2">
                 <BookGridStack books={section.books} />
             </div>
         );
@@ -78,12 +79,7 @@ function renderSection(section, responseId, sectionIndex) {
     return null;
 }
 
-const FEEDBACK_BUTTONS = [
-    { liked: true, Icon: ThumbsUp, title: 'Good response' },
-    { liked: false, Icon: ThumbsDown, title: 'Bad response' },
-];
-
-function ChatMessages({ messages, onFeedback }) {
+function ChatMessages({ messages, sessionId }) {
     const containerRef = useRef(null)
     const userMessageRefs = useRef({})
     const turnRefs = useRef({})
@@ -164,26 +160,7 @@ function ChatMessages({ messages, onFeedback }) {
                         {/* Feedback — once the reply is done and the backend
                             has named its run (the chat.id event) */}
                         {response.chatId && !response.isStreaming && (
-                            <div className="flex gap-2 mt-2 ml-2">
-                                {FEEDBACK_BUTTONS.map((button) => {
-                                    // a variable, not a destructured parameter:
-                                    // the lint rule only exempts capitalized vars
-                                    const { liked, Icon, title } = button;
-                                    const chosen = response.liked === liked;
-                                    return (
-                                        <button
-                                            key={title}
-                                            type="button"
-                                            onClick={() => onFeedback(id, liked)}
-                                            title={title}
-                                            aria-pressed={chosen}
-                                            className={`rounded-md transition-colors ${chosen ? 'text-[var(--text-hover)]' : 'text-[var(--text-muted)] hover:text-[var(--text-hover)]'}`}
-                                        >
-                                            <Icon size={16} fill={chosen ? 'currentColor' : 'none'} />
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                            <ChatFeedback key={response.chatId} chatId={response.chatId} sessionId={sessionId} />
                         )}
 
                         {/* AI disclaimer - show on last message */}

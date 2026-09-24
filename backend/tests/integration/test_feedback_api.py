@@ -1,5 +1,5 @@
 """In-process API tests of PUT /session/{session_id}/message/{chat_id}/feedback —
-the chat's thumbs up/down. Both stores are swapped out via dependency_overrides,
+the chat's thumbs up/down and comments. Both stores are swapped out via dependency_overrides,
 so no database is needed; see test_chat_runs_api.py for the template."""
 
 import httpx
@@ -7,6 +7,7 @@ import pytest
 
 from app.api.dependencies import get_chat_run_store, get_feedback_store
 from app.main import app
+from config import AppConfig
 
 pytestmark = pytest.mark.integration
 
@@ -56,7 +57,7 @@ def client_for():
 
 
 class TestSubmitFeedback:
-    async def test_own_run_is_upserted_without_comments(self, client_for):
+    async def test_own_run_is_upserted(self, client_for):
         feedback = FakeFeedbackStore()
 
         async with client_for(FakeChatRunStore({"chat_1": "s_1"}), feedback) as client:
@@ -67,6 +68,20 @@ class TestSubmitFeedback:
         assert resp.status_code == 200
         assert feedback.calls == [
             {"chat_id": "chat_1", "session_id": "s_1", "liked": False, "comments": []}
+        ]
+
+    async def test_comments_are_stored_whole(self, client_for):
+        feedback = FakeFeedbackStore()
+        comment = {"title": "Recommendation", "message": "too few books", "positive": False}
+
+        async with client_for(FakeChatRunStore({"chat_1": "s_1"}), feedback) as client:
+            resp = await client.put(
+                "/session/s_1/message/chat_1/feedback", json={"comments": [comment]}
+            )
+
+        assert resp.status_code == 200
+        assert feedback.calls == [
+            {"chat_id": "chat_1", "session_id": "s_1", "liked": None, "comments": [comment]}
         ]
 
     async def test_another_sessions_run_is_not_found(self, client_for):
@@ -91,11 +106,23 @@ class TestSubmitFeedback:
         assert resp.status_code == 404
         assert feedback.calls == []
 
-    async def test_liked_is_required(self, client_for):
+    async def test_an_empty_reaction_is_rejected(self, client_for):
         feedback = FakeFeedbackStore()
 
         async with client_for(FakeChatRunStore({"chat_1": "s_1"}), feedback) as client:
             resp = await client.put("/session/s_1/message/chat_1/feedback", json={})
+
+        assert resp.status_code == 422
+        assert feedback.calls == []
+
+    async def test_too_many_comments_are_rejected(self, client_for):
+        feedback = FakeFeedbackStore()
+        comments = [{"message": "x"}] * (AppConfig.FEEDBACK_MAX_COMMENTS + 1)
+
+        async with client_for(FakeChatRunStore({"chat_1": "s_1"}), feedback) as client:
+            resp = await client.put(
+                "/session/s_1/message/chat_1/feedback", json={"comments": comments}
+            )
 
         assert resp.status_code == 422
         assert feedback.calls == []

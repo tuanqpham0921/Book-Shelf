@@ -25,19 +25,24 @@ async def submit_feedback(
     chat_runs: ChatRunStore = Depends(get_chat_run_store),
     store: FeedbackStore = Depends(get_feedback_store),
 ):
-    """Like or dislike one of this session's own replies, replacing any earlier
-    reaction from it. A run another session produced is a 404, as is one whose
-    turn has not been recorded yet — so a session can only rate what it asked,
-    and each run holds at most one reaction from it."""
+    """Like, dislike or comment on one of this session's own replies, replacing
+    any earlier feedback from it whole. A run another session produced is a
+    404, as is one whose turn has not been recorded yet — so a session can only
+    rate what it asked, and each run holds at most one row from it."""
     if not await chat_runs.belongs_to(chat_id, session_id):
         raise HTTPException(status_code=404, detail="Chat run not found")
     row = await store.upsert_review(
         chat_id=chat_id,
         session_id=session_id,
         liked=feedback.liked,
-        comments=[],
+        comments=[comment.model_dump() for comment in feedback.comments],
     )
-    logger.info("👍 Feedback recorded for chat run %s (liked=%s)", chat_id, feedback.liked)
+    logger.info(
+        "👍 Feedback recorded for chat run %s (liked=%s, %d comment(s))",
+        chat_id,
+        feedback.liked,
+        len(feedback.comments),
+    )
     return row.to_dict()
 
 
