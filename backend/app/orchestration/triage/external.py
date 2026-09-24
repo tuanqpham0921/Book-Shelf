@@ -29,7 +29,8 @@ class TriageVerdict(str, Enum):
 
 
 class QueryPortion(BaseModel):
-    """One ask or remark from the message, in the user's own words."""
+    """One ask or remark from the message, copied exactly as the user wrote
+    it — no corrections."""
 
     # Unbounded on purpose: the route already caps a message at 2,000
     # characters, and a clipped portion would change what the planner is asked.

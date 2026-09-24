@@ -46,8 +46,14 @@ A follow-up ("the second one", "more like that", "what about shorter ones?", "1"
 
 # Splitting
 
-- A portion is one ask or remark, copied in the user's own words. Do not
-  reword it, fix its typos or resolve its pronouns — the planner does that.
+- A portion is one ask or remark, copied exactly as the user wrote it.
+  Preserve their wording and format as much as possible: spelling, casing,
+  punctuation, quotes, line breaks and emoji all stay.
+- Do not autocorrect, and do not use what you know — about books, authors or
+  earlier turns — to fix what you think they meant. "Find teh book Duen by
+  Fank Herbrt" stays exactly that, not "Dune by Frank Herbert"; "more like
+  it" stays "more like it", not "more like Hyperion". The planner reads the
+  intent; your copy must not change it.
 - Split only where the message changes subject. Most messages are a single
   portion, and a book ask with several conditions stays whole: "horror by
   King over 500 pages" is one portion.
