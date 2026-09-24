@@ -61,9 +61,20 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 --------------------------
 
-* set up pgAdmin neon
+* coversation continuation rejection
+* add rejection and small talks
+* need a out of scope place better
+* how should I do out of scope? just reject?
 
-3. add rejection and small talks
+should I just have the nodes and then raise not implemented?
+might need to split up the docstrings for easier access?
+
+might need a clearer contracts between planJane and triage
+so when it comeback it will be as a task thing?
+
+----------------------------
+
+* set up pgAdmin neon
 4. run evals
 
 2. format the task runner better
