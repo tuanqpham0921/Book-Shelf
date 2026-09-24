@@ -4,6 +4,7 @@ import { useRef, useEffect, useState, lazy, Suspense } from 'react'
 import { Copy, Check } from 'lucide-react';
 import { BookGridStack } from '@/components/book/BooksGrid';
 import TaskSection from '@/components/chatbot/TaskSection';
+import ChatFeedback from '@/components/chatbot/ChatFeedback';
 
 // Dynamic import for MermaidDiagram (large library)
 const MermaidDiagram = lazy(() => import('@/components/MermaidDiagram'));
@@ -49,7 +50,7 @@ function renderSection(section, responseId, sectionIndex) {
     // Books section
     if (section.type === 'books' && section.books && section.books.length > 0) {
         return (
-            <div key={key} className="book-cards-container mb-5">
+            <div key={key} className="book-cards-container mb-2">
                 <BookGridStack books={section.books} />
             </div>
         );
@@ -78,7 +79,7 @@ function renderSection(section, responseId, sectionIndex) {
     return null;
 }
 
-function ChatMessages({ messages }) {
+function ChatMessages({ messages, sessionId }) {
     const containerRef = useRef(null)
     const userMessageRefs = useRef({})
     const turnRefs = useRef({})
@@ -154,6 +155,12 @@ function ChatMessages({ messages }) {
                                 <div className="loading-spinner" />
                                 <span className="loading-text">{response.loadingText}</span>
                             </div>
+                        )}
+
+                        {/* Feedback — once the reply is done and the backend
+                            has named its run (the chat.id event) */}
+                        {response.chatId && !response.isStreaming && (
+                            <ChatFeedback key={response.chatId} chatId={response.chatId} sessionId={sessionId} />
                         )}
 
                         {/* AI disclaimer - show on last message */}

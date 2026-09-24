@@ -469,6 +469,15 @@ scripts that never load the page, not a person who does, so 4.1 stays open.
   closes 4.1's disclosure without the admin gate. Review locally with
   `make dev-neon` against the same database; `/review` on the live site now
   fails to load. 4.1 still stands if the review page should ever go public.
+- **The chat's thumbs up/down is served in production** (same day, later).
+  `PUT /session/{session_id}/message/{chat_id}/feedback` writes only, returns
+  nothing another session wrote, and 404s unless `ChatRunStore.belongs_to`
+  finds the run recorded under that session — the ownership check 4.1 said
+  could not exist *for the review page*, where the reviewer is by design not the
+  run's session. Here they are the same, so a made-up session id can rate only
+  runs it paid for, one row each. The row can also carry comments, the review
+  page's shape; `FeedbackIn` bounds it to `AppConfig.FEEDBACK_MAX_COMMENTS`
+  comments of `FEEDBACK_COMMENT_LENGTH` characters, so one row stays small.
 - **Site-wide daily cap.** The per-session budget can't bound the bill on its
   own: `start_turn` gives a full budget to any session id it hasn't seen, and
   the id comes from the URL. `Orchestrator.run` now also reads

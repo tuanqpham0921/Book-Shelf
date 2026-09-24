@@ -125,6 +125,19 @@ async function sendChatMessage(sessionId, message, abortSignal = null, timeoutMs
   return res.body;
 }
 
+// Save this session's feedback on one of its own replies: the like/dislike
+// plus the full comments list ({title, message, positive} each), which
+// replaces the earlier version whole. The backend 404s a chat run this
+// session didn't produce, or one it hasn't finished recording yet.
+async function sendFeedback(sessionId, chatId, { liked = null, comments = [] }) {
+  const res = await fetch_api(BASE_URL + `/session/${sessionId}/message/${chatId}/feedback`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ liked, comments })
+  });
+  return await res.json();
+}
+
 
 // Fetch recorded chat runs for the review page, in review-queue order
 // (least-reviewed first, newest first within a tie), each with its derived
@@ -163,6 +176,6 @@ async function submitReview({ chatId, sessionId, liked = null, comments = [] }) 
 }
 
 export default {
-  createSession, sendChatMessage, backEndPing,
+  createSession, sendChatMessage, sendFeedback, backEndPing,
   getChatRuns, getFeedback, submitReview
 };

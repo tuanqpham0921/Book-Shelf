@@ -68,7 +68,7 @@ from app.api.routes.health import router as health_router
 from app.api.routes.chat_message import router as chat_router
 from app.api.routes.session import router as session_router
 from app.api.routes.chat_run import router as chat_run_router
-from app.api.routes.feedback import router as feedback_router
+from app.api.routes.feedback import router as feedback_router, review_router
 
 # Health stays open: `make deploy-check` and the Cloud Run startup probe curl
 # /ready, and none of the three reaches OpenAI. Everything else needs App Check,
@@ -77,9 +77,10 @@ app.include_router(health_router)
 app_check = [Depends(require_app_check)]
 app.include_router(chat_router, dependencies=app_check)
 app.include_router(session_router, dependencies=app_check)
+app.include_router(feedback_router, dependencies=app_check)
 # The review surface serves every user's messages and has no admin gate yet
 # (docs/deployment.md §4.1), so production doesn't serve it at all: review
 # locally with `make dev-neon`, which reads the same database.
 if settings.app.ENVIRONMENT != "production":
     app.include_router(chat_run_router, dependencies=app_check)
-    app.include_router(feedback_router, dependencies=app_check)
+    app.include_router(review_router, dependencies=app_check)

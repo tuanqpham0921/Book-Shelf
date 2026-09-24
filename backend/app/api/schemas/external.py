@@ -1,6 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
+
+from config import AppConfig
 
 class SessionOut(BaseModel):
     id: str
@@ -15,20 +17,17 @@ class ReviewCommentIn(BaseModel):
     """One observation inside a review."""
 
     title: FeedbackCategory | None = None
-    message: str
+    message: str = Field(max_length=AppConfig.FEEDBACK_COMMENT_LENGTH)
     positive: bool = False
 
-class ReviewIn(BaseModel):
-    """One review of a chat run, upserted whole per (chat_id, session_id):
-    the reviewer's overall like/dislike plus their comment list. session_id
-    is the reviewing session, which may differ from the session that
-    produced the run; re-submitting from the same session replaces the
-    previous version."""
+class FeedbackIn(BaseModel):
+    """One reaction to a chat run, upserted whole per (chat_id, session_id):
+    an overall like/dislike plus a comment list, so re-sending replaces the
+    previous version. The chat sends this for its own replies, with both ids
+    in the URL; `ReviewIn` is the same body carrying them itself."""
 
-    chat_id: str
-    session_id: str
     liked: bool | None = None
-    comments: list[ReviewCommentIn] = []
+    comments: list[ReviewCommentIn] = Field(default=[], max_length=AppConfig.FEEDBACK_MAX_COMMENTS)
 
     @model_validator(mode="after")
     def _has_substance(self):
@@ -37,6 +36,13 @@ class ReviewIn(BaseModel):
                 "a review needs an overall reaction or at least one comment"
             )
         return self
+
+class ReviewIn(FeedbackIn):
+    """The /review page's review of a chat run. session_id is the reviewing
+    session, which may differ from the session that produced the run."""
+
+    chat_id: str
+    session_id: str
 
 class BookOut(BaseModel):
     """One book as the chat client receives it, in a `book_card` SSE event.

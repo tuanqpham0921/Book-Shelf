@@ -7,11 +7,9 @@ import Badge from '@/design-system/Badge'
 import Emoji from '@/design-system/Emoji'
 import Dropdown from '@/design-system/Dropdown'
 import DropdownItem from '@/design-system/DropdownItem'
+import { FEEDBACK_CATEGORIES } from '@/data/feedbackCategories'
 
 const MermaidDiagram = lazy(() => import('@/components/MermaidDiagram'))
-
-// Must match the backend's FeedbackCategory literal.
-const REVIEW_CATEGORIES = ['Content', 'Recommendation', 'Planner', 'Time', 'UI/UX', 'Other']
 
 function StatusBadge({ ok }) {
     if (ok === true) return <Badge tone="positive">ok</Badge>
@@ -191,7 +189,7 @@ function ReviewEditor({ chatId, sessionId, ownReview, onSubmitted }) {
                         </button>
                     )}
                 >
-                    {({ close }) => REVIEW_CATEGORIES.map((c) => (
+                    {({ close }) => FEEDBACK_CATEGORIES.map((c) => (
                         <DropdownItem
                             key={c}
                             selected={c === category}

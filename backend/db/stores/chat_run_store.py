@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.schema import ChatRunModel, FeedbackModel
@@ -20,6 +20,18 @@ class ChatRunStore(BaseStore[ChatRunModel]):
         was built inside flushes and commits it on exit.
         """
         self.session.add(ChatRunModel(**row))
+
+    async def belongs_to(self, chat_id: str, session_id: str) -> bool:
+        """Whether this session produced this chat run. False when there is no
+        such run, including one whose turn has not been recorded yet."""
+        stmt = select(
+            exists().where(
+                ChatRunModel.chat_id == chat_id,
+                ChatRunModel.session_id == session_id,
+            )
+        )
+        result = await self.execute_statement(stmt)
+        return bool(result.scalar())
 
     async def get_all(
         self,
