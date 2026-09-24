@@ -125,7 +125,7 @@ backend/
   clients/          OpenAI client, tracing-free by design
   config/           pydantic-settings + constants (.env lives here, git-ignored)
   db/               async engine, SQLAlchemy models, stores, init SQL
-  evals/            suite definitions, runner, reports
+  evals/            planner suites, runner and reports; the triage decomposition eval
   Dockerfile        what Cloud Run builds
 frontend/
   src/

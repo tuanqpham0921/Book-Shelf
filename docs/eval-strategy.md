@@ -7,7 +7,7 @@ with the app.
 
 ## The mechanism (this *is* the golden-test system)
 
-The suite JSONs in `backend/evals/suites/` are versioned inputs with per-case
+The suite JSONs in `backend/evals/planjane/suites/` are versioned inputs with per-case
 `expected_nodes`. `run_suites.py` fires each query at a running backend and records one
 `test_runs` row per query (chat_id FK → `chat_runs` + suite name + case id).
 `report_system_goals.py` (`make suite-goals`) joins `test_runs ⋈ chat_runs` and
@@ -15,6 +15,12 @@ multiset-diffs the planner's accepted goal node types against `expected_nodes` �
 matched/missing/extra per case. It reports correctness only — tokens, dollars and
 latency live in the separate cost report (`make suite-report`), so a gate diff never
 churns on numbers that move every run.
+
+That harness grades the planner through the whole running app. A step that is one
+LLM call over one schema can be graded on its own instead — no backend, no database,
+the step's own request builder sent straight to OpenAI. The first of these is
+triage's query decomposition (`backend/evals/triage/`, `make eval-decomposition`,
+2026-09-24); a node's `*Args` parse would follow it under `backend/evals/nodes/`.
 
 Two properties make this the right foundation:
 

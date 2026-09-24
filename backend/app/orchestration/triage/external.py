@@ -55,9 +55,9 @@ class TriageOutput(NodeWorkflowOutput):
     # The plan, when triage produced one. None means the turn was handled
     # without planning, or failed before the planner returned.
     #
-    # The name is a *serialized* path: evals/report_system_goals.py, the cache
-    # files and every chat_runs row all key on `parse_result`. Renaming it to
-    # `plan` means changing all four in lockstep.
+    # The name is a *serialized* path: evals/planjane/report_system_goals.py,
+    # the cache files and every chat_runs row all key on `parse_result`.
+    # Renaming it to `plan` means changing all four in lockstep.
     parse_result: PlanJaneOutput | None = None
 
     def to_summary(self) -> dict[str, Any]:

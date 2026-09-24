@@ -140,7 +140,7 @@ class TestBuildChatRunRow:
             planner=planner,
         )
 
-        from evals.report_system_goals import accepted_goal_types
+        from evals.planjane.report_system_goals import accepted_goal_types
 
         assert accepted_goal_types(row["planner"]) == [
             FindTitleNodeTypeEnum.REQUEST.value

@@ -1,10 +1,18 @@
 # backend/evals
 
-The planner eval harness — versioned query suites with per-case node expectations,
-a runner, and report generators. **Why it's built this way and where it's headed:**
-[docs/eval-strategy.md](../../docs/eval-strategy.md).
+Evals, one folder per thing under test. **Why it's built this way and where it's
+headed:** [docs/eval-strategy.md](../../docs/eval-strategy.md).
 
-## Suites (`suites/`)
+| Path | What it grades |
+|---|---|
+| `planjane/` | The planner, through the whole running app — versioned query suites with per-case node expectations, the runner, the two DB reports, and the tool catalog |
+| `triage/` | Triage's query decomposition alone — one LLM call per case, no backend, no database (see [Triage](#triage--query-decomposition-triage)) |
+| `common.py` | Shared plumbing. It sits here rather than in `planjane/` because a script puts its own folder first on `sys.path`, and a `common.py` there would shadow the backend's `common` package |
+| `results/`, `logs/` | Campaign outputs and run logs, for every folder above |
+
+A node's own `*Args` parse would get the same treatment as triage, under `nodes/<node>/`.
+
+## PlanJane suites (`planjane/suites/`)
 
 | Suite | Cases | Targets |
 |---|---|---|
@@ -16,7 +24,7 @@ a runner, and report generators. **Why it's built this way and where it's headed
 Each case: `id`, `query`, `difficulty`, `expected_nodes`, `note` (+ `category`/`domain`
 in adversarial/stress).
 
-## Workflow
+## PlanJane workflow
 
 Backend must be running (`make dev`). Every path in `makefile` is anchored to the
 evals directory, so these run identically from `backend/` (via the root Makefile's
@@ -38,7 +46,7 @@ SLEEP=0` finishes in seconds. `query-suite-smoke` is exactly that pairing (overr
 count with `SMOKE_LIMIT=n`). Smoke runs record to `chat_runs`/`test_runs` like any
 other, so both reports work on them.
 
-The runner (`run_suites.py`) POSTs each query to `/session/{id}/message`, consumes the
+The runner (`planjane/run_suites.py`) POSTs each query to `/session/{id}/message`, consumes the
 SSE stream, and records its `test_runs` row (chat_id FK → `chat_runs` + suite name +
 case id) right away — not batched until the run finishes — so an interrupted run still
 has everything it completed recorded. Sessions are minted as `test_<uuid8>` so eval
@@ -62,7 +70,7 @@ Both take `ARGS="--all"` for every run (default: latest run per case), `ARGS="--
 report is the pass/fail gate and mentions no numbers that change run to run, so its
 diffs stay readable; the cost report is where tokens, dollars and latency live.
 
-## Tool catalog (`tools_catalog.py`)
+## Tool catalog (`planjane/tools_catalog.py`)
 
 ```bash
 make tools-catalog                        # print
@@ -102,6 +110,38 @@ out rather than hidden:
 - a run whose `token_usage.unpriced_models` is non-empty still *has* a cost, just too low
   — the report prints an explicit "costs are understated" warning naming the models. Add
   them to `airglider/src/config.py`; only future runs will be right.
+
+## Triage — query decomposition (`triage/`)
+
+```bash
+make eval-decomposition                          # every case, printed
+make eval-decomposition ARGS="--ids 1 5 9"       # a few, while iterating
+make eval-decomposition CAMPAIGN=v1_triage       # -> results/v1_triage/query_decomposition.md
+```
+
+Grades the gpt-5-mini split that triage runs ahead of the planner, on its own: no
+backend, no database, no `test_runs` rows. `eval_query_decomposition.py` sends each
+case in `triage/suites/query_decomposition.json` through `build_decomposition_request`
+— the builder a real turn uses, so the prompt, model and `QueryDecomposition` tool are
+exactly what production sends — straight to `OpenAIClient`, and grades the parsed
+portions. The builder reads `decompose_query.txt` from disk on every call, so editing
+the prompt and rerunning is the whole loop. It costs real calls: a few cents for the
+whole suite.
+
+A case (`id`, `query`, `expected` verdicts in message order, `note`) passes on two
+checks:
+
+- **verdicts** — equal to `expected` once adjacent repeats are merged on both sides.
+  `[in_domain, in_domain]` and `[in_domain]` give the planner the same words and the
+  user the same reply, so a split the app can't act on is not a failure.
+- **verbatim** — every portion's text appears in the message exactly as written, the
+  prompt's "copy, never correct" rule.
+
+The report lists each case, then every failure with the portions the model returned,
+its reasoning and the case's note. Cases lifted from the prompt's own Examples section
+say so in their note, since those partly test recall. Earlier turns can't be given yet
+— `build_decomposition_request` takes the message alone — so every follow-up case
+expects `gibberish`.
 
 ## Repo sizing (`app_docs/`)
 

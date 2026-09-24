@@ -36,9 +36,9 @@ ARGS ?=
 LIMIT ?=
 SLEEP ?=
 SMOKE_LIMIT ?= 3
-SUITES_DIR := $(EVALS_DIR)suites
+SUITES_DIR := $(EVALS_DIR)planjane/suites
 LOG_DIR ?= $(EVALS_DIR)logs/query_suites
-RUN_SUITE = poetry run python -u $(EVALS_DIR)run_suites.py --base-url $(BASE_URL) \
+RUN_SUITE = poetry run python -u $(EVALS_DIR)planjane/run_suites.py --base-url $(BASE_URL) \
 	$(if $(LIMIT),--limit $(LIMIT)) $(if $(SLEEP),--sleep $(SLEEP)) $(ARGS) --suite
 
 # run the base query suite against a running backend (make dev first)
@@ -135,14 +135,14 @@ campaign_out = $(if $(CAMPAIGN),--output $(CAMPAIGN_DIR)/$(1))
 # per case by default; forward flags via ARGS, e.g. ARGS="--all".
 .PHONY: suite-goals
 suite-goals:
-	poetry run python $(EVALS_DIR)report_system_goals.py $(call campaign_out,system_goals.md) $(ARGS)
+	poetry run python $(EVALS_DIR)planjane/report_system_goals.py $(call campaign_out,system_goals.md) $(ARGS)
 
 # COST — tokens, dollars, latency and failures per run, plus a per-model spend
 # split. No expectation checking. Always prints to stdout; also saves when
 # CAMPAIGN (or an explicit --output) is given.
 .PHONY: suite-stats
 suite-stats:
-	poetry run python $(EVALS_DIR)report.py $(call campaign_out,report.md) $(ARGS)
+	poetry run python $(EVALS_DIR)planjane/report.py $(call campaign_out,report.md) $(ARGS)
 
 # both post-processors in one go — the usual move after a campaign
 .PHONY: suite-reports
@@ -155,7 +155,16 @@ suite-reports: suite-goals suite-stats
 # ARGS="--model gpt-5-nano".
 .PHONY: tools-catalog
 tools-catalog:
-	poetry run python $(EVALS_DIR)tools_catalog.py $(call campaign_out,tools_catalog.md) $(ARGS)
+	poetry run python $(EVALS_DIR)planjane/tools_catalog.py $(call campaign_out,tools_catalog.md) $(ARGS)
+
+# TRIAGE — the query decomposition alone: each case in
+# triage/suites/query_decomposition.json goes through triage's own request
+# builder straight to OpenAI, and is graded on its verdicts and on whether each
+# portion kept the user's words. No backend and no database, but real
+# gpt-5-mini calls. Debug a few with ARGS="--ids 1 2".
+.PHONY: eval-decomposition
+eval-decomposition:
+	poetry run python $(EVALS_DIR)triage/eval_query_decomposition.py $(call campaign_out,query_decomposition.md) $(ARGS)
 
 # TODO: make the path to variable names
 # make a better run make, so it dumps and copy the logs over

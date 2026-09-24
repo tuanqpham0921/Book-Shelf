@@ -120,7 +120,7 @@ postgres-dump-feedback:
 	@echo "feedback dumped to $(MAKEFILE_DIR)data/"
 
 # dump test_runs data to a timestamped .sql file (data only, restorable via psql <)
-# — the suite/case links written by evals/run_suites.py, keyed by chat_id
+# — the suite/case links written by evals/planjane/run_suites.py, keyed by chat_id
 .PHONY: postgres-dump-test-runs
 postgres-dump-test-runs:
 	set -a && . $(ENV_FILE) && set +a && \

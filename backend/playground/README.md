@@ -15,7 +15,7 @@ directly. The mocks are kept only as reference; nothing in the app imports them.
 
 SaveToReadingList, RateBook, ReadingPlan, and friends — schema-only node types used to
 test how the planner behaves as the catalog grows
-(`evals/suites/query_suite_extended.json` targets them). Two have graduated out and are
+(`evals/planjane/suites/query_suite_extended.json` targets them). Two have graduated out and are
 now V1 core: `FindByAuthorRetrieval` (2026-07-21) and `RandomBookRetrieval` (2026-07-28).
 Their old entries here are left as commented-out one-liners marking the promotion, so
 the extension's history stays readable.

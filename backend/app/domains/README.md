@@ -405,7 +405,7 @@ branches on `runtime_error.type`.
    node with no store needs neither).
 5. Add that SPEC to the domain's `guide.py`. That is the only file outside the
    slice you touch.
-6. Add eval cases with `expected_nodes` in `backend/evals/suites/` — see
+6. Add eval cases with `expected_nodes` in `backend/evals/planjane/suites/` — see
    [docs/eval-strategy.md](../../../docs/eval-strategy.md).
 
 Run `make tools-catalog` afterwards: it reads the live registry, so it confirms
