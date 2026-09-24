@@ -38,6 +38,13 @@ class ReviewIn(BaseModel):
             )
         return self
 
+class FeedbackIn(BaseModel):
+    """The chat's thumbs up/down on one of its own replies. Stored as a
+    `feedback` row like a review, with the session that produced the run as
+    the reviewing session and no comments."""
+
+    liked: bool
+
 class BookOut(BaseModel):
     """One book as the chat client receives it, in a `book_card` SSE event.
 

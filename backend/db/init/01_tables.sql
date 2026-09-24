@@ -63,9 +63,10 @@ CREATE TABLE IF NOT EXISTS test_runs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Reviews from the internal /review page: one row per (chat_id, session_id),
--- where session_id is the *reviewing* session, not the session that produced
--- the run. A session re-submitting replaces its review in place (see unique
+-- Reviews from the internal /review page and the chat's thumbs up/down: one
+-- row per (chat_id, session_id), where session_id is the *reviewing* session —
+-- for the review page not the session that produced the run, for the chat
+-- always that same session (its route checks it), with no comments. A session re-submitting replaces its review in place (see unique
 -- index) rather than appending; a different session appends a new review.
 -- liked: the reviewer's overall like/dislike of the run (optional).
 -- comments: JSONB list of {title, message, positive} observations, replaced

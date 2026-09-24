@@ -1,7 +1,7 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useRef, useEffect, useState, lazy, Suspense } from 'react'
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { BookGridStack } from '@/components/book/BooksGrid';
 import TaskSection from '@/components/chatbot/TaskSection';
 
@@ -78,7 +78,12 @@ function renderSection(section, responseId, sectionIndex) {
     return null;
 }
 
-function ChatMessages({ messages }) {
+const FEEDBACK_BUTTONS = [
+    { liked: true, Icon: ThumbsUp, title: 'Good response' },
+    { liked: false, Icon: ThumbsDown, title: 'Bad response' },
+];
+
+function ChatMessages({ messages, onFeedback }) {
     const containerRef = useRef(null)
     const userMessageRefs = useRef({})
     const turnRefs = useRef({})
@@ -153,6 +158,31 @@ function ChatMessages({ messages }) {
                             <div className="loading-wrapper">
                                 <div className="loading-spinner" />
                                 <span className="loading-text">{response.loadingText}</span>
+                            </div>
+                        )}
+
+                        {/* Feedback — once the reply is done and the backend
+                            has named its run (the chat.id event) */}
+                        {response.chatId && !response.isStreaming && (
+                            <div className="flex gap-2 mt-2 ml-2">
+                                {FEEDBACK_BUTTONS.map((button) => {
+                                    // a variable, not a destructured parameter:
+                                    // the lint rule only exempts capitalized vars
+                                    const { liked, Icon, title } = button;
+                                    const chosen = response.liked === liked;
+                                    return (
+                                        <button
+                                            key={title}
+                                            type="button"
+                                            onClick={() => onFeedback(id, liked)}
+                                            title={title}
+                                            aria-pressed={chosen}
+                                            className={`rounded-md transition-colors ${chosen ? 'text-[var(--text-hover)]' : 'text-[var(--text-muted)] hover:text-[var(--text-hover)]'}`}
+                                        >
+                                            <Icon size={16} fill={chosen ? 'currentColor' : 'none'} />
+                                        </button>
+                                    );
+                                })}
                             </div>
                         )}
 

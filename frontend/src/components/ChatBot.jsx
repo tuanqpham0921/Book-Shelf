@@ -93,8 +93,7 @@ function ChatBot() {
 
             // Sessions are created lazily on the first message — page loads
             // that never chat (bounces, review-only visits) don't write a
-            // session row. Feedback filed before any message goes out with
-            // session_id null, which the backend accepts.
+            // session row.
             if (!sessionId) {
                 const { id } = await api.createSession();
                 setSessionId(id);
@@ -374,6 +373,23 @@ function ChatBot() {
         activeAbortControllerRef.current?.abort('user_stop');
     }
 
+    // Thumbs up/down on a finished reply. Shown as chosen straight away and
+    // put back if the save fails — including the backend's 404 for a turn it
+    // hasn't finished recording yet, so a second click works.
+    async function handleFeedback(turnId, liked) {
+        const response = turn.find(t => t.id === turnId)?.response;
+        if (!response?.chatId || response.liked === liked) return;
+        const previous = response.liked;
+
+        setTurn(draft => { draft.find(t => t.id === turnId).response.liked = liked; });
+        try {
+            await api.sendFeedback(sessionId, response.chatId, liked);
+        } catch (err) {
+            console.error('Feedback not saved:', err);
+            setTurn(draft => { draft.find(t => t.id === turnId).response.liked = previous; });
+        }
+    }
+
     return (
         <div className="flex flex-col h-full w-full min-w-0 min-h-0">
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden pl-3 mr-3">
@@ -382,7 +398,7 @@ function ChatBot() {
                             What are you in the mood to read today?
                         </div>
                     ) : (
-                        <ChatMessages messages={turn} />
+                        <ChatMessages messages={turn} onFeedback={handleFeedback} />
                     )}
                 </div>
                 <div className="flex-shrink-0 min-w-0">

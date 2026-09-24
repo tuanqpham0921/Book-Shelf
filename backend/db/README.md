@@ -80,8 +80,10 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
   `chat_run_store.py` (`insert_run`, one row per turn — written by
   `run_recorder._insert_chat_run` in production only, on its own session like
   the debit; it *stages* the row and the `begin()` block commits it — plus the
-  review queue, ordered least-reviewed-first),
-  `feedback_store.py` (review upsert).
+  review queue, ordered least-reviewed-first, and `belongs_to`, the chat
+  feedback route's ownership check),
+  `feedback_store.py` (review upsert — the /review page's and the chat's
+  thumbs up/down alike).
 - **Deferred queries** (`deferred_query.py`). Retrieval nodes do not fetch rows:
   the module-level `title_query()` / `author_query()` / `lexical_query()` /
   `numeric_traits_query()` / `embedding_search_stmt()` build a
@@ -136,7 +138,7 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
 | `books` | Book catalog + pgvector embeddings |
 | `sessions` | One row per session that has sent a message, carrying `remaining_tokens`. Created on the first message (`POST /session/new` persists nothing) and debited once per turn with the turn's whole spend. PK `session_id`. No FK from `chat_runs.session_id` — rows predating the table simply don't exist. Deliberately no `CHECK (remaining_tokens >= 0)`: a turn is charged after it runs, so the last one overshoots |
 | `chat_runs` | One row per chat turn: user/assistant messages, planner/tasks/writer JSONB (one envelope per layer — `writer` is the reply stage, and the only stored copy of the prose), promoted stats (duration, tokens). PK `chat_id` |
-| `feedback` | One review per (chat_id, session_id), upserted whole. FK `chat_id` → `chat_runs`, CASCADE |
+| `feedback` | One review per (chat_id, session_id), upserted whole: the /review page's reviews and the chat's thumbs up/down (whose session is the one that produced the run, with no comments). FK `chat_id` → `chat_runs`, CASCADE |
 | `test_runs` | Eval bookkeeping: chat_id FK → `chat_runs` (CASCADE — deleting chat_runs takes test_runs with it) + suite name + case id |
 
 ## Local dev

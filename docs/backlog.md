@@ -20,7 +20,9 @@ line numbers may drift, the file and symbol names are the stable part.
   through the entire chat history of every user with a plain GET. Gate it as an
   internal/admin route at minimum before it's reachable from the internet. (For dev,
   fetching all chat_runs is fine; prod likely wants it limited to test suites.)
-- **Feedback endpoints have no ownership check** (`app/api/routes/feedback.py`) —
+- **Review feedback endpoints have no ownership check** (`app/api/routes/feedback.py`,
+  `review_router`; not served in production since 2026-09-24 — the chat's own
+  feedback route checks `ChatRunStore.belongs_to`) —
   `GET /feedback?chat_id=` and `PUT /feedback/review` take caller-supplied
   chat_id/session_id and the store just queries/upserts whatever is passed. Combined
   with the chat_runs disclosure both IDs are trivially harvestable, so anyone can read
