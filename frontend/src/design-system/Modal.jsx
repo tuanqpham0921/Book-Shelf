@@ -1,10 +1,13 @@
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import IconButton from './IconButton'
 
-// Generic overlay dialog — a bottom sheet on phones (slides up, thumb
-// reachable), a centered dialog from `sm:` up. Reused for anything that
-// needs "more info than fits inline" (book details, issue reports, ...).
+// Generic overlay dialog, centered on every screen — full width less a 16px
+// gutter on phones, capped at `max-w-lg` from `sm:` up. Reused for anything
+// that needs "more info than fits inline" (book details, issue reports, ...).
+// Portaled to <body>: the chat list's fade (`mask-image`, chat.css) clips
+// everything drawn inside it, `position: fixed` overlays included.
 function Modal({ isOpen, onClose, title, children, className = '' }) {
     useEffect(() => {
         if (!isOpen) return
@@ -17,13 +20,13 @@ function Modal({ isOpen, onClose, title, children, className = '' }) {
 
     if (!isOpen) return null
 
-    return (
+    return createPortal(
         <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center"
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4"
             onClick={onClose}
         >
             <div
-                className={`bg-[var(--bg-primary)] w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[85vh] flex flex-col animate-slide-up sm:animate-none ${className}`}
+                className={`bg-[var(--bg-primary)] w-full sm:max-w-lg rounded-2xl shadow-2xl max-h-[85vh] flex flex-col animate-slide-up ${className}`}
                 onClick={(event) => event.stopPropagation()}
             >
                 <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-[var(--border-light)] flex-shrink-0">
@@ -37,7 +40,8 @@ function Modal({ isOpen, onClose, title, children, className = '' }) {
                     {children}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     )
 }
 
