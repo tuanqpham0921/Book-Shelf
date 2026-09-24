@@ -4,9 +4,11 @@ env-dependent sink selection in record_chat_run (production → one row and no
 file, development → files and no row, test → nothing, failures swallowed
 either way)."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy import select
 
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.orchestration.triage import TriageOutput
@@ -15,6 +17,7 @@ from app.orchestration.run_recorder import build_chat_run_row, record_chat_run
 from app.orchestration.write_recommendations import RecommendationsOutput, TextBlock
 from airglider import OperationResult, Response, TokenUsage
 from config import FilesLocationConstants
+from db.stores.deferred_query import DeferredBookQuery
 
 
 def _make_goal():
@@ -157,6 +160,31 @@ class TestBuildChatRunRow:
         goal = row["planner"]["response"]["result"]["parse_result"]["accepted_goals"][0]
         assert goal["_refusal"] is True
         assert goal["_refusal_reasons"] == ["just to populate a private attr"]
+
+    def test_a_task_returning_a_live_object_still_encodes(self):
+        # build_pool is a @task that returns a DeferredBookQuery, so the query
+        # lands on its envelope's result — and the JSONB bind raised on it
+        planner = _make_planner_record()
+        tasks = OperationResult(ok=True)
+        tasks.add_step(
+            OperationResult(
+                name="build_pool",
+                ok=True,
+                response=Response(result=DeferredBookQuery(select(1), label="similar")),
+            )
+        )
+
+        row = build_chat_run_row(
+            session_id="sess_1",
+            user_chat_id="chat_1",
+            user_message="Find me a book",
+            record=_make_root_record(planner),
+            planner=planner,
+            tasks=tasks,
+        )
+
+        json.dumps(row["tasks"])  # what the JSONB column does; must not raise
+        assert "<DeferredBookQuery similar>" in json.dumps(row["tasks"])
 
 
 @pytest.fixture

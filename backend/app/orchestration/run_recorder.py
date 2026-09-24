@@ -17,6 +17,7 @@ The two sinks take the same turn and differ only in where it lands, so they are
 selected in one place and wrapped in one `try` — see `record_chat_run`.
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -80,10 +81,24 @@ def build_chat_run_row(
         "duration_s": record.duration,
         "total_tokens": record.token_usage.total,
         "mermaid": output.diagram if output else None,
-        "planner": to_serializable(planner) if planner is not None else None,
-        "tasks": to_serializable(tasks) if tasks is not None else None,
-        "writer": to_serializable(writer) if writer is not None else None,
+        "planner": _to_jsonb(planner),
+        "tasks": _to_jsonb(tasks),
+        "writer": _to_jsonb(writer),
     }
+
+
+def _to_jsonb(record: OperationResult | None) -> Any:
+    """`to_serializable`, then the same `default=str` the dev sink's `save_file`
+    applies, so both sinks accept the same turns.
+
+    `to_serializable` hands back any type it doesn't know unchanged — a `@task`
+    that *returns* a live object (`build_pool` returns a `DeferredBookQuery`)
+    puts it on its envelope's `result` — and the JSONB bind would raise on it.
+    Arguments never needed this: `to_record_input` already tags leftovers.
+    """
+    if record is None:
+        return None
+    return json.loads(json.dumps(to_serializable(record), default=str))
 
 
 async def _insert_chat_run(
@@ -207,5 +222,8 @@ async def record_chat_run(
             )
         elif request_context.app_env == "development":
             _save_turn_files(request_context, record, task_runner, writer, messages)
+            # await _insert_chat_run(
+            #                 request_context, record, planner, task_runner, writer
+            #             )
     except Exception:
         logger.exception("Failed to record chat run")
