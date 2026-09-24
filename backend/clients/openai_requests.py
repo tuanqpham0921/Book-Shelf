@@ -22,7 +22,7 @@ REASONING_EFFORT = "low"
 # how hard to think; everything else is told how to sample. Sending the wrong
 # set is not a soft error at the API, so the split is enforced below rather
 # than left to whoever writes the next `build_*_request`.
-REASONING_MODEL_PREFIX = "gpt-5"
+NOT_REASONING_MODEL_PREFIX = "gpt-4"
 SAMPLING_FIELDS = frozenset({"temperature", "top_p", "seed"})
 
 # The app's own list, not the SDK's: `openai.types.shared.ReasoningEffort`
@@ -52,7 +52,7 @@ class OpenAIBaseRequest(BaseLLMRequest):
     def is_reasoning_model(self) -> bool:
         """Which family this request is for. One definition — the validator
         below and `base_payload` both ask it, and they must agree."""
-        return self.model.startswith(REASONING_MODEL_PREFIX)
+        return (not self.model.startswith(NOT_REASONING_MODEL_PREFIX))
 
     @model_validator(mode="after")
     def check_tool_message_linkage(self) -> "OpenAIBaseRequest":

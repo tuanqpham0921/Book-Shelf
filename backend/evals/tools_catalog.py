@@ -54,7 +54,7 @@ FALLBACK_ENCODING = "o200k_base"
 # not the catalog, and is reported separately.
 # (model, catalog sends per request, call site). Unpriced models report `?`.
 CATALOG_CONSUMERS = (
-    ("gpt-5.6-terra", 1, "planjane.build_goal_parse_request (goal generation)"),
+    ("gpt-6-sol", 1, "planjane.build_goal_parse_request (goal generation)"),
 )
 
 # Prompt engineering, not style: "Do not use" and "Example queries" are the

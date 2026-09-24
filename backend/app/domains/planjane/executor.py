@@ -56,7 +56,7 @@ def build_goal_parse_request(query: str) -> OpenAIParserRequest:
 
     return OpenAIParserRequest(
         prompt=system_prompt,
-        model="gpt-5.6-terra",
+        model="gpt-6-sol",
         reasoning_effort="none",
         # NOTE: this should be a list of previous messages as well
         # but for now we can just do clear and direct instructions

@@ -56,6 +56,11 @@ class TestModelFamilySettings:
         assert req.seed is None
         assert req.reasoning_effort == REASONING_EFFORT
 
+    @pytest.mark.parametrize("model", ["gpt-5-nano", "gpt-5.6-luna", "gpt-6-sol"])
+    def test_non_gpt4_models_are_reasoning_models(self, model):
+        req = OpenAIBaseRequest(prompt="p", messages=[USER_MSG], model=model)
+        assert req.is_reasoning_model
+
     def test_sampling_model_clears_reasoning_default(self):
         req = OpenAIBaseRequest(prompt="p", messages=[USER_MSG], model="gpt-4.1-mini")
         assert req.reasoning_effort is None
