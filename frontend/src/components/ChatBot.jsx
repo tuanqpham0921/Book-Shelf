@@ -375,7 +375,9 @@ function ChatBot() {
 
     return (
         <div className="flex flex-col h-full w-full min-w-0 min-h-0">
-                <div className="flex-1 min-h-0 min-w-0 overflow-hidden pl-3 mr-3">
+                {/* pt-3 sits outside the scrolling list, so scrolled text is
+                    cut off 12px below the header's divider, not on it */}
+                <div className="flex-1 min-h-0 min-w-0 overflow-hidden pl-3 mr-3 pt-2">
                     {turn.length === 0 ? (
                         <div className="h-full w-full flex items-center justify-center text-[var(--text-hover)] italic text-2xl">
                             What are you in the mood to read today?
