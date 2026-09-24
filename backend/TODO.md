@@ -61,6 +61,9 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 --------------------------
 
+* set up App check for prod
+* set up pgAdmin neon
+
 3. add rejection and small talks
 4. run evals
 
