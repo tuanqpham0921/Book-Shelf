@@ -31,7 +31,10 @@ from app.orchestration.orchestrator import (
     _best_effort,
 )
 from app.orchestration.task_runner import TaskResult, TaskRunnerOutput
-from app.orchestration.token_budget import OUT_OF_TOKENS_MESSAGE
+from app.orchestration.token_budget import (
+    OUT_OF_TOKENS_MESSAGE,
+    SITE_OUT_OF_TOKENS_MESSAGE,
+)
 from app.orchestration.triage import TriageOutput
 from airglider import OperationResult, Response, TokenUsage
 
@@ -498,3 +501,55 @@ class TestRefusingAnExhaustedSession:
         _, record = await self._turn(ctx)
 
         assert "session tokens remaining: 1234" in record.await_args.args[1].details
+
+
+class TestRefusingWhenTheSiteIsSpent:
+    """The site-wide daily cap — the backstop for a session budget that anyone
+    can reset by inventing a session id. Production only."""
+
+    @staticmethod
+    def _spend(spent: int) -> OperationResult:
+        return OperationResult(
+            name="app.orchestration.token_budget.read_site_spend",
+            ok=True,
+            response=Response(result=spent, output_type="int"),
+        )
+
+    async def _turn(self, ctx, spent):
+        with patch(
+            "app.orchestration.orchestrator.read_site_spend",
+            new_callable=AsyncMock,
+            return_value=self._spend(spent),
+        ) as read, patch(
+            "app.orchestration.orchestrator.TriageWorkflow",
+            return_value=_triage_with_plan(None),
+        ) as triage_cls, patch(
+            "app.orchestration.orchestrator.record_chat_run", new_callable=AsyncMock
+        ):
+            await Orchestrator().run(ctx)
+        return read, triage_cls
+
+    async def test_a_spent_site_gets_no_turn(self, make_request_context):
+        ctx = make_request_context(app_env="production")
+        ctx.sse_stream.send_error = AsyncMock()
+
+        _, triage_cls = await self._turn(ctx, AppConfig.SITE_DAILY_TOKEN_BUDGET)
+
+        triage_cls.assert_not_called()
+        ctx.sse_stream.send_error.assert_awaited_once_with(SITE_OUT_OF_TOKENS_MESSAGE)
+
+    async def test_under_the_cap_the_turn_runs(self, make_request_context):
+        ctx = make_request_context(app_env="production")
+
+        _, triage_cls = await self._turn(ctx, AppConfig.SITE_DAILY_TOKEN_BUDGET - 1)
+
+        triage_cls.assert_called_once()
+
+    async def test_outside_production_it_is_not_read(self, make_request_context):
+        """A local eval campaign is spend the owner chose."""
+        ctx = make_request_context(app_env="development")
+
+        read, triage_cls = await self._turn(ctx, AppConfig.SITE_DAILY_TOKEN_BUDGET)
+
+        read.assert_not_called()
+        triage_cls.assert_called_once()

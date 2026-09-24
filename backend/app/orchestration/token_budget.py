@@ -30,6 +30,15 @@ OUT_OF_TOKENS_MESSAGE = (
     "This session has used up its token budget. Start a new session by refreshing the page."
 )
 
+# The site-wide cap is not the user's to fix, so this one says to come back later.
+SITE_OUT_OF_TOKENS_MESSAGE = (
+    "The site has reached its daily usage limit. Please try again tomorrow."
+)
+
+# The site-wide cap applies only here: a local eval campaign is spend the owner
+# chose, and would trip it against the dev database.
+SITE_BUDGET_ENFORCED_IN = "production"
+
 @task
 async def start_session_turn(request_context: RequestContext) -> int:
     """Open the turn, and report what its session has left to spend.
@@ -51,6 +60,18 @@ async def start_session_turn(request_context: RequestContext) -> int:
     """
     async with request_context.store(SessionStore) as store:
         return await store.start_turn(request_context.session_id)
+
+
+@task
+async def read_site_spend(request_context: RequestContext) -> int:
+    """What the whole site has spent in the last 24 hours.
+
+    The session budget's backstop: a made-up session id starts with a full
+    budget, so only a cap over every session bounds the bill. A `@task` for the
+    same reason `start_session_turn` is — a round trip the turn waits on.
+    """
+    async with request_context.store(SessionStore) as store:
+        return await store.spent_in_last_day()
 
 
 async def debit_session_tokens(

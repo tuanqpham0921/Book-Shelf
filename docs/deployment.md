@@ -462,6 +462,25 @@ tokens with the reCAPTCHA Enterprise provider in `src/api.js`, from the
 devtools and replay it with curl until it expires (1 hour by default). It stops
 scripts that never load the page, not a person who does, so 4.1 stays open.
 
+### 4.7 Spend caps and the review surface (2026-09-24)
+
+- **The review routes are off in production.** `app/main.py` registers
+  `/chat_runs`, `/feedback` and `/feedback/review` only outside production, which
+  closes 4.1's disclosure without the admin gate. Review locally with
+  `make dev-neon` against the same database; `/review` on the live site now
+  fails to load. 4.1 still stands if the review page should ever go public.
+- **Site-wide daily cap.** The per-session budget can't bound the bill on its
+  own: `start_turn` gives a full budget to any session id it hasn't seen, and
+  the id comes from the URL. `Orchestrator.run` now also reads
+  `read_site_spend` (`SessionStore.spent_in_last_day`: every session active in
+  the last 24h, summed as budget minus remaining) and refuses past
+  `AppConfig.SITE_DAILY_TOKEN_BUDGET`. Derived from `sessions`, so there is no
+  migration and no second counter.
+- **Per-IP message limit.** `limit_messages_per_ip` on the chat route, keyed
+  on the last `X-Forwarded-For` entry, in memory per instance, so the real
+  ceiling is up to `max-instances` times `AppConfig.MESSAGES_PER_IP`.
+- Message length was already capped at 2,000 characters in the chat route (4.4).
+
 ### 4.3 CORS ✅ (2026-09-19)
 
 `app/main.py` sets `allow_credentials=True`, so `*` was not merely sloppy —

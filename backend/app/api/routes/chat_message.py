@@ -14,6 +14,7 @@ from app.orchestration.orchestrator import Orchestrator
 from app.api.dependencies import (
     get_request_context_factory,
     get_orchestrator,
+    limit_messages_per_ip,
 )
 from app.common.request_context import RequestContext
 
@@ -56,7 +57,9 @@ async def generate_chat_response(
             await asyncio.gather(orchestrator_task, return_exceptions=True)
 
 
-@router.post("/session/{session_id}/message")
+@router.post(
+    "/session/{session_id}/message", dependencies=[Depends(limit_messages_per_ip)]
+)
 async def chat(
     session_id: str,
     chat_in: ChatIn, # NOTE: this can probably use UserMessage

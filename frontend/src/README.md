@@ -8,7 +8,7 @@ mounted once visited.
 
 | Path | What it is |
 |---|---|
-| `api.js` | **The only backend surface.** `VITE_API_URL` comes from `.env.development` / `.env.production` at build time; wraps fetch with a 120s timeout and attaches the Firebase App Check token (`X-Firebase-AppCheck`) when the build carries `VITE_RECAPTCHA_SITE_KEY` — production only. One function per live endpoint — the three clients for endpoints that no longer exist (`stopChatStream`, `getTaskPlanDiagram`, `getRecommendedBooks`) were deleted 2026-09-19 |
+| `api.js` | **The only backend surface.** `VITE_API_URL` comes from `.env.development` / `.env.production` at build time; wraps fetch with a 120s timeout and attaches the Firebase App Check token (`X-Firebase-AppCheck`) when the build carries `VITE_RECAPTCHA_SITE_KEY` — production only. The backend doesn't serve the review routes in production, so `/review` works only against a local backend (`make dev-neon`). One function per live endpoint — the three clients for endpoints that no longer exist (`stopChatStream`, `getTaskPlanDiagram`, `getRecommendedBooks`) were deleted 2026-09-19 |
 | `components/ChatBot.jsx` | Chat view: sends messages, consumes the SSE stream, builds ordered response sections (`text`/`books`/`diagram`/`error`/`task`) in `use-immer` state |
 | `components/chatbot/` | `ChatInput`, `ChatMessages` (react-markdown + remark-gfm rendering), `TaskSection` (one collapsible step: an executed node, or the plan diagram) |
 | `components/MermaidDiagram.jsx` | Renders the task-plan diagram (`securityLevel: 'strict'`, pan/zoom via `@panzoom/panzoom`); shared with the review page |

@@ -1,4 +1,6 @@
 import logging
+import time
+from collections import defaultdict, deque
 from typing import AsyncGenerator
 
 import jwt
@@ -148,3 +150,36 @@ def require_app_check(
     except jwt.PyJWTError as exc:
         logger.warning("Rejected App Check token: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid App Check token")
+
+
+# Arrival times of each IP's recent messages, per instance. Never swept: it
+# grows by one small entry per distinct caller until the instance recycles,
+# which min-instances=0 does whenever the site goes idle.
+_recent_messages: dict[str, deque[float]] = defaultdict(deque)
+
+
+def limit_messages_per_ip(request: Request) -> None:
+    """Refuse an IP that has sent `MESSAGES_PER_IP` messages this window.
+
+    Production only, like the site-wide token cap: an eval suite fires every
+    case from one address. The IP is the *last* `X-Forwarded-For` entry, the
+    one Cloud Run's front end appends — anything before it the caller wrote.
+    """
+    if settings.app.ENVIRONMENT != "production":
+        return
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        ip = forwarded.split(",")[-1].strip()
+    else:
+        ip = request.client.host if request.client else "unknown"
+
+    now = time.monotonic()
+    arrivals = _recent_messages[ip]
+    while arrivals and now - arrivals[0] > AppConfig.MESSAGES_PER_IP_WINDOW:
+        arrivals.popleft()
+    if len(arrivals) >= AppConfig.MESSAGES_PER_IP:
+        logger.warning("🚫 Rate limited %s", ip)
+        raise HTTPException(
+            status_code=429, detail="Too many messages. Please try again later."
+        )
+    arrivals.append(now)

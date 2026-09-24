@@ -16,6 +16,18 @@ class AppConfig:
     # on remaining_tokens — this is the only place the number lives.
     SESSION_TOKEN_BUDGET = 200_000
 
+    # What the whole deployed site may spend in a rolling 24 hours, across
+    # every session. The per-session budget above cannot bound this on its own:
+    # the session id comes from the URL, so a caller gets a fresh budget by
+    # making one up. Production only (token_budget.read_site_spend).
+    SITE_DAILY_TOKEN_BUDGET = 3_000_000
+
+    # Chat messages one IP may send per window, in production. Counted in each
+    # instance's memory, so with max-instances=3 the real ceiling is up to 3x
+    # this — a brake on one noisy caller, not an exact quota.
+    MESSAGES_PER_IP        = 30
+    MESSAGES_PER_IP_WINDOW = 60 * 60  # seconds
+
     # The ceiling on any one statement a store runs, in seconds. Applied by the
     # engine (db/async_engine.py), which derives every layer from it, each one
     # sitting above what it backs up: Postgres' statement_timeout, asyncpg's

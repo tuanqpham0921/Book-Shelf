@@ -77,5 +77,9 @@ app.include_router(health_router)
 app_check = [Depends(require_app_check)]
 app.include_router(chat_router, dependencies=app_check)
 app.include_router(session_router, dependencies=app_check)
-app.include_router(chat_run_router, dependencies=app_check)
-app.include_router(feedback_router, dependencies=app_check)
+# The review surface serves every user's messages and has no admin gate yet
+# (docs/deployment.md §4.1), so production doesn't serve it at all: review
+# locally with `make dev-neon`, which reads the same database.
+if settings.app.ENVIRONMENT != "production":
+    app.include_router(chat_run_router, dependencies=app_check)
+    app.include_router(feedback_router, dependencies=app_check)

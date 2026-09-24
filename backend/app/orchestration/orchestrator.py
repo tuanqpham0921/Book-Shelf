@@ -13,7 +13,10 @@ from app.orchestration.task_runner import TaskRunnerInput, TaskRunnerWorkflow
 from app.orchestration.run_recorder import record_chat_run
 from app.orchestration.token_budget import (
     OUT_OF_TOKENS_MESSAGE,
+    SITE_BUDGET_ENFORCED_IN,
+    SITE_OUT_OF_TOKENS_MESSAGE,
     debit_session_tokens,
+    read_site_spend,
     start_session_turn,
 )
 from app.orchestration.write_recommendations import (
@@ -123,6 +126,20 @@ class Orchestrator:
                 )
                 await sse_stream.send_error(OUT_OF_TOKENS_MESSAGE)
                 return
+
+            if request_context.app_env == SITE_BUDGET_ENFORCED_IN:
+                site_step = await read_site_spend(request_context)
+                record.add_step(site_step)
+                site_spent = site_step.unwrap()
+                record.add_details(f"site tokens spent today: {site_spent}")
+                if site_spent >= AppConfig.SITE_DAILY_TOKEN_BUDGET:
+                    record.add_details("refused: site out of tokens for today")
+                    logger.warning(
+                        f"🚫 Site daily budget spent ({site_spent}), refusing "
+                        f"the turn: session={request_context.session_id}"
+                    )
+                    await sse_stream.send_error(SITE_OUT_OF_TOKENS_MESSAGE)
+                    return
 
             await sse_stream.send_ui_loading("Starting conversation...")
             triage_workflow = TriageWorkflow(request_context, messages=messages)

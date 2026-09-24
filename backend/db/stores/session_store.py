@@ -1,4 +1,6 @@
-from sqlalchemy import func, update
+from datetime import timedelta
+
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,3 +86,22 @@ class SessionStore(BaseStore[SessionModel]):
         # None rather than a raise: the caller is the orchestrator's cleanup,
         # where a missing row is worth a warning and nothing more.
         return result.scalar_one_or_none()
+
+    async def spent_in_last_day(self) -> int:
+        """Tokens spent by every session active in the last 24 hours.
+
+        Read off the budget itself — what a session started with minus what it
+        has left — so no second counter can drift from the debits. A session
+        active today counts its *whole* spend, including anything from before
+        the window, which errs toward refusing early rather than late.
+        """
+        stmt = select(
+            func.coalesce(
+                func.sum(
+                    AppConfig.SESSION_TOKEN_BUDGET - SessionModel.remaining_tokens
+                ),
+                0,
+            )
+        ).where(SessionModel.last_updated > func.now() - timedelta(hours=24))
+        result = await self.execute_statement(stmt)
+        return int(result.scalar_one())

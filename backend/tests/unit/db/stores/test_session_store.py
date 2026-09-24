@@ -134,3 +134,24 @@ class TestTheColumnItWrites:
         assert column.default is None
         assert column.server_default is None
         assert not column.nullable
+
+
+class TestSpentInLastDay:
+    """The site-wide cap's read: spend is derived from the budget itself."""
+
+    @pytest.fixture(autouse=True)
+    async def read(self, session):
+        session.execute.return_value.scalar_one.return_value = 1_000
+        self.spent = await SessionStore(session).spent_in_last_day()
+
+    async def test_spend_is_budget_minus_what_is_left(self, session):
+        sql = sql_of(session)
+        assert "sum(" in sql and "- sessions.remaining_tokens" in sql
+        params = statement_of(session).compile().params.values()
+        assert AppConfig.SESSION_TOKEN_BUDGET in params
+
+    async def test_only_sessions_active_in_the_last_day_count(self, session):
+        assert "sessions.last_updated > now() - " in sql_of(session)
+
+    async def test_it_returns_the_total(self):
+        assert self.spent == 1_000
