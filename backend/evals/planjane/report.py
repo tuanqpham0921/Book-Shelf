@@ -13,9 +13,9 @@ Only the most recent run of each (suite_name, case_id) is reported; --all
 includes every recorded run.
 
 Usage (from backend/, or `make suite-report`):
-    poetry run python evals/report.py
-    poetry run python evals/report.py --suite query_suite --suite query_suite_stress
-    poetry run python evals/report.py --all --output evals/results/my_campaign/report.md
+    poetry run python evals/planjane/report.py
+    poetry run python evals/planjane/report.py --suite query_suite --suite query_suite_stress
+    poetry run python evals/planjane/report.py --all --output evals/results/my_campaign/report.md
 """
 
 import sys

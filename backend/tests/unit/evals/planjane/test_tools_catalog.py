@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-import evals.tools_catalog as tools_catalog
-from evals.tools_catalog import (
+import evals.planjane.tools_catalog as tools_catalog
+from evals.planjane.tools_catalog import (
     build_audit,
     build_report,
     count_tokens,

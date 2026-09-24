@@ -14,7 +14,7 @@ import pytest
 
 import evals.common as common_module
 from evals.common import latest_per_case, load_suite_entries
-from evals.report_system_goals import (
+from evals.planjane.report_system_goals import (
     accepted_goal_types,
     build_goals_report,
     diff_node_types,

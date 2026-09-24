@@ -1,6 +1,6 @@
 """Send a suite of queries to the backend one after another.
 
-Queries load from evals/suites/query_suite.json (override with --suite). Each is
+Queries load from evals/planjane/suites/query_suite.json (override with --suite). Each is
 POSTed to /session/{id}/message and its SSE stream consumed to completion before
 the next. The runner sleeps 45s between queries (--sleep, 0 to disable) to stay
 under the OpenAI TPM rate limit (docs/backlog.md Reliability).
@@ -8,16 +8,16 @@ under the OpenAI TPM rate limit (docs/backlog.md Reliability).
 A test_runs row is written right after each completed query rather than batched
 at the end, so an interrupted run keeps everything it completed. It links the
 chat_id (captured from the chat.id SSE event) back to its suite entry, which is
-what evals/report.py joins on. --no-record skips the DB write, e.g. when the
+what evals/planjane/report.py joins on. --no-record skips the DB write, e.g. when the
 target backend's database is unreachable from this machine.
 
 Usage (from backend/, or via the make targets in evals/makefile):
-    poetry run python evals/run_suites.py
-    poetry run python evals/run_suites.py --difficulty easy
-    poetry run python evals/run_suites.py --ids 1 16 50
-    poetry run python evals/run_suites.py --new-session-per-query
-    poetry run python evals/run_suites.py --suite evals/suites/query_suite_extended.json
-    poetry run python evals/run_suites.py --sleep 0
+    poetry run python evals/planjane/run_suites.py
+    poetry run python evals/planjane/run_suites.py --difficulty easy
+    poetry run python evals/planjane/run_suites.py --ids 1 16 50
+    poetry run python evals/planjane/run_suites.py --new-session-per-query
+    poetry run python evals/planjane/run_suites.py --suite evals/planjane/suites/query_suite_extended.json
+    poetry run python evals/planjane/run_suites.py --sleep 0
 """
 
 import argparse

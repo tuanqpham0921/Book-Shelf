@@ -16,9 +16,9 @@ Two token costs, paid at different points by different models:
   by classification. Per-goal, not per-request.
 
 Usage (from backend/, or `make tools-catalog`):
-    poetry run python evals/tools_catalog.py
-    poetry run python evals/tools_catalog.py --output evals/results/tools_catalog.md
-    poetry run python evals/tools_catalog.py --model gpt-4.1-mini
+    poetry run python evals/planjane/tools_catalog.py
+    poetry run python evals/planjane/tools_catalog.py --output evals/results/tools_catalog.md
+    poetry run python evals/planjane/tools_catalog.py --model gpt-4.1-mini
 """
 
 import argparse
@@ -28,17 +28,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Must precede the app imports: running this as a script puts evals/ first on
-# sys.path, where common.py shadows the backend's own `common` package and
-# `app.registry` dies with "'common' is not a package".
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import tiktoken
+from openai import pydantic_function_tool
 
-import tiktoken  # noqa: E402
-from openai import pydantic_function_tool  # noqa: E402
-
-from app.registry import REGISTRY  # noqa: E402
-from airglider import PRICES_CHECKED_ON, cost_of  # noqa: E402
-from evals.common import current_git_sha, truncate  # noqa: E402
+from app.registry import REGISTRY
+from airglider import PRICES_CHECKED_ON, cost_of
+from evals.common import current_git_sha, truncate
 
 # long enough for a Purpose: line, short enough to keep the numeric columns
 # readable beside it

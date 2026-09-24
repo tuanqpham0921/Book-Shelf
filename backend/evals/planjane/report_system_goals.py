@@ -13,9 +13,9 @@ includes every recorded run. The report saves to
 evals/results/system_goals_<timestamp>.md unless --output says otherwise.
 
 Usage (from backend/, or `make suite-goals`):
-    poetry run python evals/report_system_goals.py
-    poetry run python evals/report_system_goals.py --suite query_suite --suite query_suite_stress
-    poetry run python evals/report_system_goals.py --all --output evals/results/my_campaign/system_goals.md
+    poetry run python evals/planjane/report_system_goals.py
+    poetry run python evals/planjane/report_system_goals.py --suite query_suite --suite query_suite_stress
+    poetry run python evals/planjane/report_system_goals.py --all --output evals/results/my_campaign/system_goals.md
 """
 
 import sys

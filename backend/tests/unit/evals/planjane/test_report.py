@@ -13,7 +13,7 @@ import pytest
 
 import evals.common as common_module
 from evals.common import latest_per_case, load_suite_entries
-from evals.report import (
+from evals.planjane.report import (
     build_report,
     spend_by_model,
     summarize,

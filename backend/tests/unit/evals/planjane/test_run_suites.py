@@ -9,7 +9,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from evals.run_suites import (
+from evals.planjane.run_suites import (
     DEFAULT_SUITE_PATH,
     load_suite,
     positive_int,
