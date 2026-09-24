@@ -7,6 +7,7 @@ modules. The template and the reading rule are in domains/README.md.
 
 from clients.messages import AssistantMessage
 from app.domains.books.base_workflow import BookWorkflow
+from db.stores import author_query
 from clients import OpenAIParserRequest
 
 from .schemas import FindByAuthorArgs
@@ -63,7 +64,7 @@ class FindByAuthorExecutor(BookWorkflow[FindByAuthorOutput]):
         await self.sse_stream.send_ui_loading(f"finding books by: {author}")
 
         # 2. build the deferred query and count — no rows fetched
-        deferred = self.store.author_query(author=author)
+        deferred = author_query(author=author)
         total = (await self.count_books(deferred)).unwrap()
 
         await self.sse_stream.send_chars(f"- Found {total} books by: {author}")

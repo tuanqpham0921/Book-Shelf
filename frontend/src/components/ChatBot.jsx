@@ -337,7 +337,10 @@ function ChatBot() {
                     last.response.sections.push({
                         id: sectionId,
                         type: 'error',
-                        content: "Oops something went wrong..."
+                        // a rate limit says when to come back; anything else stays generic
+                        content: err.status === 429 && err.data?.detail
+                            ? err.data.detail
+                            : "Oops something went wrong..."
                     });
                 });
             }

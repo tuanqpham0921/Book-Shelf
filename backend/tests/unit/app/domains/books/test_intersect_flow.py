@@ -11,7 +11,7 @@ and `finalize_result` are all real, so the SQL asserted below is the SQL that
 would run.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -19,35 +19,36 @@ from pydantic import ValidationError
 from app.domains.books.external import (
     BookAnchorOutput,
     BookCandidateOutput,
-    BookRequestContext,
     BookRetrievalOutput,
 )
 from app.domains.books.intersect_books import CombineIntersectExecutor
 from app.domains.books.intersect_books.external import CombineIntersectInput
 from app.domains.node_input import build_input
 from db.schema import BookMetadataFilter, BookModel
-from db.stores import BookStore, compile_sql, embedding_search_stmt
+from db.stores import (
+    compile_sql,
+    embedding_search_stmt,
+    lexical_query,
+    numeric_traits_query,
+    title_query,
+)
 
 ROW = {"isbn13": "9780441013593", "title": "Dune", "authors": "Frank Herbert"}
 
-# the session is never touched: every builder used here only builds
-_store = BookStore(MagicMock())
-
-
 def _title(num_books: int = 6) -> BookAnchorOutput:
-    return BookAnchorOutput(num_books=num_books, query=_store.title_query("Dune"))
+    return BookAnchorOutput(num_books=num_books, query=title_query("Dune"))
 
 
 def _lexical(num_books: int = 358) -> BookCandidateOutput:
     return BookCandidateOutput(
-        num_books=num_books, query=_store.lexical_query(keywords=["thriller"])
+        num_books=num_books, query=lexical_query(keywords=["thriller"])
     )
 
 
 def _bound(num_books: int = 2190) -> BookCandidateOutput:
     return BookCandidateOutput(
         num_books=num_books,
-        query=_store.numeric_traits_query(BookMetadataFilter(max_pages=300)),
+        query=numeric_traits_query(BookMetadataFilter(max_pages=300)),
     )
 
 
@@ -59,16 +60,15 @@ def _pool(num_books: int = 250) -> BookCandidateOutput:
 
 
 @pytest.fixture
-def node(request_context):
-    store = request_context.stores[BookStore]
-    store.count = AsyncMock(return_value=4)
-    store.materialize = AsyncMock(return_value=[ROW])
-    return CombineIntersectExecutor(BookRequestContext.narrow(request_context))
+def node(request_context, book_store):
+    book_store.count = AsyncMock(return_value=4)
+    book_store.materialize = AsyncMock(return_value=[ROW])
+    return CombineIntersectExecutor(request_context)
 
 
 class TestTheHappyPath:
     @pytest.mark.asyncio
-    async def test_it_ands_its_dependencies_and_counts_the_result(self, node):
+    async def test_it_ands_its_dependencies_and_counts_the_result(self, node, book_store):
         result = await node(
             CombineIntersectInput(instruction="thrillers by Austen", anchors=[_lexical(), _title()])
         )
@@ -77,7 +77,7 @@ class TestTheHappyPath:
         out = result.unwrap()
         assert out.num_books == 4
         # the count ran over the intersection, not over either input
-        assert node.store.count.await_count == 1
+        assert book_store.count.await_count == 1
         assert "INTERSECT" in compile_sql(out.query.stmt).upper()
 
     @pytest.mark.asyncio
@@ -136,10 +136,10 @@ class TestTheHappyPath:
         assert "LIMIT 250" in materialized.replace("\n", " ")
 
     @pytest.mark.asyncio
-    async def test_an_empty_intersection_is_an_answer_not_a_failure(self, node):
+    async def test_an_empty_intersection_is_an_answer_not_a_failure(self, node, book_store):
         """No book satisfied every condition. The node did its job, so it
         finalizes ok — and skips the preview, since there is nothing to show."""
-        node.store.count = AsyncMock(return_value=0)
+        book_store.count = AsyncMock(return_value=0)
 
         result = await node(
             CombineIntersectInput(instruction="thrillers by Austen", anchors=[_lexical(), _title()])
@@ -147,7 +147,7 @@ class TestTheHappyPath:
 
         assert result.ok
         assert result.unwrap().num_books == 0
-        node.store.materialize.assert_not_awaited()
+        book_store.materialize.assert_not_awaited()
 
 
 class TestWhatItRefuses:

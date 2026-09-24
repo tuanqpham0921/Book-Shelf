@@ -17,6 +17,21 @@ CREATE TABLE IF NOT EXISTS books (
     embedding VECTOR(1024)
 );
 
+-- Chat sessions: one row per session that has actually sent a message.
+-- Created lazily on the first message (POST /session/new stays stateless, so
+-- page loads and bots write nothing), then debited once per turn by the
+-- orchestrator with what that turn cost — planner, tasks and reply together.
+-- remaining_tokens carries no DEFAULT on purpose: the allowance a new session
+-- starts with is AppConfig.SESSION_TOKEN_BUDGET, and a second copy here is a
+-- number that drifts. No CHECK (remaining_tokens >= 0) either: a turn is charged
+-- after it runs, so a session's last turn legitimately overshoots into the red.
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_updated TIMESTAMPTZ NOT NULL DEFAULT now(),
+    remaining_tokens INTEGER NOT NULL
+);
+
 -- Chat run records: one row per orchestrated chat turn.
 -- Envelopes stored as JSONB (queryable via -> / ->>), hot stats promoted to columns.
 -- Review state lives entirely in the feedback table: a run's review count is

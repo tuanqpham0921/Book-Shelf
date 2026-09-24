@@ -12,17 +12,15 @@ is what `check_anchors` caps against, and it is exact without a round trip
 because every anchor counted itself before handing on its query.
 """
 
-from unittest.mock import MagicMock
 
 from app.domains.books.external import BookAnchorOutput, BookRetrievalOutput
 from app.domains.books.find_similar_books.dependents import ParsedDependents
 from app.domains.books.schemas import Book
-from db.stores import BookStore, DeferredBookQuery
+from db.stores import title_query, DeferredBookQuery
 
 
 def _query(title: str = "Dune") -> DeferredBookQuery:
-    # the session is never touched: title_query only builds
-    return BookStore(MagicMock()).title_query(title)
+    return title_query(title)
 
 
 def _retrieval(num_books: int, query: DeferredBookQuery | None = None):

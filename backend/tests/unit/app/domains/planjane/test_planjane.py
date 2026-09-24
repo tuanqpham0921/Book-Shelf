@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
+from airglider import price_for
 from clients.messages import UserMessage
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.domains.node_input import NodeInput, ParsedInput
@@ -26,6 +27,7 @@ from app.domains.planjane import (
     SystemGoal,
     MAX_SYSTEM_GOALS,
 )
+from app.domains.planjane.executor import build_goal_parse_request
 from app.domains.base_request import MAX_STRING_LENGTH, MIN_CONFIDENCE
 from app.common.field_types import (
     INSTRUCTION_FALLBACK,
@@ -421,3 +423,12 @@ class TestPlanJaneOutputHelpers:
         # chose is the thing a trace is read for; refusals stay a count
         assert summary["accepted_types"] == [FindTitleNodeTypeEnum.REQUEST]
         assert summary["num_rejected_system"] == 1
+
+
+class TestPlannerModelIsPriced:
+    """The planner call dominates a run's spend, so swapping its model without
+    adding a rate would silently report that spend as unknown."""
+
+    def test_goal_parse_model_has_a_price(self):
+        model = build_goal_parse_request("any query").model
+        assert price_for(model) is not None, f"{model} missing from MODEL_PRICES"

@@ -1,10 +1,17 @@
 """What every book node's executor shares — the books layer of the base class.
 
 `AppWorkflow` pins the call signature for any unit of work; this adds what only
-a book node needs: `store` (the request-scoped book store, already resolved when
-the runner narrowed the context), the two halves of the counts-first opening
-move — `count_books()` and `fetch_books()`, see
+a book node needs: the two halves of the counts-first opening move —
+`count_books()` and `fetch_books()`, see
 docs/design/execution-pipeline-v1.md — and `stream_books()`.
+
+**Each of those opens its own database session**, via
+`RequestContext.store(BookStore)`, and gives it back when the round trip is
+done. There is no store on the workflow and none on the context: the turn runs
+after the HTTP handler has returned, so a store built at the request boundary
+would spend the whole turn on a session that was already closed. Building a
+query needs no session at all — the builders in `db/stores/book_store.py` are
+module-level functions — so a node only opens one around the `await`.
 
 **Counting and fetching are separate calls, and only one of them writes to the
 output.** They used to be a single `preflight()` returning `(total, sample)`
@@ -38,7 +45,7 @@ from abc import ABC
 from typing import Any, Sequence, TypeVar, List
 
 from app.api.schemas import BookOut
-from app.domains.books.external import BookRequestContext, BookRetrievalOutput
+from app.domains.books.external import BookRetrievalOutput
 from app.domains.books.schemas import Book
 from app.domains.base_workflow import AppWorkflow, NodeWorkflowOutput
 from config import BookConstraints
@@ -63,20 +70,6 @@ class BookReaderWorkflow(AppWorkflow[ReaderOutputT], ABC):
     prose.
     """
 
-    # Narrows the inherited attribute for type checkers — a pure annotation.
-    # True because every book node lists `context=BookRequestContext` on its
-    # spec, which is what the runner narrows with before constructing it.
-    ctx: BookRequestContext
-
-    @property
-    def store(self) -> BookStore:
-        """The request-scoped book store.
-
-        A plain field read: `BookRequestContext.narrow` resolved it once at
-        dispatch, so a mis-wired store fails there rather than at first query.
-        """
-        return self.ctx.store
-
     @task
     async def fetch_books(
         self, query: DeferredBookQuery, limit: int = BookConstraints.default_limit
@@ -94,7 +87,8 @@ class BookReaderWorkflow(AppWorkflow[ReaderOutputT], ABC):
         one, by rating otherwise (see `materialize_stmt`), so a caller taking
         fewer rows than the query matches is taking the best of them.
         """
-        rows = await self.store.materialize(query, limit=limit)
+        async with self.ctx.store(BookStore) as store:
+            rows = await store.materialize(query, limit=limit)
         return [Book.model_validate(row) for row in rows]
 
     async def stream_books(
@@ -144,12 +138,18 @@ class BookWorkflow(BookReaderWorkflow[BookOutputT], ABC):
 
         A `@task` like every other awaited unit of work: the COUNT round trip
         is its own step, so its duration and any failure are attributed to the
-        count rather than to whatever the node did next. Callers `.unwrap()`
-        the total; what it learns is also stamped on the node's own output.
+        count rather than to whatever the node did next — and so is the wait
+        for a connection, since the session is opened inside the step. Callers
+        `.unwrap()` the total; what it learns is also stamped on the node's own
+        output.
+
+        The query is stamped *before* the session is opened, so a count that
+        fails still leaves the recorded SQL on the output.
         """
         self.result.query = query
         self.result.query_sql = compile_sql(query.stmt)
 
-        total = await self.store.count(query)
+        async with self.ctx.store(BookStore) as store:
+            total = await store.count(query)
         self.result.num_books = total
         return total

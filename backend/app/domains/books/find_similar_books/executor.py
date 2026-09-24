@@ -23,7 +23,7 @@ the pool in SQL and cosine order survives the narrowing.
 from app.domains.books.base_workflow import BookWorkflow
 from app.domains.books.schemas import Book
 from config import BookConstraints
-from db.stores import DeferredBookQuery, compile_sql, embedding_search_stmt
+from db.stores import BookStore, DeferredBookQuery, compile_sql, embedding_search_stmt
 from .dependents import ParsedDependents
 from .analyze_references import (
     IdealBookDescription,
@@ -246,7 +246,8 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
             query.stmt, embedding_as="embed(search_text)"
         )
 
-        stats = await self.store.score_stats(query)
+        async with self.ctx.store(BookStore) as store:
+            stats = await store.score_stats(query)
         # None is an empty pool, not a missing measurement — nothing cleared
         # the similarity floor, which is a real answer this node reports
         self.result.score = ScoreStats.model_validate(stats) if stats else None

@@ -61,14 +61,23 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 --------------------------
 
-2. set up a session db with max tokens
+* set up pgAdmin neon
+
 3. add rejection and small talks
 4. run evals
 
 2. format the task runner better
 3. fix the ingestion thing with the ISBN
 4. add limit to task and such
-5. set up the tokens limit per session
+
+**Eval suites and the session token budget — no longer urgent, but still true.**
+The budget is only *enforced* in production (`token_budget.ENFORCED_IN`), so a
+suite run against `make dev` is never refused. It is still charged, though, and
+`run_suites.py` mints one `test_` session and reuses it for the whole suite — so
+the row goes tens of thousands of tokens into the red and a suite's spend is one
+number instead of one per case. The flag to fix that exists and is unused: add
+`--new-session-per-query` to the `RUN_SUITE` line in `evals/makefile` (covers all
+four suite targets). Note the suites *would* be cut off under `make local-prod`.
 
 continue with CI/CD
 * clean up (UI)

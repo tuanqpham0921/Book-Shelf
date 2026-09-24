@@ -18,6 +18,7 @@ from typing import Any
 
 from clients.messages import AssistantMessage
 from app.domains.books.base_workflow import BookWorkflow
+from db.stores import numeric_traits_query
 from clients import OpenAIParserRequest
 from db.schema import BookMetadataFilter
 
@@ -183,7 +184,7 @@ class FindByNumericTraitsExecutor(BookWorkflow[FindByNumericTraitsOutput]):
         await self.sse_stream.send_ui_loading(f"finding books: {bounds}")
 
         # 2. build the deferred query and count — no rows fetched
-        deferred = self.store.numeric_traits_query(parsed_args.traits)
+        deferred = numeric_traits_query(parsed_args.traits)
         total = (await self.count_books(deferred)).unwrap()
 
         await self.sse_stream.send_chars(f"- Found {total} books: {bounds}")

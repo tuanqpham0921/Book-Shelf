@@ -1,15 +1,24 @@
 import asyncio
 import logging
 import time
+from typing import Any, Coroutine
 
+from config import AppConfig
 from app.common.sse_stream import SSEStream
 from app.common.request_context import RequestContext
 
-from app.domains.books.external import BookRequestContext
 from app.domains.node_input import NodeInput
 from app.orchestration.triage import TriageWorkflow
 from app.orchestration.task_runner import TaskRunnerInput, TaskRunnerWorkflow
 from app.orchestration.run_recorder import record_chat_run
+from app.orchestration.token_budget import (
+    OUT_OF_TOKENS_MESSAGE,
+    SITE_BUDGET_ENFORCED_IN,
+    SITE_OUT_OF_TOKENS_MESSAGE,
+    debit_session_tokens,
+    read_site_spend,
+    start_session_turn,
+)
 from app.orchestration.write_recommendations import (
     GenerateRecommendationsExecutor,
     RecommendationsInput,
@@ -25,6 +34,47 @@ logger = logging.getLogger(__name__)
 SAVE_LOG_TIMEOUT = 60  # seconds
 CLOSE_SSE_STREAM_TIMEOUT = 10  # seconds
 CONVERSATION_TIMEOUT = 120  # seconds
+
+# Above the engine's own worst case, not level with it — the same ladder
+# `db/async_engine.py` builds out of this constant, one rung further out. A
+# debit can wait `pool_timeout` for a connection and *then* run its statement,
+# so a ceiling equal to `DATABASE_TIMEOUT` would cancel a charge that was about
+# to succeed. This is the one cleanup step with money attached, and cancelling
+# it mid-statement is also the one cancel here that can reach a live
+# connection. Leave it the loosest thing that still terminates.
+DEBIT_TOKENS_TIMEOUT = AppConfig.DATABASE_TIMEOUT * 3  # seconds
+
+
+async def _best_effort(
+    coro: Coroutine[Any, Any, Any], timeout: float, what: str, turn_id: str
+) -> None:
+    """Run one cleanup step under a ceiling, and never raise.
+
+    The ceiling is not redundant with the database's own timeouts, because
+    `_finalize` runs inside `asyncio.shield` — nothing outside can stop these,
+    so this is what makes them terminate at all. It also covers what Postgres
+    cannot see: the wait for a connection, the connect handshake, and the two
+    steps here that never touch a database.
+
+    **The timeout gets its own branch because it is the only thing that
+    normally arrives.** `debit_session_tokens` and `record_chat_run` both
+    swallow their own exceptions, so a step that broke has already been logged
+    with its traceback by the time we get here; what reaches this function is
+    the `TimeoutError` that `wait_for` raises after cancelling them — and their
+    own `except Exception` could not have caught that, since `CancelledError`
+    has been a `BaseException` since 3.8. Logging both cases as one anonymous
+    warning lost the distinction and the cause with it.
+    """
+    try:
+        await asyncio.wait_for(coro, timeout=timeout)
+    except TimeoutError:
+        logger.warning(
+            "⏱️ %s gave up after %ss and was cancelled — turn %s", what, timeout, turn_id
+        )
+    except Exception:
+        # Reachable from `sse_stream.close()`, which catches nothing of its
+        # own. With the traceback: an exception that got this far is a surprise.
+        logger.exception("%s failed — turn %s", what, turn_id)
 
 
 class Orchestrator:
@@ -57,8 +107,41 @@ class Orchestrator:
             # starts, so the client can attach feedback even if the turn later
             # errors, times out, or is stopped before 'complete' fires.
             await sse_stream.send_chat_id(request_context.user_message.id)
-            await sse_stream.send_ui_loading("Starting conversation...")
 
+            # Opens the turn: one round trip that creates the sessions row on a
+            # first message and reports the balance. Attached by hand because
+            # `run` builds this root rather than being a unit of work itself,
+            # so nothing is in scope to adopt the step — and attached before
+            # the unwrap, so a read that failed is still on the record.
+            await sse_stream.send_ui_loading("Checking Budget...")
+            budget_step = await start_session_turn(request_context)
+            record.add_step(budget_step)
+            remaining_tokens = budget_step.unwrap()
+            record.add_details(f"session tokens remaining: {remaining_tokens}")
+            if remaining_tokens <= 0:
+                record.add_details("refused: session out of tokens")
+                logger.warning(
+                    f"🚫 Out of tokens, refusing the turn: "
+                    f"session={request_context.session_id}"
+                )
+                await sse_stream.send_error(OUT_OF_TOKENS_MESSAGE)
+                return
+
+            if request_context.app_env == SITE_BUDGET_ENFORCED_IN:
+                site_step = await read_site_spend(request_context)
+                record.add_step(site_step)
+                site_spent = site_step.unwrap()
+                record.add_details(f"site tokens spent today: {site_spent}")
+                if site_spent >= AppConfig.SITE_DAILY_TOKEN_BUDGET:
+                    record.add_details("refused: site out of tokens for today")
+                    logger.warning(
+                        f"🚫 Site daily budget spent ({site_spent}), refusing "
+                        f"the turn: session={request_context.session_id}"
+                    )
+                    await sse_stream.send_error(SITE_OUT_OF_TOKENS_MESSAGE)
+                    return
+
+            await sse_stream.send_ui_loading("Starting conversation...")
             triage_workflow = TriageWorkflow(request_context, messages=messages)
             await asyncio.wait_for(
                 triage_workflow(
@@ -69,11 +152,20 @@ class Orchestrator:
             )
 
             # No plan when triage handled the turn without planning (small
-            # talk, a refusal, a cache miss on a failed planner): nothing for
-            # the runner to execute. A bare read, not `unwrap()` — triage has
-            # already told the user what its own failure means.
-            plan = triage_workflow.result.parse_result
-            if triage_workflow.record.ok and plan and plan.accepted_goals:
+            # talk, a refusal, a cache miss on a failed planner): `parse_result`
+            # is None and there is nothing for the runner to execute.
+            #
+            # `record.unwrap()`, because `unwrap` lives on the envelope and not
+            # on the workflow — `triage_workflow.record` is what the decorator
+            # built. A triage that *failed* stops the turn right here: the
+            # `StepFailure` lands in the `except Exception` below, which stamps
+            # it on the turn and sends the generic error. That is on top of
+            # whatever triage already said for itself, and deliberate — a
+            # failed triage read as "no plan" would answer the turn with
+            # silence.
+            plan = triage_workflow.record.unwrap().parse_result
+            if plan and plan.accepted_goals:
+                await sse_stream.send_ui_loading("Starting Tasks...")
                 task_runner = TaskRunnerWorkflow(request_context, messages=messages)
                 await asyncio.wait_for(
                     # the only place triage and the runner are wired together,
@@ -82,7 +174,7 @@ class Orchestrator:
                     timeout=CONVERSATION_TIMEOUT,
                 )
                 writer = await self._write_reply(request_context, task_runner, messages)
-
+            
             # chat_id lets the client attach feedback to the chat_runs row
             await sse_stream.send(
                 "complete",
@@ -90,7 +182,6 @@ class Orchestrator:
             )
             await sse_stream.close()
             logger.info("✅ Orchestration completed successfully")
-
         except asyncio.CancelledError as e:
             # client disconnected mid-turn — the finally block still records
             # what we have, then this propagates so the task is really cancelled
@@ -169,33 +260,19 @@ class Orchestrator:
 
         Returns the workflow so the caller can hang its record on the turn's
         tree, matching how triage and the runner are handled; None when there
-        was nothing to write about or nowhere to write from.
+        was nothing to write about.
 
-        Two ways to decline, both quiet:
-
-        - **No results.** A plan whose every goal was unreachable leaves an
-          empty map. There is no evidence to write from, so the stage would
-          only invent one — the same failure the `ValueError` in its `run`
-          guards against.
-        - **No book store on this request.** Narrowing is what a node's
-          `NodeSpec.context` did at dispatch; this stage has no spec, so it
-          narrows here. A `LookupError` means the services it needs are not on
-          this request, which is a deployment problem rather than a turn that
-          should die — the cards already streamed, so the user loses the prose
-          and nothing else.
+        One way to decline, and it is quiet: a plan whose every goal was
+        unreachable leaves an empty map. There is no evidence to write from, so
+        the stage would only invent one — the same failure the `ValueError` in
+        its `run` guards against.
         """
         results = list(task_runner.result.task_results.values())
         if not results:
             logger.warning("No task results to write a reply from")
             return None
 
-        try:
-            ctx = BookRequestContext.narrow(request_context)
-        except LookupError as e:
-            logger.warning(f"Skipping the reply: {e}")
-            return None
-
-        writer = GenerateRecommendationsExecutor(ctx, messages=messages)
+        writer = GenerateRecommendationsExecutor(request_context, messages=messages)
         await asyncio.wait_for(
             writer(RecommendationsInput(results=results)),
             timeout=CONVERSATION_TIMEOUT,
@@ -212,28 +289,43 @@ class Orchestrator:
         messages: list[APIMessage] | None,
         sse_stream: SSEStream,
     ) -> None:
-        """Record the run, then close the stream. Best-effort — never lets a
-        slow/failing step here take down the other, or the caller."""
-        try:
-            await asyncio.wait_for(
-                record_chat_run(
-                    request_context,
-                    record,
-                    triage_workflow,
-                    task_runner,
-                    writer,
-                    messages,
-                ),
-                timeout=SAVE_LOG_TIMEOUT,
-            )
-        except Exception:
-            logger.warning(
-                f"record_chat_run id: {request_context.user_message.id} timed out"
-            )
+        """Charge the turn, record it, then close the stream. Best-effort —
+        never lets a slow/failing step here take down the others, or the caller.
 
-        try:
-            await asyncio.wait_for(sse_stream.close(), timeout=CLOSE_SSE_STREAM_TIMEOUT)
-        except Exception:
-            logger.warning(
-                f"sse_stream.close() id: {request_context.user_message.id} timed out"
-            )
+        The debit goes first because it is the only one of the three with money
+        attached, and it must not queue behind a dev-only file dump. Each step
+        gets its own ceiling and its own log line — see `_best_effort`, which
+        is also where the reason a ceiling is still needed lives.
+
+        `record.token_usage.total` is already final here: the `add_step` roll-up
+        in `run`'s finally happens before the shield.
+        """
+        turn_id = request_context.user_message.id
+
+        await _best_effort(
+            debit_session_tokens(request_context, record),
+            DEBIT_TOKENS_TIMEOUT,
+            "debit_session_tokens",
+            turn_id,
+        )
+
+        await _best_effort(
+            record_chat_run(
+                request_context,
+                record,
+                triage_workflow,
+                task_runner,
+                writer,
+                messages,
+            ),
+            SAVE_LOG_TIMEOUT,
+            "record_chat_run",
+            turn_id,
+        )
+
+        await _best_effort(
+            sse_stream.close(),
+            CLOSE_SSE_STREAM_TIMEOUT,
+            "sse_stream.close",
+            turn_id,
+        )

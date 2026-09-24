@@ -14,6 +14,7 @@ from app.orchestration.orchestrator import Orchestrator
 from app.api.dependencies import (
     get_request_context_factory,
     get_orchestrator,
+    limit_messages_per_ip,
 )
 from app.common.request_context import RequestContext
 
@@ -56,7 +57,9 @@ async def generate_chat_response(
             await asyncio.gather(orchestrator_task, return_exceptions=True)
 
 
-@router.post("/session/{session_id}/message")
+@router.post(
+    "/session/{session_id}/message", dependencies=[Depends(limit_messages_per_ip)]
+)
 async def chat(
     session_id: str,
     chat_in: ChatIn, # NOTE: this can probably use UserMessage
@@ -73,6 +76,13 @@ async def chat(
             detail=f"Message is too long. Maximum {2000} characters allowed.",
         )
 
+    # Nothing here touches the database. The session's token budget — creating
+    # the row on a first message, reading the balance, judging it, charging it
+    # back — is the turn's own work, and the turn runs after this handler has
+    # returned; `Orchestrator.run` opens it with `start_session_turn` and
+    # refuses a spent session in the stream, where the user can actually be
+    # told why. A refusal here could only be an HTTP status, and the frontend
+    # renders any non-200 on this route as its own "Oops something went wrong".
     request_context = await request_context_factory(
         session_id, UserMessage(content=chat_in.message)
     )

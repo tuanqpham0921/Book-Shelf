@@ -11,6 +11,7 @@ the order the steps happen in.
 
 from app.common.prompt_loader import load_prompt
 from app.domains.books.base_workflow import BookWorkflow
+from db.stores import lexical_query
 from clients import OpenAIParserRequest
 from clients.messages import AssistantMessage
 from db.schema import AudienceEnum
@@ -111,7 +112,7 @@ class FindByLexicalTraitsExecutor(BookWorkflow[FindByLexicalTraitsOutput]):
         await self.sse_stream.send_ui_loading(f"finding {described}")
 
         # 2. build the deferred query and count — no rows fetched
-        deferred = self.store.lexical_query(
+        deferred = lexical_query(
             keywords=parsed_args.keywords,
             genre=parsed_args.genre,
             audience=parsed_args.audience,

@@ -9,6 +9,7 @@ reading rule for both is in domains/README.md.
 
 from clients.messages import AssistantMessage
 from app.domains.books.base_workflow import BookWorkflow
+from db.stores import title_query
 from clients import OpenAIParserRequest
 
 from .schemas import FindByTitleArgs
@@ -65,7 +66,7 @@ class FindByTitleExecutor(BookWorkflow[FindByTitleOutput]):
         await self.sse_stream.send_ui_loading(f"finding book titled: {book_title}")
 
         # 2. build the deferred query and count — no rows fetched
-        deferred = self.store.title_query(title=book_title)
+        deferred = title_query(title=book_title)
         total = (await self.count_books(deferred)).unwrap()
 
         # await self.sse_stream.send_chars(

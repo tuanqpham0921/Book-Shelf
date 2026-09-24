@@ -20,6 +20,22 @@ install:
 dev:
 	LOG_LEVEL=INFO poetry run uvicorn app.main:app --reload --reload-include "*.py" --reload-include "*.env"
 
+# The deployed service, locally: APP_ENVIRONMENT=production (the same value the
+# deploy recipe sets) and no --reload, so the production-only paths are live —
+# today that means the session token budget, which is read everywhere but only
+# enforced here. Against the compose Postgres; for the deployed database use
+# local-prod-neon.
+.PHONY: local-prod
+local-prod:
+	APP_ENVIRONMENT=production LOG_LEVEL=INFO poetry run uvicorn app.main:app
+
+# local-prod against Neon — the same override dev-neon uses: config/.env.neon
+# holds only POSTGRES_* values, and process env beats config/.env in
+# pydantic-settings. As close to the deployed service as this machine gets.
+.PHONY: local-prod-neon
+local-prod-neon:
+	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && $(MAKE) local-prod
+
 # clear the pycache
 .PHONY: clean
 clean:
@@ -217,6 +233,9 @@ dev-neon:
 CLOUD_RUN_SERVICE := book-shelf-api
 CLOUD_RUN_REGION  := us-east5
 GCP_PROJECT       := tuanqpham0921
+# Setting it turns Firebase App Check on (app/api/dependencies.py): every route
+# but health then needs a token minted for the web app in this project.
+GCP_PROJECT_NUMBER := 286869228046
 # A dedicated service account, not the compute default (which carries project
 # Editor): this one may only read the two secrets below.
 CLOUD_RUN_SA      := $(CLOUD_RUN_SERVICE)@$(GCP_PROJECT).iam.gserviceaccount.com
@@ -245,7 +264,7 @@ deploy:
 		--timeout=300 \
 		--min-instances=0 --max-instances=3 --concurrency=5 \
 		--startup-probe=httpGet.path=/ready,initialDelaySeconds=5,periodSeconds=5,timeoutSeconds=5,failureThreshold=6 \
-		--set-env-vars="^@^APP_NAME=book-shelf-backend@APP_ENVIRONMENT=production@APP_ALLOW_ORIGINS=$(ALLOW_ORIGINS)@POSTGRES_HOST=$$POSTGRES_HOST@POSTGRES_PORT=$$POSTGRES_PORT@POSTGRES_DB=$$POSTGRES_DB@POSTGRES_USER=$$POSTGRES_USER@POSTGRES_SSL_MODE=$$POSTGRES_SSL_MODE@POSTGRES_MIN_CONNECTIONS=$$POSTGRES_MIN_CONNECTIONS@POSTGRES_MAX_CONNECTIONS=$$POSTGRES_MAX_CONNECTIONS@OPENAI_BASE_MODEL=gpt-4.1-mini@OPENAI_TOKENIZER_ENCODING=o200k_base@OPENAI_EMBEDDING_MODEL=text-embedding-3-large@OPENAI_EMBEDDING_DIMENSIONS=1024@OPENAI_MAX_CONCURRENCY=10" \
+		--set-env-vars="^@^APP_NAME=book-shelf-backend@APP_ENVIRONMENT=production@APP_ALLOW_ORIGINS=$(ALLOW_ORIGINS)@APP_FIREBASE_PROJECT_NUMBER=$(GCP_PROJECT_NUMBER)@POSTGRES_HOST=$$POSTGRES_HOST@POSTGRES_PORT=$$POSTGRES_PORT@POSTGRES_DB=$$POSTGRES_DB@POSTGRES_USER=$$POSTGRES_USER@POSTGRES_SSL_MODE=$$POSTGRES_SSL_MODE@POSTGRES_MIN_CONNECTIONS=$$POSTGRES_MIN_CONNECTIONS@POSTGRES_MAX_CONNECTIONS=$$POSTGRES_MAX_CONNECTIONS@OPENAI_BASE_MODEL=gpt-4.1-mini@OPENAI_TOKENIZER_ENCODING=o200k_base@OPENAI_EMBEDDING_MODEL=text-embedding-3-large@OPENAI_EMBEDDING_DIMENSIONS=1024@OPENAI_MAX_CONCURRENCY=10" \
 		--set-secrets=POSTGRES_PASSWORD=postgres-password:latest,OPENAI_API_KEY=openai-api-key:latest
 	@$(MAKE) deploy-check
 

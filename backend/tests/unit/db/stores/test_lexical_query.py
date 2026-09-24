@@ -1,4 +1,4 @@
-"""Tests for `BookStore.lexical_query` and the two pure helpers behind it.
+"""Tests for `lexical_query` and the two pure helpers behind it.
 
 Three things are covered, and the first is the one with no other guard.
 
@@ -21,14 +21,18 @@ Everything compiles SQL with no session in sight.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy.dialects import postgresql
 
 from config import FilesLocationConstants
 from db.schema import AudienceEnum, BookModel, GenreEnum
-from db.stores import BookStore, DeferredBookQuery, genre_values, search_document
+from db.stores import (
+    DeferredBookQuery,
+    genre_values,
+    lexical_query,
+    search_document,
+)
 
 INJECTION_PAYLOAD = "x' OR 1=1 --"
 
@@ -46,7 +50,7 @@ def _compiled_sql(stmt, literal_binds: bool = False) -> str:
 
 def _lexical(**kwargs) -> DeferredBookQuery:
     # the session is never touched: lexical_query only builds
-    return BookStore(MagicMock()).lexical_query(**kwargs)
+    return lexical_query(**kwargs)
 
 
 class TestIndexMatchGuard:
