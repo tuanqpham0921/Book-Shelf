@@ -1,7 +1,7 @@
 """What triage exposes to the layers around it: how the message split up, and
 the plan when there is one.
 
-`schemas.py` is what the *LLM* fills in; this is what the orchestrator and the
+`tools.py` is what the *LLM* fills in; this is what the orchestrator and the
 run recorder read back. `QueryPortion` and `TriageVerdict` sit here rather
 than there for the same reason `SystemGoal` sits in planjane's `external.py`:
 the decomposition emits them, and then they travel — onto `TriageOutput`, into

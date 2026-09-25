@@ -39,7 +39,7 @@ from app.orchestration.triage.executor import (
     DECOMPOSE_PROMPT_PATH,
     build_decomposition_request,
 )
-from app.orchestration.triage.schemas import QueryDecomposition
+from app.orchestration.triage.tools import QueryDecomposition
 from clients import OpenAIClient
 from config import settings
 from evals.common import current_git_sha, report_header, truncate

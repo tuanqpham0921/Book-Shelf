@@ -2,7 +2,7 @@ from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindSimilarBooksExecutor
 from .labels import SimilarBooksNodeTypeEnum
-from .schemas import SimilarBooksSearch
+from .tools import SimilarBooksSearch
 from .external import SimilarBooksInput, SimilarBooksOutput
 
 SPEC = NodeSpec(

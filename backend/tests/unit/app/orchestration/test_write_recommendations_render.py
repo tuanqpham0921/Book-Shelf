@@ -14,7 +14,7 @@ import pytest
 from app.domains.base_workflow import FailedGoalOutput, NodeWorkflowOutput
 from app.domains.books.external import BookAnchorOutput, BookCandidateOutput
 from app.domains.books.find_by_title.external import FindByTitleOutput
-from app.domains.books.find_by_title.schemas import FindByTitleArgs
+from app.domains.books.find_by_title.tools import FindByTitleArgs
 from app.domains.books.find_similar_books import SimilarBooksOutput
 from app.domains.books.find_similar_books.external import SimilarBooksArgs
 from app.domains.books.schemas import Book

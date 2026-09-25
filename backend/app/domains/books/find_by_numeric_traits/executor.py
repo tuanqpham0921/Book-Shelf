@@ -22,7 +22,7 @@ from db.stores import numeric_traits_query
 from clients import OpenAIParserRequest
 from db.schema import BookMetadataFilter
 
-from .schemas import FindByNumericTraitsArgs
+from .tools import FindByNumericTraitsArgs
 from .external import FindByNumericTraitsInput, FindByNumericTraitsOutput
 
 from app.common.prompt_loader import load_prompt

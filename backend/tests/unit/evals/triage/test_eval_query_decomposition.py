@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from airglider import TokenUsage
 from app.orchestration.triage import QueryPortion, TriageVerdict
-from app.orchestration.triage.schemas import QueryDecomposition
+from app.orchestration.triage.tools import QueryDecomposition
 from evals.triage.eval_query_decomposition import (
     build_report,
     grade,

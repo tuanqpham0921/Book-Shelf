@@ -12,7 +12,7 @@ from app.domains.books.base_workflow import BookWorkflow
 from db.stores import title_query
 from clients import OpenAIParserRequest
 
-from .schemas import FindByTitleArgs
+from .tools import FindByTitleArgs
 from .external import FindByTitleInput, FindByTitleOutput
 
 from common.prompts import basic_fill_schema_prompt

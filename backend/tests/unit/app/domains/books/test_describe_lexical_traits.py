@@ -9,7 +9,7 @@ refuse a goal it was wrongly handed.
 import pytest
 
 from app.domains.books.find_by_lexical_traits.executor import describe_lexical_traits
-from app.domains.books.find_by_lexical_traits.schemas import FindByLexicalTraitsArgs
+from app.domains.books.find_by_lexical_traits.tools import FindByLexicalTraitsArgs
 from db.schema import AudienceEnum, GenreEnum
 
 

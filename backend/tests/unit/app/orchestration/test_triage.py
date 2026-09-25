@@ -17,7 +17,7 @@ from app.orchestration.triage import (
 from app.orchestration.triage import cache
 from app.orchestration.triage.cache import load_cached_parse_output
 from app.orchestration.triage.executor import REPLIES, build_decomposition_request
-from app.orchestration.triage.schemas import QueryDecomposition
+from app.orchestration.triage.tools import QueryDecomposition
 from app.domains.planjane import PlanJaneOutput, SystemGoal
 from airglider import OperationResult, Response, RuntimeErrorInfo, TokenUsage
 from common.utils import load_json, save_file, to_serializable

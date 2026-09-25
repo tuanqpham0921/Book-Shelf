@@ -10,7 +10,7 @@ from app.domains.books.base_workflow import BookWorkflow
 from db.stores import author_query
 from clients import OpenAIParserRequest
 
-from .schemas import FindByAuthorArgs
+from .tools import FindByAuthorArgs
 from .external import FindByAuthorInput, FindByAuthorOutput
 
 from common.prompts import basic_fill_schema_prompt

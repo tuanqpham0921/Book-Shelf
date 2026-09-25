@@ -17,7 +17,7 @@ from clients.messages import AssistantMessage
 from db.schema import AudienceEnum
 
 from .external import FindByLexicalTraitsInput, FindByLexicalTraitsOutput
-from .schemas import FindByLexicalTraitsArgs
+from .tools import FindByLexicalTraitsArgs
 
 ARGS_PARSER_PROMPT_PATH = (
     "domains/books/find_by_lexical_traits/prompts/lexical_traits_args_parser.txt"

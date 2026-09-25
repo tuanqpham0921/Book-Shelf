@@ -9,7 +9,7 @@ keywords" structural instead of leaving it to the prompt alone.
 import pytest
 from pydantic import ValidationError
 
-from app.domains.books.find_by_lexical_traits.schemas import FindByLexicalTraitsArgs
+from app.domains.books.find_by_lexical_traits.tools import FindByLexicalTraitsArgs
 from db.schema import AudienceEnum, GenreEnum
 
 

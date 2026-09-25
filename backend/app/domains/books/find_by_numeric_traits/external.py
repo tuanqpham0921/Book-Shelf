@@ -1,7 +1,7 @@
 from app.domains.books.external import BookCandidateOutput
 from app.domains.node_input import NodeInput
 
-from .schemas import FindByNumericTraitsArgs
+from .tools import FindByNumericTraitsArgs
 
 
 class FindByNumericTraitsInput(NodeInput):

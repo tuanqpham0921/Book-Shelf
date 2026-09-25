@@ -50,7 +50,7 @@ class NodeSpec:
         request: The pydantic request schema — but what the registry uses it
             for is its *docstring*, which IS the tool description the planner
             LLM reads. The arguments a node needs are not on it: each slice
-            declares an `*Args` subclass in `schemas.py` that its own parse
+            declares an `*Args` subclass in `tools.py` that its own parse
             call ships, so the planner is given a capability to pick rather
             than fields to guess at. The request stays a model, and stays the
             base of that subclass, because it carries the `node_type` Literal

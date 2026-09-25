@@ -2,7 +2,7 @@ from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import CombineIntersectExecutor
 from .labels import CombineIntersectNodeTypeEnum
-from .schemas import CombineIntersect
+from .tools import CombineIntersect
 from .external import CombineIntersectInput, CombineIntersectOutput
 
 SPEC = NodeSpec(

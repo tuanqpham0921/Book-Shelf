@@ -2,7 +2,7 @@ from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindByAuthorExecutor
 from .labels import FindAuthorNodeTypeEnum
-from .schemas import FindByAuthorRetrieval
+from .tools import FindByAuthorRetrieval
 from .external import FindByAuthorInput, FindByAuthorOutput
 
 SPEC = NodeSpec(

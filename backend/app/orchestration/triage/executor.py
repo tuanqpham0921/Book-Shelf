@@ -7,7 +7,7 @@ with a fixed reply, or hand the planner the book part of it.
 
 Same reading rule as the slices (domains/README.md): this file is the flow,
 with the request builder as a module-level pure function beside it.
-`schemas.py` is what the decomposition's LLM fills in, `external.py` is what
+`tools.py` is what the decomposition's LLM fills in, `external.py` is what
 the layers around triage read back, `cache.py` is the dev plan replay.
 
 Not in `app/domains/` because it is not a capability — no `NodeSpec` will ever
@@ -28,7 +28,7 @@ from clients.messages import UserMessage
 
 from .cache import load_cached_parse_output
 from .external import TriageOutput, TriageVerdict
-from .schemas import QueryDecomposition
+from .tools import QueryDecomposition
 
 logger = logging.getLogger(__name__)
 
