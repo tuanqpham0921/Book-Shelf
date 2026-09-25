@@ -254,7 +254,7 @@ pointing at it; `base_workflow.py` holding the bases they build on.
   deliberate: PlanJane is headed for being a service of its own, and this is
   the corner already free to travel. Import from `dial`, not from its modules.
 
-  What decides *whether* to call PlanJane — cache, small talk, out of scope —
+  What decides *whether* to call PlanJane — cache, small talk, unclear, misuse —
   is `app/orchestration/triage/`, not here: it is not a capability, and
   no `NodeSpec.executor` will ever point at it.
 - `TaskRunnerWorkflow` lives in **`app/orchestration/task_runner.py`** (it

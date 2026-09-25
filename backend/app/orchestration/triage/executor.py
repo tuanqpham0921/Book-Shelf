@@ -2,8 +2,8 @@
 `run` is the table of contents; everything else sits where the flow reaches it.
 
 Sits between `Orchestrator` (transport) and `PlanJane` (produce a plan), and
-decides whether to plan at all: replay a cached plan, turn the message away
-with a fixed reply, or hand the planner the book part of it.
+decides whether to plan at all: replay a cached plan, answer small talk, turn
+the message away with a fixed reply, or hand it to the planner.
 
 Same reading rule as the slices (domains/README.md): this file is the flow,
 with the request builder as a module-level pure function beside it.
@@ -51,7 +51,7 @@ REPLIES: dict[type[BaseModel], str] = {
         "next read."
     ),
     ClarifyingQuestion: (
-        "I'm not sure I can help with that. I'm BookShelf, a book recommender: "
+        "I'm not sure what you mean. I'm BookShelf, a book recommender: "
         "I can look up a book by title or author, find books on a subject or by "
         "pages, year or rating, and suggest books like ones you already love. "
         "Could you be more specific?"
@@ -65,8 +65,8 @@ def build_route_request(query: str) -> OpenAIParserRequest:
     the user in text itself.
 
     Cheap on purpose: it runs ahead of every planned turn, and it only has to
-    tell a supported ask from everything else — the planner still decides what
-    it can actually do. The message goes in as the `UserMessage` it is; the
+    pick out misuse, an unclear message and small talk — everything else goes
+    to the planner, which decides what it can actually do. The message goes in as the `UserMessage` it is; the
     prompt tells the model to route it, never follow it.
     """
     return OpenAIParserRequest(

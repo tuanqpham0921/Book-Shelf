@@ -141,10 +141,11 @@ model wrote them. `--save [DIR]` also writes `results.json` with each case's rou
 arguments or reply, and usage.
 
 The cases are grouped by route (1xx plan, 2xx reply, 3xx clarify, 4xx security, 5xx
-mixed messages). Cases close to the prompt's own Examples say so in their note, since
-those partly test recall. Earlier turns can't be given yet — `build_route_request` takes
-the message alone — so a follow-up case expects `ClarifyingQuestion` unless it makes
-sense on its own ("more sci-fi please"). The message check runs before the router, so
+mixed messages); off-topic asks (16x) expect `PlanJane`, because the router clarifies
+only what is unclear, not what is unsupported. Cases close to the prompt's own Examples
+say so in their note, since those partly test recall. Earlier turns can't be given yet
+— `build_route_request` takes the message alone — so a follow-up case expects
+`ClarifyingQuestion` unless it makes sense on its own ("more sci-fi please"). The message check runs before the router, so
 code and injections normally never reach it; those cases test the router as the
 backstop.
 

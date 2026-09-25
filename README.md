@@ -27,7 +27,7 @@ Three layers, each visible in the trace the UI renders:
 
 | Layer | Question it answers |
 |---|---|
-| **Triage** | Is this worth planning at all — small talk, out of scope, or a real ask? |
+| **Triage** | Is this worth planning at all — small talk, unclear, misuse, or a real ask? |
 | **PlanJane** | What are the goals? Emits typed goals from a tool catalog built out of the node registry, plus the Mermaid diagram you see before execution |
 | **TaskRunner** | Runs each goal against its executor, streaming one collapsible section per step |
 
