@@ -102,33 +102,8 @@ class TriageWorkflow(AppWorkflow[TriageOutput]):
                 self.finalize_result(ok=True)
                 return
 
-        # 2. split the message before the planner's price is paid. A bare
-        # await: a split that failed sends the whole message on — the planner
-        # keeps its own trust boundary — rather than stopping the turn
-        step = await self.decompose_query(query)
-        if step.ok:
-            decomposition: QueryDecomposition = step.result
-            portions = decomposition.portions
-            self.result.portions = portions
-            verdicts = ", ".join(portion.verdict.value for portion in portions)
-            self.add_details(f"portions: {verdicts} — {decomposition.reasoning}")
-
-            # the planner is asked the book part only; every other portion
-            # stops here
-            book_ask = [p.text for p in portions if p.verdict is TriageVerdict.IN_DOMAIN]
-            if not book_ask:
-                # nothing to plan is a handled turn, not a failure: ok, no
-                # plan, so the orchestrator skips the runner and the reply
-                present = {portion.verdict for portion in portions}
-                reply = next(text for v, text in REPLIES.items() if v in present)
-                await self.sse_stream.send_chars(reply)
-                self.finalize_result(ok=True)
-                return
-            query = " ".join(book_ask)
-        else:
-            self.add_details(
-                "query decomposition failed; passing the whole message to the planner"
-            )
+        # args parse
+        # let the model select from tools
 
         # 3. plan. A bare await, not `unwrap()`: triage decides what a failed
         # planner means (a specific message to the user), so it wants the
