@@ -61,6 +61,16 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 --------------------------
 
+so what is it that I'm trying to do?
+I want to off load some work for the Planner
+  * intro/small talks  - but not too much
+  * so clear rejection - but also not too much
+    * 
+  * conversation continuation - re-wording
+    * or not, since I can do a compact 500 tokens max context
+    * and the planner has more info to plan
+
+
 * coversation continuation rejection
 * add rejection and small talks
 * need a out of scope place better
