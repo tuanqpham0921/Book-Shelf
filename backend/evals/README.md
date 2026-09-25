@@ -140,8 +140,8 @@ checks:
 The report lists each case, then every failure with the portions the model returned,
 its reasoning and the case's note. Cases lifted from the prompt's own Examples section
 say so in their note, since those partly test recall. Earlier turns can't be given yet
-— `build_decomposition_request` takes the message alone — so every follow-up case
-expects `gibberish`.
+— `build_decomposition_request` takes the message alone — so a follow-up case expects
+`gibberish` unless it makes sense as a query on its own ("more sci-fi please").
 
 ## Repo sizing (`app_docs/`)
 
