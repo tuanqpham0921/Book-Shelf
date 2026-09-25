@@ -172,5 +172,14 @@ eval-decomposition:
 try-decomposition:
 	poetry run python $(EVALS_DIR)triage/try_decomposition.py "$(Q)" $(ARGS)
 
+# VALIDATION — the message check alone: each case in
+# validation/suites/validate_message.json goes through the check's own request
+# builder straight to OpenAI, and is graded on which fixed reply the user would
+# get. No backend and no database, but real gpt-5-mini calls.
+# Debug a few with ARGS="--ids 1 2".
+.PHONY: eval-validation
+eval-validation:
+	poetry run python $(EVALS_DIR)validation/eval_validate_message.py $(call campaign_out,validate_message.md) $(ARGS)
+
 # TODO: make the path to variable names
 # make a better run make, so it dumps and copy the logs over

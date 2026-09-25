@@ -7,6 +7,7 @@ headed:** [docs/eval-strategy.md](../../docs/eval-strategy.md).
 |---|---|
 | `planjane/` | The planner, through the whole running app — versioned query suites with per-case node expectations, the runner, the two DB reports, and the tool catalog |
 | `triage/` | Triage's query decomposition alone — one LLM call per case, no backend, no database (see [Triage](#triage--query-decomposition-triage)) |
+| `validation/` | The message check alone — one LLM call per case, no backend, no database (see [Validation](#validation--the-message-check-validation)) |
 | `common.py` | Shared plumbing. It sits here rather than in `planjane/` because a script puts its own folder first on `sys.path`, and a `common.py` there would shadow the backend's `common` package |
 | `results/`, `logs/` | Campaign outputs and run logs, for every folder above |
 
@@ -153,6 +154,29 @@ its reasoning and the case's note. Cases lifted from the prompt's own Examples s
 say so in their note, since those partly test recall. Earlier turns can't be given yet
 — `build_decomposition_request` takes the message alone — so a follow-up case expects
 `gibberish` unless it makes sense as a query on its own ("more sci-fi please").
+
+## Validation — the message check (`validation/`)
+
+```bash
+make eval-validation                        # every case, printed
+make eval-validation ARGS="--ids 304 403"   # a few, while iterating
+make eval-validation CAMPAIGN=v1_validation # -> results/v1_validation/validate_message.md
+make eval-validation ARGS="--save"          # -> validation/results/validate_message_<timestamp>/
+```
+
+Built like the triage eval: `eval_validate_message.py` sends each case in
+`validation/suites/validate_message.json` through `build_validation_request` — the
+builder a real turn uses — straight to `OpenAIClient`. Editing `validate_message.txt`
+and rerunning is the whole loop; the whole suite costs about a cent.
+
+A case (`id`, `query`, `expected`, `note`) passes when the reply `refusal_for` picks is
+one of `expected`: `pass`, `harmful` (harmful or injection), `code`, `incoherent` or
+`language`. It grades the reply, not each flag, so only a difference the user would see
+fails; a case where two readings are fair (a shell command is code, and arguably an
+injection) lists both. The report splits failures into wrongly refused and wrongly
+passed, and shows every case's language and set flags. The cases are kept out of the
+prompt's Examples section on purpose, so the suite tests the rules rather than recall —
+don't copy a failing case into the prompt to make it pass.
 
 ## Repo sizing (`app_docs/`)
 

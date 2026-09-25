@@ -72,6 +72,7 @@ make query-suite                # POST the base eval suite at a running backend 
 make query-suite-all            # fire all 4 eval suites concurrently
 make tools-catalog              # inventory the planner's tool catalog (no backend/DB needed)
 make eval-decomposition         # grade triage's query decomposition alone (no backend/DB; real gpt-5-mini calls)
+make eval-validation            # grade the message check alone (no backend/DB; real gpt-5-mini calls)
 ```
 
 Evals live in `backend/evals/`, one folder per thing under test. The planner's harness is `evals/planjane/`: suite definitions in `evals/planjane/suites/*.json` (versioned inputs), the runner `evals/planjane/run_suites.py` (after a run it writes one `test_runs` row per query — chat_id FK to `chat_runs` plus the suite file stem and entry id), make targets in `evals/makefile`, and per-campaign reports/raw dumps in `evals/results/`.
