@@ -166,5 +166,11 @@ tools-catalog:
 eval-decomposition:
 	poetry run python $(EVALS_DIR)triage/eval_query_decomposition.py $(call campaign_out,query_decomposition.md) $(ARGS)
 
+# One message, no suite and no grading: prints the parsed decomposition and its
+# usage as JSON. make try-decomposition Q="hi! books like Dune"
+.PHONY: try-decomposition
+try-decomposition:
+	poetry run python $(EVALS_DIR)triage/try_decomposition.py "$(Q)" $(ARGS)
+
 # TODO: make the path to variable names
 # make a better run make, so it dumps and copy the logs over

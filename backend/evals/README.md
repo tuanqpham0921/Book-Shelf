@@ -117,12 +117,17 @@ out rather than hidden:
 make eval-decomposition                          # every case, printed
 make eval-decomposition ARGS="--ids 1 5 9"       # a few, while iterating
 make eval-decomposition CAMPAIGN=v1_triage       # -> results/v1_triage/query_decomposition.md
-make eval-decomposition ARGS="--save"            # -> app_docs/results/query_decomposition_<timestamp>/
+make eval-decomposition ARGS="--save"            # -> triage/results/query_decomposition_<timestamp>/
+make try-decomposition Q="hi! books like Dune"   # one message, no suite, no grading
 ```
+
+`try_decomposition.py` takes one or more quoted messages and prints each parsed
+decomposition (portions, reasoning) and its token usage as JSON — for trying a
+message before it is worth a case.
 
 `--save [DIR]` writes `report.md` and `results.json` (every case's full parsed
 decomposition — portions and reasoning — plus its grade and token usage) into a
-timestamped folder under `DIR`, `app_docs/results/` by default. Progress prints to
+timestamped folder under `DIR`, `triage/results/` by default. Progress prints to
 stderr as each case finishes.
 
 Grades the gpt-5-mini split that triage runs ahead of the planner, on its own: no
