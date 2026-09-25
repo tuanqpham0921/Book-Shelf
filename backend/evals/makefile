@@ -157,20 +157,13 @@ suite-reports: suite-goals suite-stats
 tools-catalog:
 	poetry run python $(EVALS_DIR)planjane/tools_catalog.py $(call campaign_out,tools_catalog.md) $(ARGS)
 
-# TRIAGE — the query decomposition alone: each case in
-# triage/suites/query_decomposition.json goes through triage's own request
-# builder straight to OpenAI, and is graded on its verdicts and on whether each
-# portion kept the user's words. No backend and no database, but real
-# gpt-5-mini calls. Debug a few with ARGS="--ids 1 2".
-.PHONY: eval-decomposition
-eval-decomposition:
-	poetry run python $(EVALS_DIR)triage/eval_query_decomposition.py $(call campaign_out,query_decomposition.md) $(ARGS)
-
-# One message, no suite and no grading: prints the parsed decomposition and its
-# usage as JSON. make try-decomposition Q="hi! books like Dune"
-.PHONY: try-decomposition
-try-decomposition:
-	poetry run python $(EVALS_DIR)triage/try_decomposition.py "$(Q)" $(ARGS)
+# TRIAGE — the router alone: each case in triage/suites/route_query.json goes
+# through triage's own request builder straight to OpenAI, and is graded on
+# which tool it picked, or whether it replied in text. No backend and no
+# database, but real gpt-5-mini calls. Debug a few with ARGS="--ids 101 409".
+.PHONY: eval-routing
+eval-routing:
+	poetry run python $(EVALS_DIR)triage/eval_route_query.py $(call campaign_out,route_query.md) $(ARGS)
 
 # VALIDATION — the message check alone: each case in
 # validation/suites/validate_message.json goes through the check's own request

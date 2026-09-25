@@ -6,7 +6,7 @@ headed:** [docs/eval-strategy.md](../../docs/eval-strategy.md).
 | Path | What it grades |
 |---|---|
 | `planjane/` | The planner, through the whole running app — versioned query suites with per-case node expectations, the runner, the two DB reports, and the tool catalog |
-| `triage/` | Triage's query decomposition alone — one LLM call per case, no backend, no database (see [Triage](#triage--query-decomposition-triage)) |
+| `triage/` | Triage's router alone — one LLM call per case, no backend, no database (see [Triage](#triage--the-router-triage)) |
 | `validation/` | The message check alone — one LLM call per case, no backend, no database (see [Validation](#validation--the-message-check-validation)) |
 | `common.py` | Shared plumbing. It sits here rather than in `planjane/` because a script puts its own folder first on `sys.path`, and a `common.py` there would shadow the backend's `common` package |
 | `results/`, `logs/` | Campaign outputs and run logs, for every folder above |
@@ -112,48 +112,41 @@ out rather than hidden:
   — the report prints an explicit "costs are understated" warning naming the models. Add
   them to `airglider/src/config.py`; only future runs will be right.
 
-## Triage — query decomposition (`triage/`)
+## Triage — the router (`triage/`)
 
 ```bash
-make eval-decomposition                          # every case, printed
-make eval-decomposition ARGS="--ids 1 5 9"       # a few, while iterating
-make eval-decomposition CAMPAIGN=v1_triage       # -> results/v1_triage/query_decomposition.md
-make eval-decomposition ARGS="--save"            # -> triage/results/query_decomposition_<timestamp>/
-make try-decomposition Q="hi! books like Dune"   # one message, no suite, no grading
+make eval-routing                          # every case, printed
+make eval-routing ARGS="--ids 101 409"     # a few, while iterating
+make eval-routing CAMPAIGN=v1_triage       # -> results/v1_triage/route_query.md
+make eval-routing ARGS="--save"            # -> triage/results/route_query_<timestamp>/
 ```
 
-`try_decomposition.py` takes one or more quoted messages and prints each parsed
-decomposition (portions, reasoning) and its token usage as JSON — for trying a
-message before it is worth a case.
+Grades the gpt-5-mini pick that triage runs ahead of the planner, on its own: no
+backend, no database, no `test_runs` rows. `eval_route_query.py` sends each case in
+`triage/suites/route_query.json` through `build_route_request` — the builder a real
+turn uses, so the prompt, model and the three tools are exactly what production sends
+— straight to `OpenAIClient`. The builder reads `route_query.txt` from disk on every
+call, so editing the prompt and rerunning is the whole loop. The whole suite costs
+about three cents.
 
-`--save [DIR]` writes `report.md` and `results.json` (every case's full parsed
-decomposition — portions and reasoning — plus its grade and token usage) into a
-timestamped folder under `DIR`, `triage/results/` by default. Progress prints to
-stderr as each case finishes.
+A case (`id`, `query`, `expected`, `note`) passes when the route is one of `expected`:
+`PlanJane`, `ClarifyingQuestion`, `SecurityReview`, or `reply` when the model called
+no tool and answered in text. The tool's arguments are not graded, because the user
+gets a fixed reply for either refusal; a case where two routes are fair lists both
+(the misspelling cases do, until it is decided whether a misspelled title is the
+planner's or a clarification). The report splits failures into book asks kept from the
+planner and misuse let through (to the planner or a direct reply), and prints every
+direct reply in full, since that is the one route whose words reach the user as the
+model wrote them. `--save [DIR]` also writes `results.json` with each case's route, its
+arguments or reply, and usage.
 
-Grades the gpt-5-mini split that triage runs ahead of the planner, on its own: no
-backend, no database, no `test_runs` rows. `eval_query_decomposition.py` sends each
-case in `triage/suites/query_decomposition.json` through `build_decomposition_request`
-— the builder a real turn uses, so the prompt, model and `QueryDecomposition` tool are
-exactly what production sends — straight to `OpenAIClient`, and grades the parsed
-portions. The builder reads `decompose_query.txt` from disk on every call, so editing
-the prompt and rerunning is the whole loop. It costs real calls: a few cents for the
-whole suite.
-
-A case (`id`, `query`, `expected` verdicts in message order, `note`) passes on two
-checks:
-
-- **verdicts** — equal to `expected` once adjacent repeats are merged on both sides.
-  `[in_domain, in_domain]` and `[in_domain]` give the planner the same words and the
-  user the same reply, so a split the app can't act on is not a failure.
-- **verbatim** — every portion's text appears in the message exactly as written, the
-  prompt's "copy, never correct" rule.
-
-The report lists each case, then every failure with the portions the model returned,
-its reasoning and the case's note. Cases lifted from the prompt's own Examples section
-say so in their note, since those partly test recall. Earlier turns can't be given yet
-— `build_decomposition_request` takes the message alone — so a follow-up case expects
-`gibberish` unless it makes sense as a query on its own ("more sci-fi please").
+The cases are grouped by route (1xx plan, 2xx reply, 3xx clarify, 4xx security, 5xx
+mixed messages). Cases close to the prompt's own Examples say so in their note, since
+those partly test recall. Earlier turns can't be given yet — `build_route_request` takes
+the message alone — so a follow-up case expects `ClarifyingQuestion` unless it makes
+sense on its own ("more sci-fi please"). The message check runs before the router, so
+code and injections normally never reach it; those cases test the router as the
+backstop.
 
 ## Validation — the message check (`validation/`)
 
@@ -164,7 +157,7 @@ make eval-validation CAMPAIGN=v1_validation # -> results/v1_validation/validate_
 make eval-validation ARGS="--save"          # -> validation/results/validate_message_<timestamp>/
 ```
 
-Built like the triage eval: `eval_validate_message.py` sends each case in
+Built like the router eval: `eval_validate_message.py` sends each case in
 `validation/suites/validate_message.json` through `build_validation_request` — the
 builder a real turn uses — straight to `OpenAIClient`. Editing `validate_message.txt`
 and rerunning is the whole loop; the whole suite costs about a cent.

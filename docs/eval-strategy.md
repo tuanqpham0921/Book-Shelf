@@ -18,11 +18,11 @@ churns on numbers that move every run.
 
 That harness grades the planner through the whole running app. A step that is one
 LLM call over one schema can be graded on its own instead — no backend, no database,
-the step's own request builder sent straight to OpenAI. The first of these is
-triage's query decomposition (`backend/evals/triage/`, `make eval-decomposition`,
-2026-09-24), followed by the message check (`backend/evals/validation/`,
-`make eval-validation`, 2026-09-25); a node's `*Args` parse would follow them under
-`backend/evals/nodes/`.
+the step's own request builder sent straight to OpenAI. Two exist: triage's router
+(`backend/evals/triage/`, `make eval-routing`, 2026-09-25 — it replaced the query
+decomposition eval along with the decomposition) and the message check
+(`backend/evals/validation/`, `make eval-validation`, 2026-09-25); a node's `*Args`
+parse would follow them under `backend/evals/nodes/`.
 
 Two properties make this the right foundation:
 
