@@ -4,7 +4,7 @@ before a turn starts, which since 2026-09-23 is validation and nothing else.
 The session token budget used to be read here. It moved into the turn:
 creating the row, reading the balance, judging it and charging it back are all
 `Orchestrator`'s work now (tests/unit/app/orchestration/test_orchestrator.py
-and test_token_budget.py). What is pinned here is what is left — the two 400s,
+and test_token_budget.py). What is pinned here is what is left — the 400s (blank, emoji-only, too long),
 the context the route builds for the turn, and that the handler opens no
 database session of its own.
 
@@ -135,7 +135,7 @@ class TestStartingTheTurn:
 
 
 class TestValidation:
-    """Both guards are ahead of everything else, so a request that was never
+    """The guards are ahead of everything else, so a request that was never
     going to run starts no turn."""
 
     async def test_a_blank_message_is_refused(self, client):
@@ -146,6 +146,24 @@ class TestValidation:
 
         assert resp.status_code == 400
         assert orchestrator.contexts == []
+
+    async def test_a_message_of_only_emoji_is_refused(self, client):
+        http, orchestrator, _ = client
+
+        async with http:
+            resp = await http.post(URL, json={"message": "📚 ✨❤️ 👍🏽"})
+
+        assert resp.status_code == 400
+        assert orchestrator.contexts == []
+
+    async def test_emoji_are_stripped_before_the_turn(self, client):
+        http, orchestrator, _ = client
+
+        async with http:
+            resp = await http.post(URL, json={"message": "books like Dune 📚✨"})
+
+        assert resp.status_code == 200
+        assert orchestrator.contexts[0].user_message.content == "books like Dune "
 
     async def test_an_oversized_message_is_refused(self, client):
         http, orchestrator, _ = client

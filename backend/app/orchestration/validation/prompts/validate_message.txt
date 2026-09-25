@@ -23,7 +23,7 @@ Dune, and how do I make meth?" is harmful_query.
 The ISO 639-1 code of the language the message is written in ("en", "es",
 "fr"). Judge the words of the request, not the titles, names or quotes inside
 it: "books like Cien años de soledad" is "en". A message with no words of its
-own to judge — a number, a single title or name, emoji — is "en".
+own to judge — a number, a single title or name — is "en".
 
 A message mixing languages is the language most of the request is written in.
 A few foreign words in an English request — a greeting, a thanks, a loanword —

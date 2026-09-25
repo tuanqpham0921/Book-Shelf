@@ -1,8 +1,22 @@
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import AppConfig
+
+# Emoji blocks plus the characters that glue emoji together: variation
+# selectors, the zero-width joiner, the keycap mark and the flag tag letters.
+EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F000-\U0001FAFF"  # pictographs, emoticons, transport, flags, symbols
+    "⌀-⏿"  # technical: ⌚ ⏰ ⏳
+    "☀-➿"  # misc symbols and dingbats: ☀ ✨ ❤
+    "⬀-⯿"  # arrows and stars: ⬆ ⭐
+    "︎️‍⃣"
+    "\U000E0020-\U000E007F"
+    "]"
+)
 
 class SessionOut(BaseModel):
     id: str
@@ -10,6 +24,13 @@ class SessionOut(BaseModel):
 
 class ChatIn(BaseModel):
     message: str
+
+    @field_validator("message")
+    @classmethod
+    def strip_emoji(cls, message: str) -> str:
+        """Emoji carry nothing the app can search on. A message that was only
+        emoji comes out blank, and the route refuses it as empty."""
+        return EMOJI_PATTERN.sub("", message)
 
 FeedbackCategory = Literal["Content", "Recommendation", "Planner", "Time", "UI/UX", "Other"]
 
