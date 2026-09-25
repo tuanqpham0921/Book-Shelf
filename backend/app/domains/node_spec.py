@@ -48,12 +48,12 @@ class NodeSpec:
         node_type: The capability name the planner emits, e.g. "Retrieve_by_Title".
         tier: Which catalog section this node is listed under.
         request: The pydantic request schema — but what the registry uses it
-            for is its *docstring*, which IS the tool description the planner
-            LLM reads. The arguments a node needs are not on it: each slice
-            declares an `*Args` subclass in `tools.py` that its own parse
-            call ships, so the planner is given a capability to pick rather
-            than fields to guess at. The request stays a model, and stays the
-            base of that subclass, because it carries the `node_type` Literal
+            for is its *docstring*, which IS the catalog entry the planner
+            LLM reads. It lives in the slice's `external.py`. The arguments a
+            node needs are not on it: each slice declares an `*Args` model in
+            `tools.py` that its own parse call ships, so the planner is given
+            a capability to pick rather than fields to guess at. The request
+            stays a model because it carries the `node_type` Literal
             everything discriminates on — and so a field the planner really
             should fill has somewhere to go.
         input: What this node is invoked with — declares which upstream shapes

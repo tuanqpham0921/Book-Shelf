@@ -11,15 +11,17 @@ A capability is a **vertical slice**: one folder holding everything about one no
 ```
 books/find_by_title/
 ├── labels.py     # the planner-facing name, as a one-member str Enum
-├── tools.py      # what goes to an LLM: request schema (docstring = tool description) + its *Args
-├── external.py   # what other layers import: the node's Input and Output
+├── external.py   # what other layers read: request (docstring = catalog entry), Input, Output
+├── tools.py      # what the node's own parse call ships to an LLM: its *Args
 ├── executor.py   # the executor that runs it (book nodes: a BookWorkflow)
 └── __init__.py   # SPEC = NodeSpec(...) tying them together
 ```
 
-The file names say who reads the classes: `tools.py` is shipped to a model,
-`external.py` is the slice's public surface, and `<domain>/schemas.py` (below)
-is the shared data model. Those five files *are* the single-call template — `find_by_title/` is the
+The file names say who reads the classes: `external.py` is the slice's public
+surface — the three things `SPEC` points at, i.e. how to ask this node for work
+and what comes back — `tools.py` is shipped to a model by the node itself, and
+`<domain>/schemas.py` (below) is the shared data model. A node that parses no
+arguments (`find_similar_books/`, `intersect_books/`) has no `tools.py`. Those five files *are* the single-call template — `find_by_title/` is the
 worked example (parse args → build the query → count → preview → finalize),
 and a new node starts as a copy of it, not as a blank folder. A slice with
 several LLM calls grows past those five files by one rule
@@ -279,8 +281,8 @@ assumed, not restated, here.
    never a flag on an existing executor and never one executor reached two
    ways. Reworking how a node runs is a new spec too; park the old one.
 1a. **The request schema declares the capability; a separate `*Args` model
-   carries the arguments.** `tools.py` holds both, and they share nothing but
-   the file. `FindByNumericTraitsRetrieval(BaseRequest)` is what `SPEC` points
+   carries the arguments.** The request lives in `external.py`, the `*Args` in
+   `tools.py`, and they share nothing. `FindByNumericTraitsRetrieval(BaseRequest)` is what `SPEC` points
    at and what the planner reads — a docstring and the `node_type` Literal, no
    fields, because the planner picks a capability and writes a goal
    *description*, so a field on the request is a field it would be invited to
