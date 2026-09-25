@@ -1,9 +1,13 @@
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindByLexicalTraitsExecutor
-from .external import FindByLexicalTraitsInput, FindByLexicalTraitsOutput
+from .external import (
+    FindByLexicalTraitsRetrieval,
+    FindByLexicalTraitsInput,
+    FindByLexicalTraitsOutput,
+)
 from .labels import FindLexicalTraitsNodeTypeEnum
-from .tools import FindByLexicalTraitsArgs, FindByLexicalTraitsRetrieval
+from .tools import FindByLexicalTraitsArgs
 
 SPEC = NodeSpec(
     node_type=FindLexicalTraitsNodeTypeEnum.REQUEST.value,

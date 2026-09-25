@@ -1,9 +1,8 @@
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindSimilarBooksExecutor
+from .external import SimilarBooksSearch, SimilarBooksInput, SimilarBooksOutput
 from .labels import SimilarBooksNodeTypeEnum
-from .tools import SimilarBooksSearch
-from .external import SimilarBooksInput, SimilarBooksOutput
 
 SPEC = NodeSpec(
     node_type=SimilarBooksNodeTypeEnum.REQUEST.value,

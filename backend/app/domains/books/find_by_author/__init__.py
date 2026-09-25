@@ -1,9 +1,8 @@
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindByAuthorExecutor
+from .external import FindByAuthorRetrieval, FindByAuthorInput, FindByAuthorOutput
 from .labels import FindAuthorNodeTypeEnum
-from .tools import FindByAuthorRetrieval
-from .external import FindByAuthorInput, FindByAuthorOutput
 
 SPEC = NodeSpec(
     node_type=FindAuthorNodeTypeEnum.REQUEST.value,
