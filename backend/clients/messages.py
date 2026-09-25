@@ -37,9 +37,28 @@ class SystemMessage(BaseMessage):
         return {"role": self.role, "content": self.content}
 
 
+class UnvalidatedUserMessage(BaseModel):
+    """The user's message as it arrived, before the turn has checked it.
+
+    Deliberately not a `BaseMessage`: no `role` and no `to_openai_dict`, so it
+    cannot go into an LLM request or `APIMessage` list by accident. The check
+    in `app/orchestration/validation/` is what turns it into a `UserMessage`,
+    keeping `id` and `created`.
+    """
+
+    id: str = Field(default_factory=lambda: f"chat_{uuid_8()}")
+    content: str
+    created: str | None = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+
+
 class UserMessage(BaseMessage):
     role: Literal[Role.USER] = Role.USER
     id: str = Field(default_factory=lambda: f"chat_{uuid_8()}")
+    # ISO 639-1, set by the validation check on the turn's own message; None on
+    # the user turns the app builds for its own LLM calls
+    language: str | None = None
     content: str
     created: str | None = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()

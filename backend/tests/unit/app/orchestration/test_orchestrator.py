@@ -36,7 +36,15 @@ from app.orchestration.token_budget import (
     SITE_OUT_OF_TOKENS_MESSAGE,
 )
 from app.orchestration.triage import TriageOutput
+from app.orchestration.validation import UserMsgValidation
+from app.orchestration.validation.validate import (
+    CODE_REPLY,
+    HARMFUL_REPLY,
+    INCOHERENT_REPLY,
+    LANGUAGE_REPLY,
+)
 from airglider import OperationResult, Response, TokenUsage
+from clients.messages import UnvalidatedUserMessage, UserMessage
 
 # request_context comes from tests/conftest.py
 
@@ -66,6 +74,35 @@ def start_turn():
         return_value=_balance(AppConfig.SESSION_TOKEN_BUDGET),
     ) as mock_start:
         yield mock_start
+
+
+def _validation(**flags) -> OperationResult:
+    """What `validate_user_message` hands back: a passing check unless a flag
+    or language says otherwise."""
+    fields = {
+        "language": "en",
+        "incoherent": False,
+        "harmful_query": False,
+        "prompt_injection": False,
+        "contains_code": False,
+    } | flags
+    return OperationResult(
+        name="app.orchestration.validation.validate.validate_user_message",
+        ok=True,
+        response=Response(result=UserMsgValidation(**fields)),
+    )
+
+
+@pytest.fixture(autouse=True)
+def validate():
+    """The message check, patched to pass for every test in this module — the
+    real one is an LLM call. The tests that are *about* it set its envelope."""
+    with patch(
+        "app.orchestration.orchestrator.validate_user_message",
+        new_callable=AsyncMock,
+        return_value=_validation(),
+    ) as mock_validate:
+        yield mock_validate
 
 
 @pytest.fixture(autouse=True)
@@ -553,3 +590,88 @@ class TestRefusingWhenTheSiteIsSpent:
 
         read.assert_not_called()
         triage_cls.assert_called_once()
+
+
+class TestValidatingTheMessage:
+    """The message arrives unvalidated, and only a passing check lets it reach
+    triage — as the `UserMessage` every later layer reads."""
+
+    @staticmethod
+    async def _turn(ctx):
+        with patch(
+            "app.orchestration.orchestrator.TriageWorkflow",
+            return_value=_triage_with_plan(None),
+        ) as triage_cls, patch(
+            "app.orchestration.orchestrator.record_chat_run", new_callable=AsyncMock
+        ) as record:
+            await Orchestrator().run(ctx)
+        return triage_cls, record
+
+    @staticmethod
+    def _unvalidated(make_request_context):
+        ctx = make_request_context(
+            user_message=UnvalidatedUserMessage(content="books like Dune")
+        )
+        ctx.sse_stream.send_chars = AsyncMock()
+        return ctx
+
+    async def test_a_passing_message_reaches_triage_validated(
+        self, make_request_context
+    ):
+        """Same id, so the chat_id already sent to the client still names it."""
+        ctx = self._unvalidated(make_request_context)
+        raw_id = ctx.user_message.id
+
+        triage_cls, _ = await self._turn(ctx)
+
+        triage_cls.assert_called_once()
+        assert isinstance(ctx.user_message, UserMessage)
+        assert ctx.user_message.id == raw_id
+        assert ctx.user_message.language == "en"
+
+    @pytest.mark.parametrize(
+        ("flags", "reply"),
+        [
+            ({"harmful_query": True}, HARMFUL_REPLY),
+            ({"prompt_injection": True}, HARMFUL_REPLY),
+            ({"contains_code": True}, CODE_REPLY),
+            ({"incoherent": True}, INCOHERENT_REPLY),
+            ({"language": "es"}, LANGUAGE_REPLY),
+            # the order is the priority: harm is named before language
+            ({"harmful_query": True, "language": "es"}, HARMFUL_REPLY),
+        ],
+    )
+    async def test_a_failed_check_gets_its_fixed_reply_and_no_triage(
+        self, make_request_context, validate, flags, reply
+    ):
+        ctx = self._unvalidated(make_request_context)
+        validate.return_value = _validation(**flags)
+
+        triage_cls, _ = await self._turn(ctx)
+
+        triage_cls.assert_not_called()
+        ctx.sse_stream.send_chars.assert_awaited_once_with(reply)
+        assert isinstance(ctx.user_message, UnvalidatedUserMessage)
+
+    async def test_the_refusal_is_on_the_turns_record(
+        self, make_request_context, validate
+    ):
+        ctx = self._unvalidated(make_request_context)
+        validate.return_value = _validation(incoherent=True)
+
+        _, record = await self._turn(ctx)
+
+        root = record.await_args.args[1]
+        assert any(d.startswith("refused by validation") for d in root.details)
+        assert root.ok
+
+    async def test_a_check_with_no_verdict_stops_the_turn(
+        self, make_request_context, validate
+    ):
+        """Nothing unchecked goes further: a failed step is unwrapped, not
+        waved through."""
+        validate.return_value = OperationResult(name="validate_user_message")
+
+        triage_cls, _ = await self._turn(self._unvalidated(make_request_context))
+
+        triage_cls.assert_not_called()

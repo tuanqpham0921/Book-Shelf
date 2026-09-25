@@ -127,7 +127,7 @@ Each capability is a **vertical slice** — one folder under `app/domains/<domai
 ### Request Flow
 
 1. **Frontend** sends a chat message via SSE to `POST /session/{id}/message`
-2. **`Orchestrator`** (`app/orchestration/orchestrator.py`) — transport lifecycle only: SSE, timeouts, cancellation, recording. Builds a `RequestContext` and delegates to `TriageWorkflow`
+2. **`Orchestrator`** (`app/orchestration/orchestrator.py`) — transport lifecycle only: SSE, timeouts, cancellation, recording. The route builds a `RequestContext` around an `UnvalidatedUserMessage`; after the budget checks, `validate_user_message` (`app/orchestration/validation/`, 2026-09-25 — one gpt-5-mini call at minimal effort, `UserMsgValidation`: language, incoherent, harmful_query, prompt_injection, contains_code — any code or SQL in the message, not talk about programming) either refuses with a fixed reply and ends the turn as ok, or swaps in the checked `UserMessage` (same id, plus `language`; English only via `SUPPORTED_LANGUAGES`). A check with no verdict stops the turn — it does not fail open like triage's split. Then it delegates to `TriageWorkflow`
 3. **`Triage`** decides whether to plan, and calls **`PlanJane`** if so; the plan then travels to **`TaskRunner`** as an artifact
 4. Results stream back to the client via **SSEStream** (`app/common/sse_stream.py`)
 

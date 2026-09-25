@@ -19,6 +19,7 @@ from app.orchestration.token_budget import (
     read_site_spend,
     start_session_turn,
 )
+from app.orchestration.validation import refusal_for, validate_user_message
 from app.orchestration.write_recommendations import (
     GenerateRecommendationsExecutor,
     RecommendationsInput,
@@ -27,6 +28,7 @@ from airglider import OperationResult, RuntimeErrorInfo
 
 from clients.messages import (
     APIMessage,
+    UserMessage,
 )
 
 logger = logging.getLogger(__name__)
@@ -98,9 +100,11 @@ class Orchestrator:
         record = OperationResult(
             name=f"orchestrator_{request_context.user_message.id}",
         )
-        messages: list[APIMessage] = [request_context.user_message]
+        # empty until the message passes validation — an unvalidated one is not
+        # an APIMessage, and a refused turn has nothing to record here
+        messages: list[APIMessage] = []
         time_start = time.perf_counter()
-        
+
         # Core work
         try:
             # First and unconditionally: this id exists before any work
@@ -140,6 +144,31 @@ class Orchestrator:
                     )
                     await sse_stream.send_error(SITE_OUT_OF_TOKENS_MESSAGE)
                     return
+
+            # The message arrives unvalidated, and nothing past this point reads
+            # it until it passes. Unwrapped like the balance read: a check that
+            # returned no verdict stops the turn rather than waving it through.
+            await sse_stream.send_ui_loading("Reading your message...")
+            validation_step = await validate_user_message(request_context)
+            record.add_step(validation_step)
+            validation = validation_step.unwrap()
+            if reply := refusal_for(validation):
+                # a handled turn, not a failure — the same shape as triage's
+                # fixed replies: the answer, then 'complete'
+                record.add_details(f"refused by validation: {validation!r}")
+                await sse_stream.send_chars(reply)
+                await sse_stream.send(
+                    "complete",
+                    {"status": "completed", "chat_id": request_context.user_message.id},
+                )
+                return
+
+            raw = request_context.user_message
+            request_context.user_message = UserMessage(
+                id=raw.id, content=raw.content, created=raw.created,
+                language=validation.language,
+            )
+            messages.append(request_context.user_message)
 
             await sse_stream.send_ui_loading("Starting conversation...")
             triage_workflow = TriageWorkflow(request_context, messages=messages)
