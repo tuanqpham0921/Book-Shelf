@@ -117,7 +117,13 @@ out rather than hidden:
 make eval-decomposition                          # every case, printed
 make eval-decomposition ARGS="--ids 1 5 9"       # a few, while iterating
 make eval-decomposition CAMPAIGN=v1_triage       # -> results/v1_triage/query_decomposition.md
+make eval-decomposition ARGS="--save"            # -> app_docs/results/query_decomposition_<timestamp>/
 ```
+
+`--save [DIR]` writes `report.md` and `results.json` (every case's full parsed
+decomposition — portions and reasoning — plus its grade and token usage) into a
+timestamped folder under `DIR`, `app_docs/results/` by default. Progress prints to
+stderr as each case finishes.
 
 Grades the gpt-5-mini split that triage runs ahead of the planner, on its own: no
 backend, no database, no `test_runs` rows. `eval_query_decomposition.py` sends each

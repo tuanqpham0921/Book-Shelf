@@ -23,6 +23,7 @@ Usage (from backend/, or `make eval-decomposition`):
     poetry run python evals/triage/eval_query_decomposition.py
     poetry run python evals/triage/eval_query_decomposition.py --ids 1 5 9
     poetry run python evals/triage/eval_query_decomposition.py --output evals/results/<campaign>/query_decomposition.md
+    poetry run python evals/triage/eval_query_decomposition.py --save
 """
 
 import argparse
@@ -34,7 +35,7 @@ from datetime import datetime, timezone
 from itertools import groupby
 from pathlib import Path
 
-from airglider import TokenUsage
+from airglider import TokenUsage, to_serializable
 from app.orchestration.triage.executor import (
     DECOMPOSE_PROMPT_PATH,
     build_decomposition_request,
@@ -45,6 +46,7 @@ from config import settings
 from evals.common import current_git_sha, report_header, truncate
 
 SUITE_PATH = Path(__file__).parent / "suites" / "query_decomposition.json"
+SAVE_DIR = Path(__file__).parent / "results"
 
 QUERY_PRINT_LIMIT = 60
 
@@ -65,17 +67,14 @@ def merge_repeats(verdicts: list[str]) -> list[str]:
 
 
 def grade(case: dict, decomposition: QueryDecomposition) -> dict:
-    portions = [(p.text, p.verdict.value) for p in decomposition.portions]
-    got = [verdict for _, verdict in portions]
+    got = [p.verdict.value for p in decomposition.portions]
     verdicts_ok = merge_repeats(got) == merge_repeats(case["expected"])
-    rewritten = [text for text, _ in portions if text.strip() not in case["query"]]
+    rewritten = [p.text for p in decomposition.portions if p.text.strip() not in case["query"]]
     return {
         "status": "pass" if verdicts_ok and not rewritten else "fail",
         "got": got,
         "verdicts_ok": verdicts_ok,
         "rewritten": rewritten,
-        "portions": portions,
-        "reasoning": decomposition.reasoning,
     }
 
 
@@ -90,19 +89,28 @@ async def decompose(
     return msg.tool_calls[0].function.parsed_arguments, msg.token_usage
 
 
-async def run_case(client: OpenAIClient, case: dict) -> dict:
+async def run_case(client: OpenAIClient, case: dict, index: int, total: int) -> dict:
     try:
         decomposition, usage = await decompose(client, case["query"])
+        graded = grade(case, decomposition)
+        status = graded.pop("status")  # hoisted, so it isn't stored twice
+        result = {"case": case, "status": status, "usage": usage,
+                  "parsed": decomposition, "grade": graded}
     except Exception as e:  # one bad call is one failed case, not a dead run
-        return {"case": case, "status": "error", "error": f"{type(e).__name__}: {e}"}
-    return {"case": case, "usage": usage, **grade(case, decomposition)}
+        result = {"case": case, "status": "error", "error": f"{type(e).__name__}: {e}"}
+    # stderr, so a piped report stays clean; `index` is launch order, not finish order
+    print(f"[{index}/{total}] {_STATUS_ICON[result['status']]} case {case['id']}: "
+          f"{truncate(case['query'], QUERY_PRINT_LIMIT)}", file=sys.stderr)
+    return result
 
 
 async def run_all(cases: list[dict]) -> list[dict]:
     # all at once: the client's own semaphore (MAX_CONCURRENCY) bounds it
     client = OpenAIClient(settings.openai)
     try:
-        return await asyncio.gather(*(run_case(client, case) for case in cases))
+        return await asyncio.gather(
+            *(run_case(client, case, i, len(cases)) for i, case in enumerate(cases, 1))
+        )
     finally:
         await client.close()
 
@@ -114,8 +122,9 @@ def build_report(results: list[dict], git_sha: str, generated_at: datetime) -> s
             usage += result["usage"]
 
     statuses = Counter(result["status"] for result in results)
-    wrong_verdicts = sum(1 for r in results if r["status"] == "fail" and not r["verdicts_ok"])
-    rewritten = sum(1 for r in results if r.get("rewritten"))
+    graded = [r["grade"] for r in results if "grade" in r]
+    wrong_verdicts = sum(1 for g in graded if not g["verdicts_ok"])
+    rewritten = sum(1 for g in graded if g["rewritten"])
     models = ", ".join(sorted(usage.by_model)) or "none"
 
     lines = report_header("Query Decomposition", ["query_decomposition"], git_sha, generated_at)
@@ -132,7 +141,7 @@ def build_report(results: list[dict], git_sha: str, generated_at: datetime) -> s
         case = result["case"]
         lines.append(
             f"| {case['id']} | {_STATUS_ICON[result['status']]} "
-            f"| {', '.join(case['expected'])} | {', '.join(result.get('got', []))} "
+            f"| {', '.join(case['expected'])} | {', '.join(result.get('grade', {}).get('got', []))} "
             f"| {truncate(case['query'], QUERY_PRINT_LIMIT)} |"
         )
     lines.append("")
@@ -155,11 +164,12 @@ def _failure_lines(result: dict) -> list[str]:
     if result["status"] == "error":
         lines.append(f"- error: {result['error']}")
     else:
+        parsed, graded = result["parsed"], result["grade"]
         lines.append("- got:")
-        lines += [f'    - "{text}" → {verdict}' for text, verdict in result["portions"]]
-        if result["rewritten"]:
-            lines.append(f"- not verbatim: {', '.join(repr(t) for t in result['rewritten'])}")
-        lines.append(f"- reasoning: {result['reasoning']}")
+        lines += [f'    - "{p.text}" → {p.verdict.value}' for p in parsed.portions]
+        if graded["rewritten"]:
+            lines.append(f"- not verbatim: {', '.join(repr(t) for t in graded['rewritten'])}")
+        lines.append(f"- reasoning: {parsed.reasoning}")
 
     lines += [f"- note: {case['note']}", ""]
     return lines
@@ -174,6 +184,15 @@ def main() -> int:
         help="Also write the report to this file "
         "(e.g. evals/results/<campaign>/query_decomposition.md).",
     )
+    parser.add_argument(
+        "--save",
+        type=Path,
+        nargs="?",
+        const=SAVE_DIR,
+        help="Save report.md plus results.json (every case's full parsed "
+        "decomposition, grade and usage) into a timestamped folder under this "
+        "directory (default: evals/<test>/results/).",
+    )
     args = parser.parse_args()
 
     cases = load_cases(args.ids)
@@ -182,13 +201,23 @@ def main() -> int:
         return 1
 
     results = asyncio.run(run_all(cases))
-    report = build_report(results, current_git_sha(), datetime.now(timezone.utc))
+    generated_at = datetime.now(timezone.utc)
+    report = build_report(results, current_git_sha(), generated_at)
     print(report)
 
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(report)
         print(f"report written to {args.output}", file=sys.stderr)
+
+    if args.save:
+        run_dir = args.save / f"query_decomposition_{generated_at:%Y%m%d_%H%M%S}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "report.md").write_text(report)
+        (run_dir / "results.json").write_text(
+            json.dumps(to_serializable(results), indent=2, ensure_ascii=False)
+        )
+        print(f"report and results saved to {run_dir}", file=sys.stderr)
 
     return 0
 
