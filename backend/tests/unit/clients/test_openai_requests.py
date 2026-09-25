@@ -196,21 +196,25 @@ class TestOpenAIParserRequest:
         with pytest.raises(Exception):
             OpenAIParserRequest(prompt="p", messages=[USER_MSG], tool_models=[])
 
-    def test_rejects_more_than_one_tool_model(self):
-        with pytest.raises(Exception):
-            OpenAIParserRequest(prompt="p", messages=[USER_MSG], tool_models=[ToolA, ToolB])
+    def test_several_tool_models_allow_at_most_one_call(self):
+        req = OpenAIParserRequest(prompt="p", messages=[USER_MSG], tool_models=[ToolA, ToolB])
+        payload = req.to_payload()
+        assert [tool["function"]["name"] for tool in payload["tools"]] == ["ToolA", "ToolB"]
+        assert payload["tool_choice"] == "auto"
+        assert payload["parallel_tool_calls"] is False
 
     def test_to_payload_has_tools_and_tool_choice(self):
         req = OpenAIParserRequest(prompt="p", messages=[USER_MSG], tool_models=[ToolA])
         payload = req.to_payload()
         assert "tools" in payload
         assert payload["tool_choice"]["function"]["name"] == "ToolA"
+        assert "parallel_tool_calls" not in payload
 
     def test_docstring_is_sent_as_description_by_default(self):
         req = OpenAIParserRequest(
             prompt="p", messages=[USER_MSG], tool_models=[DocumentedTool]
         )
-        tool = req.to_function_tools()
+        [tool] = req.to_function_tools()
         assert tool["function"]["description"] == DocumentedTool.__doc__
 
     def test_description_dropped_when_disabled(self):
@@ -220,7 +224,7 @@ class TestOpenAIParserRequest:
             tool_models=[DocumentedTool],
             include_tool_description=False,
         )
-        tool = req.to_function_tools()
+        [tool] = req.to_function_tools()
         assert "description" not in tool["function"]
         # dropping it must not cost us auto-parsing: the openai lib keys that off
         # tool["function"] still being a PydanticFunctionTool carrying .model

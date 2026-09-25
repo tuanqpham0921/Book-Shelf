@@ -1,28 +1,17 @@
-"""The query decomposition's tool-call schema — what the LLM fills in.
+"""Triage's own tool — what the LLM fills in when it hands the turn on.
 
 Split from `executor.py` to match the slice layout: `tools.py` is what the
-LLM fills in, `executor.py` is what runs. The portions it carries are in
-`external.py`, because they outlive the tool call.
+LLM fills in, `executor.py` is what runs. The other two tools triage offers,
+`SecurityReview` and `ClarifyingQuestion`, live in `app/common/tools.py`.
 """
 
-from pydantic import BaseModel, Field
-
-from app.common.field_types import MAX_STRING_LENGTH, ReasoningStr
-
-from .external import QueryPortion
+from pydantic import BaseModel
 
 
-class QueryDecomposition(BaseModel):
-    """Split the user's message into portions and label each one.
+class PlanJane(BaseModel):
+    """Send the message to the planner, which finds the books.
 
-    An internal tool like a slice's `*Args` — never seen by the planner, so no
-    `node_type`. `reasoning` comes first so the model justifies before it
-    labels; it is kept for the trace and never shown to the user.
+    Use this whenever the message is something BookShelf supports: finding
+    books by title, author, subject, pages, year or rating, books like ones
+    the user loves, and questions about books or about BookShelf itself.
     """
-
-    reasoning: ReasoningStr = Field(
-        ...,
-        max_length=MAX_STRING_LENGTH,
-        json_schema_extra={"example": "A greeting, then a request for similar books"},
-    )
-    portions: list[QueryPortion] = Field(..., min_length=1)
