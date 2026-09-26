@@ -11,7 +11,7 @@ from .tools import ProjectInfoArgs
 
 
 class ProjectInfoRequest(BaseRequest):
-    """Purpose: Retrieve information about the app, tech stack, architecture, or project metadata.
+    """Purpose: Retrieve information about the app, capability, tech stack, architecture, or project metadata.
 
     Args:
         fields: One or more ProjectInfoField values to retrieve (name,
@@ -38,6 +38,9 @@ class ProjectInfoRequest(BaseRequest):
         - "what is this app"
         - "where's the GitHub repo"
         - "tell me about this project"
+        - "what can you do?"
+        - "why is coversation only single turn? what was the rationale?"
+        - "how long did this project take or cost to run?"
     """
 
     node_type: Literal[ProjectInfoNodeTypeEnum.REQUEST] = ProjectInfoNodeTypeEnum.REQUEST

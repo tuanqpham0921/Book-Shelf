@@ -1,4 +1,5 @@
-"""What triage exposes to the layers around it: the plan when there is one.
+"""What triage exposes to the layers around it: the plan when there is one,
+and the project facts when the router looked them up itself.
 
 `tools.py` is what the *LLM* fills in; this is what the orchestrator and the
 run recorder read back.
@@ -8,6 +9,7 @@ from typing import Any
 
 from app.domains.base_workflow import NodeWorkflowOutput
 from app.domains.planjane import ExecutionOrder, PlanJaneOutput
+from app.domains.project.find_project_info import ProjectInfoOutput
 
 
 # NOTE: this is okay for now
@@ -24,9 +26,17 @@ class TriageOutput(NodeWorkflowOutput):
     # Renaming it to `plan` means changing all four in lockstep.
     parse_result: PlanJaneOutput | None = None
 
+    # The facts the router asked for with `ProjectInfoArgs`, looked up without
+    # planning. The orchestrator writes the reply from them together with
+    # whatever the plan found — or from them alone, when there is no plan.
+    project_info: ProjectInfoOutput | None = None
+
     def to_summary(self) -> dict[str, Any]:
         return {
             "plan": self.parse_result.to_summary() if self.parse_result else None,
+            "project_info": (
+                self.project_info.to_summary() if self.project_info else None
+            ),
         }
 
     @property

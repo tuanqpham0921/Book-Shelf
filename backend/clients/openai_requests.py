@@ -164,8 +164,9 @@ class OpenAIBaseRequest(BaseLLMRequest):
 
 
 class OpenAIParserRequest(OpenAIBaseRequest):
-    """One tool call, parsed. One tool model pins the call to it; several let
-    the model pick one of them, or answer in text instead."""
+    """Tool calls, parsed. One tool model pins the call to it; several let the
+    model call any of them — more than one at once — or answer in text
+    instead."""
 
     tool_models: Annotated[list[type], Field(min_length=1)]
     tool_override: dict | None = None
@@ -189,10 +190,12 @@ class OpenAIParserRequest(OpenAIBaseRequest):
                 "function": {"name": self.tool_models[0].__name__},
             }
         else:
-            # at most one call: parallel calls are not guaranteed to match
-            # strict schemas
+            # several calls allowed, since one message can need more than one
+            # tool. Parallel calls are not held to strict schemas: one that
+            # does not match fails to parse and the whole call raises, so a
+            # caller offering several tools needs a fallback for that
             payload["tool_choice"] = "auto"
-            # payload["parallel_tool_calls"] = False
+            payload["parallel_tool_calls"] = True
         return payload
 
     def to_function_tools(self) -> list[ChatCompletionFunctionToolParam]:

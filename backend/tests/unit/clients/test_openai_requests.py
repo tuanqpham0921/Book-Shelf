@@ -196,12 +196,12 @@ class TestOpenAIParserRequest:
         with pytest.raises(Exception):
             OpenAIParserRequest(prompt="p", messages=[USER_MSG], tool_models=[])
 
-    def test_several_tool_models_allow_at_most_one_call(self):
+    def test_several_tool_models_allow_parallel_calls(self):
         req = OpenAIParserRequest(prompt="p", messages=[USER_MSG], tool_models=[ToolA, ToolB])
         payload = req.to_payload()
         assert [tool["function"]["name"] for tool in payload["tools"]] == ["ToolA", "ToolB"]
         assert payload["tool_choice"] == "auto"
-        assert payload["parallel_tool_calls"] is False
+        assert payload["parallel_tool_calls"] is True
 
     def test_to_payload_has_tools_and_tool_choice(self):
         req = OpenAIParserRequest(prompt="p", messages=[USER_MSG], tool_models=[ToolA])

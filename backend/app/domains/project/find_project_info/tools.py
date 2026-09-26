@@ -17,8 +17,12 @@ class ProjectInfoField(str, Enum):
     ALL = "all"
 
 
+# The docstring is the tool description two LLM calls read: the node's own
+# parse, and triage's router, which offers it beside `PlanJane` so a project
+# question is answered without planning. Keep it true for both.
 class ProjectInfoArgs(BaseModel):
-    """Pick the facts about this project that the query asks for."""
+    """Pick the facts about BookShelf itself that are asked for: its name, what
+    it is, its tech stack, its site and its GitHub links."""
 
     fields: list[ProjectInfoField] = Field(
         ..., json_schema_extra={"example": ["technology_stack"]}

@@ -780,6 +780,16 @@ work of finding books", which would have kept it from being planned. And the rep
 only knew book outputs, so a project lookup reached the writer as "found nothing":
 `render.py` now gives it a `<project>` block and the writer prompt says how to answer from
 it. `ProjectInfoOutput` is not book-shaped on purpose, so no book node can depend on it.
+The stage's `_partition` had to learn it too: it kept only book outputs and failures, so
+a plan of nothing but a project lookup reached the writer empty and raised.
+
+Later the same day, triage's router was offered `ProjectInfoArgs` itself, with parallel
+tool calls turned on. A project question is now looked up in triage
+(`select_project_info`, no plan) and handed to the reply stage on
+`TriageOutput.project_info`. When the message asks for something else too, the router
+also calls `PlanJane` with the rest of the message in `message`, and that remainder is
+all the planner reads. The node stays registered, since it is the planner's way to
+the same facts when routing fails and the whole message goes through.
 
 ## V1 conversation contract: clarify-only, single-turn
 

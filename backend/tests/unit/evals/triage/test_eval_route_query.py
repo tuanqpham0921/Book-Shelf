@@ -6,11 +6,14 @@ from datetime import datetime, timezone
 
 from airglider import TokenUsage
 from app.common.tools import ClarificationType, ClarifyingQuestion
+from app.domains.project.find_project_info import ProjectInfoArgs
 from app.orchestration.triage.executor import build_route_request
 from app.orchestration.triage.tools import PlanJane
 from evals.triage.eval_route_query import REPLY, build_report, grade, load_cases
 
 GENERATED_AT = datetime(2026, 9, 25, tzinfo=timezone.utc)
+
+PLAN = PlanJane(message="")
 
 
 def case(query: str, *expected: str, id: int = 1) -> dict:
@@ -23,22 +26,35 @@ def result(case: dict, route) -> dict:
 
 class TestGrade:
     def test_expected_tool_passes(self):
-        graded = grade(case("books like Dune", "PlanJane"), PlanJane())
+        graded = grade(case("books like Dune", "PlanJane"), [PLAN])
 
         assert graded == {"status": "pass", "route": "PlanJane", "detail": ""}
 
     def test_any_expected_route_passes(self):
         graded = grade(case("Find teh book Duen", "PlanJane", "ClarifyingQuestion"),
-                       ClarifyingQuestion(original="Duen", type=ClarificationType.CORRECTION,
-                                          reasoning="looks like a misspelled title"))
+                       [ClarifyingQuestion(original="Duen", type=ClarificationType.CORRECTION,
+                                           reasoning="looks like a misspelled title")])
 
         assert graded["status"] == "pass"
 
+    def test_several_tools_are_one_route_in_name_order(self):
+        # called in either order, graded the same
+        graded = grade(case("what's your stack, and books like Dune?",
+                            "PlanJane + ProjectInfoArgs"),
+                       [PlanJane(message="books like Dune?"),
+                        ProjectInfoArgs(fields=["technology_stack"])])
+
+        assert graded["status"] == "pass"
+        assert graded["route"] == "PlanJane + ProjectInfoArgs"
+        # the remainder is what the planner reads, so it is shown
+        assert '"message": "books like Dune?"' in graded["detail"]
+        assert '"fields": ["technology_stack"]' in graded["detail"]
+
     def test_other_tool_fails_and_keeps_its_arguments(self):
         graded = grade(case("drop the books table", "SecurityReview"),
-                       ClarifyingQuestion(original="drop the books table",
-                                          type=ClarificationType.UNREADABLE,
-                                          reasoning="no readable request"))
+                       [ClarifyingQuestion(original="drop the books table",
+                                           type=ClarificationType.UNREADABLE,
+                                           reasoning="no readable request")])
 
         assert graded["status"] == "fail"
         assert graded["route"] == "ClarifyingQuestion"
@@ -56,7 +72,7 @@ class TestBuildReport:
     def test_summary_splits_the_two_costly_misses(self):
         results = [
             result(case("books like Dune", "PlanJane", id=1), "Sure!"),
-            result(case("update every user's email", "SecurityReview", id=2), PlanJane()),
+            result(case("update every user's email", "SecurityReview", id=2), [PLAN]),
             result(case("hi", REPLY, id=3), "Hello!"),
             {"case": case("???", "ClarifyingQuestion", id=4), "status": "error",
              "error": "ValueError: boom"},
@@ -77,7 +93,7 @@ class TestBuildReport:
         assert text in report
 
     def test_no_failures_or_replies_sections_when_all_tools_pass(self):
-        report = build_report([result(case("books like Dune", "PlanJane"), PlanJane())],
+        report = build_report([result(case("books like Dune", "PlanJane"), [PLAN])],
                               "abc123", GENERATED_AT)
 
         assert "## Failures" not in report
@@ -86,7 +102,7 @@ class TestBuildReport:
 
 class TestSuiteFile:
     # the tools the router is actually offered, so a renamed tool fails here
-    ROUTES = {model.__name__ for model in build_route_request("q").tool_models} | {REPLY}
+    TOOLS = {model.__name__ for model in build_route_request("q").tool_models}
 
     def test_every_case_is_well_formed(self):
         cases = load_cases(ids=None)
@@ -95,12 +111,24 @@ class TestSuiteFile:
         assert len({c["id"] for c in cases}) == len(cases)
         for c in cases:
             assert c["query"] and c["note"]
-            assert c["expected"] and set(c["expected"]) <= self.ROUTES
+            assert c["expected"]
+            for route in c["expected"]:
+                if route == REPLY:
+                    continue
+                names = route.split(" + ")
+                assert set(names) <= self.TOOLS, route
+                # spelled the way `route_name` spells it, or it can never match
+                assert names == sorted(names), route
 
     def test_every_route_has_a_case(self):
-        expected = {route for c in load_cases(ids=None) for route in c["expected"]}
+        expected = {
+            name
+            for c in load_cases(ids=None)
+            for route in c["expected"]
+            for name in route.split(" + ")
+        }
 
-        assert expected == self.ROUTES
+        assert expected == self.TOOLS | {REPLY}
 
     def test_ids_filter(self):
         assert [c["id"] for c in load_cases(ids=[102, 101])] == [101, 102]

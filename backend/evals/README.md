@@ -124,16 +124,20 @@ make eval-routing ARGS="--save"            # -> triage/results/route_query_<time
 Grades the gpt-5-mini pick that triage runs ahead of the planner, on its own: no
 backend, no database, no `test_runs` rows. `eval_route_query.py` sends each case in
 `triage/suites/route_query.json` through `build_route_request` — the builder a real
-turn uses, so the prompt, model and the three tools are exactly what production sends
+turn uses, so the prompt, model and the four tools are exactly what production sends
 — straight to `OpenAIClient`. The builder reads `route_query.txt` from disk on every
 call, so editing the prompt and rerunning is the whole loop. The whole suite costs
 about three cents.
 
 A case (`id`, `query`, `expected`, `note`) passes when the route is one of `expected`:
-`PlanJane`, `ClarifyingQuestion`, `SecurityReview`, or `reply` when the model called
-no tool and answered in text. The tool's arguments are not graded: a security flag
-always turns the message away and a clarification always asks the user to try again,
-so the arguments change only the wording. A case where two routes are fair lists both
+`PlanJane`, `ProjectInfoArgs`, `ClarifyingQuestion`, `SecurityReview`, or `reply` when
+the model called no tool and answered in text. The router can call several tools at
+once (2026-09-26), so a route is every tool's name, sorted and joined with ` + ` —
+`PlanJane + ProjectInfoArgs` is a project question split off from the rest. The tool's
+arguments are not graded: a security flag always turns the message away and a
+clarification always asks the user to try again, so the arguments change only the
+wording. A split's `PlanJane.message` is the exception worth reading — it is what the
+planner gets — so check the detail column on those cases. A case where two routes are fair lists both
 (the misspelling cases do: an obvious fix is the planner's, but a clarification is
 a fair reading). The report splits failures into book asks kept from the
 planner and misuse let through (to the planner or a direct reply), and prints every
@@ -142,7 +146,7 @@ model wrote them. `--save [DIR]` also writes `results.json` with each case's rou
 arguments or reply, and usage.
 
 The cases are grouped by route (1xx plan, 2xx reply, 3xx clarify, 4xx security, 5xx
-mixed messages); off-topic asks (16x) expect `PlanJane`, because the router clarifies
+mixed messages, 6xx project facts); off-topic asks (16x) expect `PlanJane`, because the router clarifies
 only what is unclear, not what is unsupported. Cases close to the prompt's own Examples
 say so in their note, since those partly test recall. Earlier turns can't be given yet
 — `build_route_request` takes the message alone — so a follow-up case expects

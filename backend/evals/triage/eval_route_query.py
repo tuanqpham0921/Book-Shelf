@@ -1,17 +1,20 @@
 """Grade triage's router on its own — no backend, no database.
 
 Each case's message goes through `build_route_request`, the same builder a turn
-uses, so the prompt, model, reasoning effort, token cap and the three tools are
+uses, so the prompt, model, reasoning effort, token cap and the four tools are
 exactly what production sends. Editing
 `app/orchestration/triage/prompts/route_query.txt` and rerunning is the whole
 loop: the builder reads the prompt from disk on every call.
 
-A case passes when the route — the tool's name, or `reply` when the model
-answered in text — is one of its `expected` routes. The tool's arguments are
-not graded: `SecurityReview` always turns the message away and
-`ClarifyingQuestion` always asks the user to try again, so the arguments change
-only the wording. A direct reply does reach the user as written,
-so the report prints every one in full for reading.
+A case passes when the route is one of its `expected` routes. The route is the
+name of every tool called, sorted and joined with ` + ` (`PlanJane +
+ProjectInfoArgs` for a split message), or `reply` when the model answered in
+text. The tool's arguments are not graded: `SecurityReview` always turns the
+message away and `ClarifyingQuestion` always asks the user to try again, so
+the arguments change only the wording — but a split's `PlanJane.message` is
+what the planner reads, so check the detail column for those. A direct reply
+does reach the user as written, so the report prints every one in full for
+reading.
 
 The call is made here rather than through `route_query`: that `@task` is the
 tracing around the same request, and needs a turn's context.
@@ -33,7 +36,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from airglider import TokenUsage, to_serializable
+from airglider import TokenUsage, remove_empty_values, to_serializable
 from app.orchestration.triage.executor import ROUTE_PROMPT_PATH, build_route_request
 from clients import OpenAIClient
 from config import settings
@@ -58,20 +61,23 @@ def load_cases(ids: list[int] | None) -> list[dict]:
     return cases
 
 
-def route_name(route: BaseModel | str) -> str:
-    """The tool's name, or `reply` for text."""
-    return REPLY if isinstance(route, str) else type(route).__name__
+def route_name(route: list[BaseModel] | str) -> str:
+    """Every tool's name, sorted and joined with ` + `, or `reply` for text."""
+    if isinstance(route, str):
+        return REPLY
+    return " + ".join(sorted(type(tool).__name__ for tool in route))
 
 
-def detail_of(route: BaseModel | str) -> str:
-    """What came with the route: the reply's text, or the tool's arguments."""
+def detail_of(route: list[BaseModel] | str) -> str:
+    """What came with the route: the reply's text, or each tool's arguments."""
     if isinstance(route, str):
         return route
-    args = route.model_dump()
-    return json.dumps(args, ensure_ascii=False) if args else ""
+    # an empty `PlanJane.message` is the unsplit case, not a detail
+    args = (remove_empty_values(tool.model_dump(mode="json")) for tool in route)
+    return "; ".join(json.dumps(each, ensure_ascii=False) for each in args if each)
 
 
-def grade(case: dict, route: BaseModel | str) -> dict:
+def grade(case: dict, route: list[BaseModel] | str) -> dict:
     name = route_name(route)
     return {
         "status": "pass" if name in case["expected"] else "fail",
@@ -82,12 +88,13 @@ def grade(case: dict, route: BaseModel | str) -> dict:
 
 async def pick_route(
     client: OpenAIClient, query: str
-) -> tuple[BaseModel | str, TokenUsage]:
-    """One pick, as `route_query` reads it: the first tool call's parsed
+) -> tuple[list[BaseModel] | str, TokenUsage]:
+    """One pick, as `route_query` reads it: every tool call's parsed
     arguments, or the model's text when it called none."""
     msg = await client.execute(build_route_request(query))
     if msg.tool_calls:
-        return msg.tool_calls[0].function.parsed_arguments, msg.token_usage
+        tools = [tool_call.function.parsed_arguments for tool_call in msg.tool_calls]
+        return tools, msg.token_usage
     if not msg.content:
         raise ValueError("LLM response contained neither a tool call nor text")
     return msg.content, msg.token_usage
@@ -125,9 +132,18 @@ def build_report(results: list[dict], git_sha: str, generated_at: datetime) -> s
     statuses = Counter(result["status"] for result in results)
     failed = [result for result in results if result["status"] == "fail"]
     # a book ask the planner never saw costs a user; misuse let through costs the app
-    kept_from_planner = sum(1 for r in failed if "PlanJane" in r["case"]["expected"])
-    let_through = sum(1 for r in failed if "SecurityReview" in r["case"]["expected"]
-                      and r["route"] in ("PlanJane", REPLY))
+    kept_from_planner = sum(
+        1 for r in failed
+        if any("PlanJane" in route for route in r["case"]["expected"])
+        and "PlanJane" not in r["route"]
+    )
+    # let through: the turn went on rather than ending in a refusal or a question
+    let_through = sum(
+        1 for r in failed
+        if "SecurityReview" in r["case"]["expected"]
+        and "SecurityReview" not in r["route"]
+        and "ClarifyingQuestion" not in r["route"]
+    )
     models = ", ".join(sorted(usage.by_model)) or "none"
 
     lines = report_header("Triage Routing", ["route_query"], git_sha, generated_at)

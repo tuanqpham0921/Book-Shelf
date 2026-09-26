@@ -8,8 +8,13 @@ from app.common.sse_stream import SSEStream
 from app.common.request_context import RequestContext
 
 from app.domains.node_input import NodeInput
+from app.domains.project.find_project_info import ProjectInfoNodeTypeEnum
 from app.orchestration.triage import TriageWorkflow
-from app.orchestration.task_runner import TaskRunnerInput, TaskRunnerWorkflow
+from app.orchestration.task_runner import (
+    TaskResult,
+    TaskRunnerInput,
+    TaskRunnerWorkflow,
+)
 from app.orchestration.run_recorder import record_chat_run
 from app.orchestration.token_budget import (
     OUT_OF_TOKENS_MESSAGE,
@@ -181,8 +186,9 @@ class Orchestrator:
             )
 
             # No plan when triage handled the turn without planning (small
-            # talk, a refusal, a cache miss on a failed planner): `parse_result`
-            # is None and there is nothing for the runner to execute.
+            # talk, a refusal, a project question and nothing else, a cache
+            # miss on a failed planner): `parse_result` is None and there is
+            # nothing for the runner to execute.
             #
             # `record.unwrap()`, because `unwrap` lives on the envelope and not
             # on the workflow — `triage_workflow.record` is what the decorator
@@ -192,7 +198,21 @@ class Orchestrator:
             # whatever triage already said for itself, and deliberate — a
             # failed triage read as "no plan" would answer the turn with
             # silence.
-            plan = triage_workflow.record.unwrap().parse_result
+            triage_output = triage_workflow.record.unwrap()
+            plan = triage_output.parse_result
+
+            # What the reply is written from: the project facts triage looked
+            # up without planning, first because they came first, then every
+            # goal the plan ran. Either alone is enough to write from.
+            results: list[TaskResult] = []
+            if triage_output.project_info:
+                results.append(
+                    TaskResult(
+                        task_id="triage",
+                        node_type=ProjectInfoNodeTypeEnum.REQUEST.value,
+                        output=triage_output.project_info,
+                    )
+                )
             if plan and plan.accepted_goals:
                 await sse_stream.send_ui_loading("Starting Tasks...")
                 task_runner = TaskRunnerWorkflow(request_context, messages=messages)
@@ -202,8 +222,14 @@ class Orchestrator:
                     task_runner(TaskRunnerInput(plan=plan)),
                     timeout=CONVERSATION_TIMEOUT,
                 )
-                writer = await self._write_reply(request_context, task_runner, messages)
-            
+                results.extend(task_runner.result.task_results.values())
+            if results:
+                writer = await self._write_reply(request_context, results, messages)
+            elif task_runner is not None:
+                # a plan whose every goal was unreachable: nothing to write
+                # from, so the stage would only invent evidence
+                logger.warning("No task results to write a reply from")
+
             # chat_id lets the client attach feedback to the chat_runs row
             await sse_stream.send(
                 "complete",
@@ -275,32 +301,23 @@ class Orchestrator:
     @staticmethod
     async def _write_reply(
         request_context: RequestContext,
-        task_runner: TaskRunnerWorkflow,
+        results: list[TaskResult],
         messages: list[APIMessage],
-    ) -> GenerateRecommendationsExecutor | None:
-        """Write the turn's reply from everything the plan produced.
+    ) -> GenerateRecommendationsExecutor:
+        """Write the turn's reply from everything triage and the plan produced.
 
         The third layer of the turn, and the only one that speaks prose. It is
         wired here rather than reached through the registry because it is not a
         capability: no goal targets it, nothing depends on it, and it runs once
-        per plan whatever the plan was. That is the same reason `Triage` is a
+        per turn whatever the plan was. That is the same reason `Triage` is a
         workflow in `orchestration/` rather than a node — and it keeps the
         import pointing downward, since `orchestration/` may read `domains/`.
 
         Returns the workflow so the caller can hang its record on the turn's
-        tree, matching how triage and the runner are handled; None when there
-        was nothing to write about.
-
-        One way to decline, and it is quiet: a plan whose every goal was
-        unreachable leaves an empty map. There is no evidence to write from, so
-        the stage would only invent one — the same failure the `ValueError` in
-        its `run` guards against.
+        tree, matching how triage and the runner are handled. The caller never
+        passes an empty list — the `ValueError` in the stage's `run` is what
+        that would hit.
         """
-        results = list(task_runner.result.task_results.values())
-        if not results:
-            logger.warning("No task results to write a reply from")
-            return None
-
         writer = GenerateRecommendationsExecutor(request_context, messages=messages)
         await asyncio.wait_for(
             writer(RecommendationsInput(results=results)),

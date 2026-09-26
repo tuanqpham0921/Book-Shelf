@@ -25,6 +25,7 @@ from app.domains.base_workflow import FailedGoalOutput
 from app.domains.books.external import BookAnchorOutput
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.domains.planjane import PlanJaneOutput, SystemGoal
+from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.orchestrator import (
     DEBIT_TOKENS_TIMEOUT,
     Orchestrator,
@@ -135,8 +136,9 @@ def _plan() -> PlanJaneOutput:
     )
 
 
-def _triage_with_plan(plan, token_usage=None):
-    """A triage workflow that produced `plan`, or none at all.
+def _triage_with_plan(plan, token_usage=None, project_info=None):
+    """A triage workflow that produced `plan`, or none at all — and the project
+    facts it looked up itself, if any.
 
     The plan rides on the *record's* payload, because that is where `run` reads
     it from: `triage_workflow.record.unwrap()`. For a real workflow that is the
@@ -147,7 +149,9 @@ def _triage_with_plan(plan, token_usage=None):
     workflow = AsyncMock()
     workflow.record = OperationResult(
         ok=True,
-        response=Response(result=TriageOutput(parse_result=plan)),
+        response=Response(
+            result=TriageOutput(parse_result=plan, project_info=project_info)
+        ),
         token_usage=token_usage or TokenUsage(),
     )
     return workflow
@@ -223,12 +227,15 @@ class TestWritingTheReply:
     only tests that the reply happens at all."""
 
     @staticmethod
-    def _drive(request_context, runner, plan="default"):
+    def _drive(request_context, runner, plan="default", project_info=None):
         """Run a turn with triage and the runner faked, capturing the writer."""
         return (
             patch(
                 "app.orchestration.orchestrator.TriageWorkflow",
-                return_value=_triage_with_plan(_plan() if plan == "default" else plan),
+                return_value=_triage_with_plan(
+                    _plan() if plan == "default" else plan,
+                    project_info=project_info,
+                ),
             ),
             patch(
                 "app.orchestration.orchestrator.TaskRunnerWorkflow",
@@ -288,6 +295,34 @@ class TestWritingTheReply:
             await Orchestrator().run(request_context)
 
         writer_cls.assert_not_called()
+
+    async def test_project_facts_alone_are_written_from_without_a_runner(
+        self, request_context
+    ):
+        # "what's your tech stack?": triage looked the facts up, nothing was
+        # planned, and the reply is still the writer's
+        facts = ProjectInfoOutput(info={"technology_stack": "FastAPI"})
+        triage, runner_p, writer_p, record = self._drive(
+            request_context, _runner_with({}), plan=None, project_info=facts
+        )
+        with triage, runner_p as runner_cls, writer_p as writer_cls, record:
+            await Orchestrator().run(request_context)
+
+        runner_cls.assert_not_called()
+        node_input = writer_cls.return_value.await_args.args[0]
+        assert [result.output for result in node_input.results] == [facts]
+
+    async def test_project_facts_come_before_the_plans_results(self, request_context):
+        facts = ProjectInfoOutput(info={"technology_stack": "FastAPI"})
+        found = BookAnchorOutput(num_books=1, goal_instruction="Find Dune")
+        triage, runner_p, writer_p, record = self._drive(
+            request_context, _runner_with({"1": found}), project_info=facts
+        )
+        with triage, runner_p, writer_p as writer_cls, record:
+            await Orchestrator().run(request_context)
+
+        node_input = writer_cls.return_value.await_args.args[0]
+        assert [result.output for result in node_input.results] == [facts, found]
 
     async def test_the_replys_record_lands_on_the_turns_trace(self, request_context):
         """Its spend and duration belong to the turn — the root envelope is
