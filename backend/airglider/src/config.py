@@ -38,6 +38,9 @@ MODEL_PRICES: dict[str, ModelPrice] = {
     # sees the whole tool catalog every request, so it dominates a run's cost.
     # Added 2026-09-24.
     "gpt-6-sol": ModelPrice(input=2.00, cached_input=0.20, output=10.00),
+    # the message check's model (orchestration/validation/validate.py).
+    # Added 2026-09-26.
+    "gpt-6-luna": ModelPrice(input=0.10, cached_input=0.01, output=0.50),
     # former planner model; priced here for older recorded runs
     "gpt-5.6-luna": ModelPrice(input=1.00, cached_input=0.10, output=6.00),
     # an earlier parse-step model; priced here for older recorded runs
