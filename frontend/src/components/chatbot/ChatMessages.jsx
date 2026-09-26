@@ -1,5 +1,6 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import { useRef, useEffect, useState, lazy, Suspense } from 'react'
 import { Copy, Check } from 'lucide-react';
 import { BookGridStack } from '@/components/book/BooksGrid';
@@ -42,7 +43,7 @@ function renderSection(section, responseId, sectionIndex) {
     if (section.type === 'text' && section.content) {
         return (
             <div key={key} className="message-bubble response markdown-container">
-                <Markdown remarkPlugins={[remarkGfm]}>{section.content}</Markdown>
+                <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{section.content}</Markdown>
             </div>
         );
     }
