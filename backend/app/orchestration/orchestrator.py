@@ -198,6 +198,9 @@ class Orchestrator:
             # whatever triage already said for itself, and deliberate — a
             # failed triage read as "no plan" would answer the turn with
             # silence.
+            # TODO: if something goes wrong
+            # maybe check if the planner and triage has no task
+            # then response that hallucationation happended and no retries yet
             triage_output = triage_workflow.record.unwrap()
             plan = triage_output.parse_result
 
