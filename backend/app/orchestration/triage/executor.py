@@ -40,6 +40,8 @@ ROUTE_PROMPT_PATH = "orchestration/triage/prompts/route_query.txt"
 # call, and the whole message goes to the planner.
 MAX_COMPLETION_TOKENS = 1_000
 
+CACHE_HIT_RESPONSE = "I have this query cached. Let me use this to save tokens."
+
 
 def build_route_request(query: str) -> OpenAIParserRequest:
     """Ask a cheap model which tool the message goes to: `PlanJane`,
@@ -76,6 +78,8 @@ class TriageWorkflow(AppWorkflow[TriageOutput]):
             cached = load_cached_parse_output(query)
             if cached is not None:
                 logger.info(f"Replaying cached plan for: {query}")
+                await self.sse_stream.send_chars(CACHE_HIT_RESPONSE)
+                await self.sse_stream.send_divider()
                 self.result.parse_result = cached
                 self.finalize_result(ok=True)
                 return
