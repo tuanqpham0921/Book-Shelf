@@ -30,9 +30,8 @@ class SecurityReview(BaseModel):
         """The reply the user gets, quoting what was flagged."""
         flagged = ", ".join(f'"{portion}"' for portion in self.flagged_portion)
         return (
-            f"This part of your message was flagged for security review: {flagged}. "
-            "For now, BookShelf rejects these messages right away, until a more "
-            "sophisticated review is in place."
+            f"This part of your message was flagged for security review: {flagged}. \n"
+            "For now, I reject these messages right away, until a more sophisticated review is in place."
         )
 
 
@@ -83,13 +82,13 @@ class ClarifyingQuestion(BaseModel):
         match self.type:
             case ClarificationType.NO_CONTEXT:
                 return (
-                    "BookShelf can't continue a conversation yet. Please send one "
-                    "clear message with everything you're looking for."
+                    "Sorry, I can't continue a conversation yet.\n"
+                    "Please send a descriptive message of what you're looking for."
                 )
             case ClarificationType.CORRECTION:
                 return f'Please fix this part of your message and try again: "{self.original}"'
             case ClarificationType.AMBIGUOUS | ClarificationType.UNREADABLE:
                 return (
-                    "Sorry, I can't understand what you're asking for. Could you "
-                    "be more specific?"
+                    "Sorry, I can't understand what you're asking for.\n"
+                    "Could you be more specific?"
                 )

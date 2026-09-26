@@ -29,10 +29,13 @@ MAX_COMPLETION_TOKENS = 500
 # Fixed text rather than anything the model writes, so nothing a prompt
 # injection steers ever reaches the user.
 HARMFUL_REPLY = (
-    "I can't help with that. I can help you find books, authors, or your next read."
+    "Your input has been flagged for security review.\n"
+    "For now, I reject these messages right away, until a more "
+    "sophisticated review is in place."
 )
 INCOHERENT_REPLY = (
-    "I couldn't make sense of that. Please be more specific"
+    "Sorry, I can't understand what you're asking for.\n"
+    "Could you be more specific?"
 )
 
 
