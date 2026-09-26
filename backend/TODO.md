@@ -61,6 +61,22 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 --------------------------
 
+have a basic intro for small talk tool
+the triage can pick them
+
+add in simple test for continuation
+add better triage router examples
+add a keyword only for the common tool
+  * UI or internal
+  * interal message to raise
+  * UI use the friendly messages
+
+have the planner take in a query schema
+with simple things like domains or simple things
+
+
+-----------------------
+
 so what is it that I'm trying to do?
 I want to off load some work for the Planner
   * intro/small talks  - but not too much

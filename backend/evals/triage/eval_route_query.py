@@ -8,8 +8,9 @@ loop: the builder reads the prompt from disk on every call.
 
 A case passes when the route — the tool's name, or `reply` when the model
 answered in text — is one of its `expected` routes. The tool's arguments are
-not graded: `SecurityReview` and `ClarifyingQuestion` get fixed replies, so
-only the pick reaches the user. A direct reply does reach the user as written,
+not graded: `SecurityReview` always turns the message away and
+`ClarifyingQuestion` always asks the user to try again, so the arguments change
+only the wording. A direct reply does reach the user as written,
 so the report prints every one in full for reading.
 
 The call is made here rather than through `route_query`: that `@task` is the

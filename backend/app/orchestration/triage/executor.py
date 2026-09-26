@@ -2,8 +2,8 @@
 `run` is the table of contents; everything else sits where the flow reaches it.
 
 Sits between `Orchestrator` (transport) and `PlanJane` (produce a plan), and
-decides whether to plan at all: replay a cached plan, answer small talk, turn
-the message away with a fixed reply, or hand it to the planner.
+decides whether to plan at all: replay a cached plan, answer small talk, ask
+for a clearer message, turn the message away, or hand it to the planner.
 
 Same reading rule as the slices (domains/README.md): this file is the flow,
 with the request builder as a module-level pure function beside it.
@@ -17,8 +17,6 @@ step in the trace tree.
 """
 
 import logging
-
-from pydantic import BaseModel
 
 from app.common.prompt_loader import load_prompt
 from app.common.tools import ClarifyingQuestion, SecurityReview
@@ -41,22 +39,6 @@ ROUTE_PROMPT_PATH = "orchestration/triage/prompts/route_query.txt"
 # reasoning tokens that count against this cap. Running out means no tool
 # call, and the whole message goes to the planner.
 MAX_COMPLETION_TOKENS = 1_000
-
-# What a message the planner never sees gets back. Fixed text rather than
-# anything the model wrote, so nothing a prompt injection steers ever reaches
-# the user.
-REPLIES: dict[type[BaseModel], str] = {
-    SecurityReview: (
-        "I can't help with that. I can help you find books, authors, or your "
-        "next read."
-    ),
-    ClarifyingQuestion: (
-        "I'm not sure what you mean. I'm BookShelf, a book recommender: "
-        "I can look up a book by title or author, find books on a subject or by "
-        "pages, year or rating, and suggest books like ones you already love. "
-        "Could you be more specific?"
-    ),
-}
 
 
 def build_route_request(query: str) -> OpenAIParserRequest:
@@ -113,9 +95,9 @@ class TriageWorkflow(AppWorkflow[TriageOutput]):
         elif not isinstance(step.result, PlanJane):
             # a message the planner never sees is a handled turn, not a
             # failure: ok, no plan, so the orchestrator skips the runner and
-            # the reply
+            # the reply stage. Calling the tool gives what the user reads
             self.add_details(f"routed to {type(step.result).__name__}: {step.result}")
-            await self.sse_stream.send_chars(REPLIES[type(step.result)])
+            await self.sse_stream.send_chars(step.result())
             self.finalize_result(ok=True)
             return
 

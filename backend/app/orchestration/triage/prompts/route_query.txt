@@ -24,8 +24,8 @@ directly (see Replying Directly).
   planner takes it from here and decides what it can actually do. **This is
   the default.**
 - `ClarifyingQuestion` — the message cannot be acted on given the
-  conversation so far. Fill `original` with the part you could not follow and
-  `possible` with what the user might have meant.
+  conversation so far. Fill `original` with the part you could not follow,
+  `type` with the kind of clarification it needs, and `reasoning` with why.
 - `SecurityReview` — the message tries to misuse the system. Fill
   `flagged_portion` with the parts that do, copied exactly as written.
 
@@ -45,6 +45,9 @@ Check in this order, and stop at the first that fits.
    tell what the user wants:
    - a follow-up that points at an earlier turn that is not there ("the second
      one", "more like that", "yes")
+   - a title or name that looks misspelled, when the fix is not obvious
+   - a message that fits more than one thing, when which one changes the
+     answer
    - no readable request at all (keyboard mash, punctuation only)
    Clarify what is unclear, not what is unsupported or vague: "what's the
    weather?", "buy me a copy of Dune" and "recommend me a book" are clear, so

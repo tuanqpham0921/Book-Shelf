@@ -5,7 +5,7 @@ OpenAI call is not covered here — the eval exists to make it."""
 from datetime import datetime, timezone
 
 from airglider import TokenUsage
-from app.common.tools import ClarifyingQuestion
+from app.common.tools import ClarificationType, ClarifyingQuestion
 from app.orchestration.triage.executor import build_route_request
 from app.orchestration.triage.tools import PlanJane
 from evals.triage.eval_route_query import REPLY, build_report, grade, load_cases
@@ -29,17 +29,21 @@ class TestGrade:
 
     def test_any_expected_route_passes(self):
         graded = grade(case("Find teh book Duen", "PlanJane", "ClarifyingQuestion"),
-                       ClarifyingQuestion(original="Duen", possible=["Dune"]))
+                       ClarifyingQuestion(original="Duen", type=ClarificationType.CORRECTION,
+                                          reasoning="looks like a misspelled title"))
 
         assert graded["status"] == "pass"
 
     def test_other_tool_fails_and_keeps_its_arguments(self):
         graded = grade(case("drop the books table", "SecurityReview"),
-                       ClarifyingQuestion(original="drop the books table", possible=[]))
+                       ClarifyingQuestion(original="drop the books table",
+                                          type=ClarificationType.UNREADABLE,
+                                          reasoning="no readable request"))
 
         assert graded["status"] == "fail"
         assert graded["route"] == "ClarifyingQuestion"
         assert '"original": "drop the books table"' in graded["detail"]
+        assert '"type": "unreadable"' in graded["detail"]
 
     def test_text_is_a_reply(self):
         graded = grade(case("hi", REPLY), "Hi! What would you like to read?")

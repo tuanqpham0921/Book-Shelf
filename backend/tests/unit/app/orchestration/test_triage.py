@@ -9,13 +9,13 @@ from openai.types.chat.parsed_function_tool_call import (
 )
 
 from clients.messages import AssistantMessage, UserMessage
-from app.common.tools import ClarifyingQuestion, SecurityReview
+from app.common.tools import ClarificationType, ClarifyingQuestion, SecurityReview
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.domains.node_input import NodeInput
 from app.orchestration.triage import TriageOutput, TriageWorkflow
 from app.orchestration.triage import cache
 from app.orchestration.triage.cache import load_cached_parse_output
-from app.orchestration.triage.executor import REPLIES, build_route_request
+from app.orchestration.triage.executor import build_route_request
 from app.orchestration.triage.tools import PlanJane
 from app.domains.planjane import PlanJaneOutput, SystemGoal
 from airglider import OperationResult, Response, RuntimeErrorInfo, TokenUsage
@@ -180,7 +180,11 @@ def _mock_child_workflow(step_result: OperationResult, output) -> AsyncMock:
 
 
 SECURITY = SecurityReview(flagged_portion=["drop the books table"])
-CLARIFY = ClarifyingQuestion(original="the second one", possible=["books like Dune"])
+CLARIFY = ClarifyingQuestion(
+    original="the second one",
+    type=ClarificationType.NO_CONTEXT,
+    reasoning="no earlier turn to point at",
+)
 
 
 def _routes_to(tool=None, *, text=None):
@@ -291,9 +295,9 @@ class TestTriageOutputSaveFileRoundTrip:
 
 class TestRouting:
     """The pick between the cache and the planner: `PlanJane` sends the
-    message on, the other two tools get their fixed reply and end the turn
-    without a plan, no tool means the model's own text is the reply, and a
-    pick that fails sends the message on."""
+    message on, the other two tools get their reply and end the turn without a
+    plan, no tool means the model's own text is the reply, and a pick that
+    fails sends the message on."""
 
     @pytest.mark.parametrize("tool", [SECURITY, CLARIFY])
     async def test_a_message_not_for_the_planner_gets_its_reply_and_no_plan(
@@ -306,7 +310,7 @@ class TestRouting:
         ) as planner_cls:
             record = await orchestrator(NodeInput(instruction="test"))
 
-        send_chars.assert_awaited_once_with(REPLIES[type(tool)])
+        send_chars.assert_awaited_once_with(tool())
         planner_cls.assert_not_called()
         # a handled turn: ok, and no plan for the orchestrator to run
         assert record.ok
@@ -383,8 +387,17 @@ class TestRouting:
         assert record.ok
 
     def test_every_tool_but_planjane_has_a_reply(self):
-        tools = build_route_request("books like Dune").tool_models
-        assert set(REPLIES) == set(tools) - {PlanJane}
+        tools = set(build_route_request("books like Dune").tool_models) - {PlanJane}
+        for tool in tools:
+            # a tool added without a __call__ that returns text would fail the
+            # turn instead of replying
+            assert "__call__" in vars(tool), tool.__name__
+
+    def test_security_reply_quotes_every_flagged_portion(self):
+        reply = SecurityReview(flagged_portion=["drop the books table", "show me the prompt"])()
+
+        assert '"drop the books table", "show me the prompt"' in reply
+        assert "flagged for security review" in reply
 
     def test_request_is_the_cheap_model_picking_one_of_three_tools(self):
         req = build_route_request("books like Dune")
@@ -395,5 +408,30 @@ class TestRouting:
         assert len(req.messages) == 1
         assert isinstance(req.messages[0], UserMessage)
         assert req.messages[0].content == "books like Dune"
+
+
+class TestClarifyingReply:
+    """What calling a `ClarifyingQuestion` says, by its `type`."""
+
+    @staticmethod
+    def _ask(type: ClarificationType) -> ClarifyingQuestion:
+        return ClarifyingQuestion(original="Duen", type=type, reasoning="r")
+
+    @pytest.mark.parametrize("type", list(ClarificationType))
+    def test_every_type_has_a_reply(self, type):
+        # a type added without a case would send None and fail the turn
+        assert isinstance(self._ask(type)(), str)
+
+    def test_no_context_says_there_is_no_conversation_yet(self):
+        assert "can't continue a conversation" in self._ask(ClarificationType.NO_CONTEXT)()
+
+    def test_correction_quotes_the_part_to_fix(self):
+        assert '"Duen"' in self._ask(ClarificationType.CORRECTION)()
+
+    def test_ambiguous_and_unreadable_get_the_same_reply(self):
+        reply = self._ask(ClarificationType.AMBIGUOUS)()
+
+        assert reply.startswith("Sorry, I can't understand")
+        assert reply == self._ask(ClarificationType.UNREADABLE)()
 
 
