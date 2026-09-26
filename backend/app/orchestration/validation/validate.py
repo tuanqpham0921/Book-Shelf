@@ -1,6 +1,6 @@
 """The first thing a turn does with the user's message: check it.
 
-Every message arrives from the route as an `UnvalidatedUserMessage`. One
+Every message arrives from the route as an `UserMessage`. One
 cheap call decides whether it may go any further: no security threat, no
 harmful content, not gibberish. Only a message that passes becomes the
 `UserMessage` the rest of the turn reads; one that fails gets a fixed reply

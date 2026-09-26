@@ -6,6 +6,9 @@ went with it (test_app_workflow.py).
 """
 
 import json
+import logging
+
+import pytest
 
 from openai.types.chat.parsed_function_tool_call import (
     ParsedFunction,
@@ -62,6 +65,26 @@ class TestUserMessage:
     def test_role_is_always_user(self):
         msg = UserMessage(content="x")
         assert msg.role == "user"
+
+    def test_unchecked_by_default(self):
+        assert UserMessage(content="x").pass_validation is None
+
+    def test_an_unchecked_message_still_goes_out_with_a_warning(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="clients.messages"):
+            result = UserMessage(content="x").to_openai_dict()
+
+        assert result == {"role": "user", "content": "x"}
+        assert "not been validated" in caplog.text
+
+    def test_a_passed_message_goes_out_quietly(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="clients.messages"):
+            UserMessage(content="x", pass_validation=True).to_openai_dict()
+
+        assert caplog.text == ""
+
+    def test_a_failed_message_refuses_to_go_out(self):
+        with pytest.raises(RuntimeError):
+            UserMessage(content="x", pass_validation=False).to_openai_dict()
 
 
 class TestAssistantMessage:

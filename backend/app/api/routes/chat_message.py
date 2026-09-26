@@ -9,7 +9,7 @@ from sse_starlette.sse import EventSourceResponse
 from starlette.background import BackgroundTask
 
 from app.api.schemas import ChatIn
-from clients.messages import UnvalidatedUserMessage
+from clients.messages import UserMessage
 from app.orchestration.orchestrator import Orchestrator
 from app.api.dependencies import (
     get_request_context_factory,
@@ -84,7 +84,7 @@ async def chat(
     # told why. A refusal here could only be an HTTP status, and the frontend
     # renders any non-200 on this route as its own "Oops something went wrong".
     request_context = await request_context_factory(
-        session_id, UnvalidatedUserMessage(content=chat_in.message)
+        session_id, UserMessage(content=chat_in.message)
     )
     logger.info(f"🚀 Starting chat for session: {request_context.session_id}")
 

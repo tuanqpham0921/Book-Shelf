@@ -39,7 +39,7 @@ from app.orchestration.triage import TriageOutput
 from app.orchestration.validation import UserMsgValidation
 from app.orchestration.validation.validate import HARMFUL_REPLY, INCOHERENT_REPLY
 from airglider import OperationResult, Response, TokenUsage
-from clients.messages import UnvalidatedUserMessage, UserMessage
+from clients.messages import UserMessage
 
 # request_context comes from tests/conftest.py
 
@@ -587,8 +587,8 @@ class TestRefusingWhenTheSiteIsSpent:
 
 
 class TestValidatingTheMessage:
-    """The message arrives unvalidated, and only a passing check lets it reach
-    triage — as the `UserMessage` every later layer reads."""
+    """The message arrives with `pass_validation=None`, and only a passing check
+    lets it reach triage — the same `UserMessage`, stamped True."""
 
     @staticmethod
     async def _turn(ctx):
@@ -603,24 +603,32 @@ class TestValidatingTheMessage:
 
     @staticmethod
     def _unvalidated(make_request_context):
-        ctx = make_request_context(
-            user_message=UnvalidatedUserMessage(content="books like Dune")
-        )
+        ctx = make_request_context(user_message=UserMessage(content="books like Dune"))
         ctx.sse_stream.send_chars = AsyncMock()
         return ctx
 
     async def test_a_passing_message_reaches_triage_validated(
         self, make_request_context
     ):
-        """Same id, so the chat_id already sent to the client still names it."""
+        """Same message, so the chat_id already sent to the client still names it."""
         ctx = self._unvalidated(make_request_context)
-        raw_id = ctx.user_message.id
+        raw = ctx.user_message
 
         triage_cls, _ = await self._turn(ctx)
 
         triage_cls.assert_called_once()
-        assert isinstance(ctx.user_message, UserMessage)
-        assert ctx.user_message.id == raw_id
+        assert ctx.user_message is raw
+        assert ctx.user_message.pass_validation is True
+
+    async def test_the_turns_record_shows_the_message_arrived_unchecked(
+        self, make_request_context
+    ):
+        """The root's input is stamped before the check runs."""
+        ctx = self._unvalidated(make_request_context)
+
+        _, record = await self._turn(ctx)
+
+        assert record.await_args.args[1].input["pass_validation"] is None
 
     @pytest.mark.parametrize(
         ("flags", "reply"),
@@ -642,7 +650,7 @@ class TestValidatingTheMessage:
 
         triage_cls.assert_not_called()
         ctx.sse_stream.send_chars.assert_awaited_once_with(reply)
-        assert isinstance(ctx.user_message, UnvalidatedUserMessage)
+        assert ctx.user_message.pass_validation is False
 
     async def test_the_refusal_is_on_the_turns_record(
         self, make_request_context, validate
@@ -663,6 +671,9 @@ class TestValidatingTheMessage:
         waved through."""
         validate.return_value = OperationResult(name="validate_user_message")
 
-        triage_cls, _ = await self._turn(self._unvalidated(make_request_context))
+        ctx = self._unvalidated(make_request_context)
+
+        triage_cls, _ = await self._turn(ctx)
 
         triage_cls.assert_not_called()
+        assert ctx.user_message.pass_validation is None

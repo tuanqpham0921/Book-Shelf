@@ -21,7 +21,7 @@ from typing import AsyncIterator, TypeVar
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from clients.messages import UserMessage, UnvalidatedUserMessage
+from clients.messages import UserMessage
 from app.common.sse_stream import SSEStream
 from db.stores.base_store import BaseStore
 
@@ -47,7 +47,7 @@ class RequestContext(BaseModel):
     # node in the plan while `NodeInput.instruction` changes at each dispatch.
     # Unvalidated as the route builds it; `Orchestrator.run` swaps in the
     # checked `UserMessage` before any workflow is built.
-    user_message: UserMessage | UnvalidatedUserMessage
+    user_message: UserMessage
 
     llm_client: OpenAIClient = Field(..., exclude=True)
     sse_stream: SSEStream = Field(..., exclude=True)

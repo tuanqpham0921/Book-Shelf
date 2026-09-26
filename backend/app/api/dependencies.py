@@ -94,10 +94,10 @@ async def get_request_context_factory(
     session_factory=Depends(get_sqlalchemy_session_factory),
 ):
     """Factory to create request contexts with runtime arguments."""
-    from clients.messages import UnvalidatedUserMessage
+    from clients.messages import UserMessage
     from app.common.request_context import RequestContext
 
-    async def create_context(session_id: str, user_message: UnvalidatedUserMessage):
+    async def create_context(session_id: str, user_message: UserMessage):
         # The factory, never a session or a store built on one: this runs in
         # the handler, and the turn it serves runs after the handler returns.
         # Each unit of work opens its own through `RequestContext.store`.

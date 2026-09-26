@@ -100,7 +100,7 @@ class Orchestrator:
         record = OperationResult(
             name=f"orchestrator_{request_context.user_message.id}",
             input={"raw" : request_context.user_message.content,
-                   "validated": False
+                   "pass_validation": request_context.user_message.pass_validation
                 }
         )
         # empty until the message passes validation — an unvalidated one is not
@@ -158,6 +158,7 @@ class Orchestrator:
             if reply := refusal_for(validation):
                 # a handled turn, not a failure — the same shape as triage's
                 # fixed replies: the answer, then 'complete'
+                request_context.user_message.pass_validation = False
                 record.add_details(f"refused by validation: {validation!r}")
                 await sse_stream.send_chars(reply)
                 await sse_stream.send(
@@ -166,11 +167,7 @@ class Orchestrator:
                 )
                 return
 
-            raw = request_context.user_message
-            request_context.user_message = UserMessage(
-                id=raw.id, content=raw.content, created=raw.created
-            )
-            record.input['validated'] = True
+            request_context.user_message.pass_validation = True
             messages.append(request_context.user_message)
 
             await sse_stream.send_ui_loading("Starting conversation...")
