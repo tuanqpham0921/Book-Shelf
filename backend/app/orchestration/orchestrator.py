@@ -99,6 +99,9 @@ class Orchestrator:
         # in the finally block, so ok/duration/token_usage cover the whole turn.
         record = OperationResult(
             name=f"orchestrator_{request_context.user_message.id}",
+            input={"raw" : request_context.user_message.content,
+                   "validated": False
+                }
         )
         # empty until the message passes validation — an unvalidated one is not
         # an APIMessage, and a refused turn has nothing to record here
@@ -167,6 +170,7 @@ class Orchestrator:
             request_context.user_message = UserMessage(
                 id=raw.id, content=raw.content, created=raw.created
             )
+            record.input['validated'] = True
             messages.append(request_context.user_message)
 
             await sse_stream.send_ui_loading("Starting conversation...")
