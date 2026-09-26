@@ -21,6 +21,7 @@ from pydantic import Field
 
 from app.domains.books.guide import BOOK_SPECS
 from app.domains.node_spec import NodeSpec, NodeTier
+from app.domains.project.guide import PROJECT_SPECS
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ class Registry:
 # -------------------------------------------------------------------
 # The live registry — add a domain's guide to SPECS
 
-SPECS: tuple[NodeSpec, ...] = BOOK_SPECS
+SPECS: tuple[NodeSpec, ...] = BOOK_SPECS + PROJECT_SPECS
 
 REGISTRY = Registry(SPECS)
 

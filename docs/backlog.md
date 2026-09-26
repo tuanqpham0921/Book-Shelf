@@ -90,7 +90,9 @@ Shape-level planner questions live in
   (only name / what-can-you-do is `small_talk`), but no capability answers them, so the
   planner returns no goals and the turn ends with triage's "I couldn't understand your
   request". Needs either a fixed reply per question, an FAQ node, or the writer answering
-  from a project blurb.
+  from a project blurb. **Partly fixed 2026-09-26:** `Retrieve_Project_Info` answers what
+  the app is, its tech stack and its links from fixed facts. Still open: how it works in
+  more depth ("how do you pick similar books?") and the user's own session.
 - **The prompt-injection / preflight parse is not well designed or tested.** It needs its
   own tests *before* more nodes are added, and it matters more inside nodes than in the
   planner — a node's arguments are where an injected string actually lands. (A pre-check

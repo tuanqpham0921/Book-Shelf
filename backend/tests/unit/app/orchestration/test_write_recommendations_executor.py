@@ -17,6 +17,7 @@ import pytest
 from app.domains.base_workflow import FailedGoalOutput, NodeWorkflowOutput
 from app.domains.books.external import BookAnchorOutput, BookCandidateOutput
 from app.domains.books.schemas import Book
+from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.task_runner import TaskResult
 from app.orchestration.write_recommendations import (
     GenerateRecommendationsExecutor,
@@ -58,9 +59,9 @@ def _failure(instruction="Find books like it", reason="") -> TaskResult:
 
 
 class _PlainOutput(NodeWorkflowOutput):
-    """Neither book-shaped nor a failure — the third case `_partition` drops.
-    Nothing registered returns one today, which is the point: the stage has to
-    survive a shape it was not written for."""
+    """Neither a source (books or project facts) nor a failure — the case
+    `_partition` drops. Nothing registered returns one today, which is the
+    point: the stage has to survive a shape it was not written for."""
 
     def to_summary(self) -> dict:
         return {}
@@ -279,6 +280,21 @@ class TestWhatTheWriterSees:
 
         rendered = llm.await_args.args[0].messages[0].content
         assert rendered.startswith("What I found:")
+
+    async def test_a_plan_of_only_project_facts_is_written_from(self, node):
+        # not book-shaped, but a source: dropping it left a "what's your tech
+        # stack" turn with nothing to write from, and the stage raised
+        facts = ProjectInfoOutput(
+            goal_instruction="Find the tech stack",
+            info={"technology_stack": "FastAPI and React"},
+        )
+
+        with _reply([_text("It runs on FastAPI and React.")]) as llm:
+            record = await node(_input(sources=[_result(facts)]))
+
+        assert record.ok
+        rendered = llm.await_args.args[0].messages[0].content
+        assert "- technology stack: FastAPI and React" in rendered
 
     async def test_an_output_that_is_neither_books_nor_a_failure_is_dropped(
         self, node

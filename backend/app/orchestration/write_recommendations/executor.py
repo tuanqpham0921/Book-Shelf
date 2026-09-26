@@ -35,6 +35,7 @@ from app.domains.base_workflow import FailedGoalOutput
 from app.domains.books.base_workflow import BookReaderWorkflow
 from app.domains.books.external import BookRetrievalOutput
 from app.domains.books.schemas import Book
+from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.task_runner import TaskResult
 from airglider import task
 
@@ -90,7 +91,8 @@ class GenerateRecommendationsExecutor(BookReaderWorkflow[RecommendationsOutput])
     def _partition(
         self, results: list[TaskResult]
     ) -> tuple[list[TaskResult], list[TaskResult]]:
-        """The run split into what produced books and what did not.
+        """The run split into what produced something to report and what did
+        not.
 
         What `build_input` used to do from the planner's `depends_on`, done
         here from the whole map instead — the same `isinstance` matching, just
@@ -99,10 +101,11 @@ class GenerateRecommendationsExecutor(BookReaderWorkflow[RecommendationsOutput])
         lookup running alongside a recommendation chain used to be invisible to
         the reply unless the planner wired it in, and is now always in scope.
 
-        A third case is possible and deliberately dropped rather than guessed
-        at: an output that is neither book-shaped nor a failure. Nothing
-        registered produces one today, so it is logged as a detail rather than
-        given a rendering nobody can check.
+        A source is a shape `render.py` has a rendering for: books, or the
+        project facts. Anything else is deliberately dropped rather than
+        guessed at, and logged as a detail — until 2026-09-26 that silently
+        swallowed a project lookup, and a plan with nothing else in it then
+        raised below.
         """
         sources: list[TaskResult] = []
         failures: list[TaskResult] = []
@@ -110,7 +113,7 @@ class GenerateRecommendationsExecutor(BookReaderWorkflow[RecommendationsOutput])
         for result in results:
             if isinstance(result.output, FailedGoalOutput):
                 failures.append(result)
-            elif isinstance(result.output, BookRetrievalOutput):
+            elif isinstance(result.output, (BookRetrievalOutput, ProjectInfoOutput)):
                 sources.append(result)
             else:
                 self.add_details(

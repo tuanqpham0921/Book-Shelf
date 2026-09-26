@@ -8,7 +8,9 @@ the step that executes the request is
 The rendering is where the writer's whole world is decided. Each section is one
 goal's `TaskResult` in three parts: a header (the goal's instruction), an
 `<info>` block (how that part of the work ended and how it was done), and a
-`<books>` block (the preview the node kept). Two lines are held:
+`<books>` block (the preview the node kept) — or, for `Retrieve_Project_Info`,
+a `<project>` block of the facts it looked up, bounded by `PROJECT_INFO`
+itself. Two lines are held:
 
 - **No identifiers in the books.** An isbn13 is not something to say in a
   sentence, and a model that sees one will eventually print it, so
@@ -55,6 +57,7 @@ from app.domains.base_workflow import FailedGoalOutput, NodeWorkflowOutput
 from app.domains.books.external import BookRetrievalOutput
 from app.domains.books.find_similar_books import SimilarBooksOutput
 from app.domains.books.schemas import Book
+from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.task_runner import TaskResult
 from airglider import remove_empty_values
 from clients import OpenAIParserRequest
@@ -135,6 +138,10 @@ def render_outcome(output: NodeWorkflowOutput) -> str:
             line += f" — {output.reason}"
         return line
 
+    # a finished project lookup always has facts: an empty one fails its claim
+    if isinstance(output, ProjectInfoOutput):
+        return "found facts about BookShelf"
+
     num_books = output.num_books if isinstance(output, BookRetrievalOutput) else 0
     return f"found {num_books} book(s)" if num_books else "found nothing"
 
@@ -192,7 +199,8 @@ def render_info(result: TaskResult) -> str:
 
 
 def render_section(index: int, result: TaskResult) -> str:
-    """One goal: what was asked, how it went, and the books it kept.
+    """One goal: what was asked, how it went, and the books or project facts
+    it kept.
 
     No `<books>` block when there are none — nothing matched, or the goal
     failed — rather than an empty one the model has to interpret.
@@ -210,6 +218,14 @@ def render_section(index: int, result: TaskResult) -> str:
             for position, book in enumerate(books, start=1)
         )
         parts.append(f"<books>\n{rendered}\n</books>")
+
+    # labels spaced out so the writer paraphrases them rather than printing a
+    # field name
+    if isinstance(output, ProjectInfoOutput) and output.info:
+        facts = "\n".join(
+            f"- {name.replace('_', ' ')}: {text}" for name, text in output.info.items()
+        )
+        parts.append(f"<project>\n{facts}\n</project>")
 
     return "\n".join(parts)
 

@@ -35,7 +35,7 @@ A numbered report with one entry per part of the work, then the user's message.
 
     [N] <what this part of the work was asked to do>
     <info>
-    <how it ended: found <count> book(s) / found nothing / could not be completed>
+    <how it ended: found <count> book(s) / found facts about BookShelf / found nothing / could not be completed>
     error: <what broke, in the system's own words>          (when it broke)
     built from the reader's reference books: <titles>       (sometimes)
     searched for books matching: "<description>"            (sometimes)
@@ -47,6 +47,9 @@ A numbered report with one entry per part of the work, then the user's message.
     - [<N>.<M>] <title> — <authors>, <year>, <pages>, <rating>
       <description>
     </books>
+    <project>                                               (when facts about BookShelf were looked up)
+    - <fact>: <text>
+    </project>
 
 The entries cover the *whole* turn, not one thread of it. If the user asked two
 things, expect an entry for each — answer both.
@@ -55,6 +58,11 @@ The first line of `<info>` says how that part ended, and the three endings mean
 different things:
 
 - `found N book(s)`, with books listed after — this worked.
+- `found facts about BookShelf`, with a `<project>` block after — facts about
+  this assistant itself: what it is, what it is built with, where it lives.
+  They are all you know about BookShelf, so answer from them alone. When the
+  user asks how BookShelf is built, naming the technologies listed there is
+  the answer, and a link listed there may be given exactly as written.
 - `found nothing` — this ran correctly and there was nothing to find. That is a
   real answer about the catalog, not an error.
 - `could not be completed` — this did not run, sometimes with a plain reason
