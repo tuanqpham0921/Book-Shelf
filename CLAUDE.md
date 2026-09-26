@@ -72,7 +72,7 @@ make query-suite                # POST the base eval suite at a running backend 
 make query-suite-all            # fire all 4 eval suites concurrently
 make tools-catalog              # inventory the planner's tool catalog (no backend/DB needed)
 make eval-routing               # grade triage's router alone (no backend/DB; real gpt-5-mini calls)
-make eval-validation            # grade the message check alone (no backend/DB; real gpt-5-mini calls)
+make eval-validation            # grade the message check alone (no backend/DB; real gpt-6-luna calls)
 ```
 
 Evals live in `backend/evals/`, one folder per thing under test. The planner's harness is `evals/planjane/`: suite definitions in `evals/planjane/suites/*.json` (versioned inputs), the runner `evals/planjane/run_suites.py` (after a run it writes one `test_runs` row per query — chat_id FK to `chat_runs` plus the suite file stem and entry id), make targets in `evals/makefile`, and per-campaign reports/raw dumps in `evals/results/`.
@@ -128,7 +128,7 @@ Each capability is a **vertical slice** — one folder under `app/domains/<domai
 ### Request Flow
 
 1. **Frontend** sends a chat message via SSE to `POST /session/{id}/message`
-2. **`Orchestrator`** (`app/orchestration/orchestrator.py`) — transport lifecycle only: SSE, timeouts, cancellation, recording. The route builds a `RequestContext` around an `UnvalidatedUserMessage`; after the budget checks, `validate_user_message` (`app/orchestration/validation/`, 2026-09-25 — one gpt-5-mini call at minimal effort, `UserMsgValidation`: language, incoherent, harmful_query, prompt_injection, contains_code — any code or SQL in the message, not talk about programming) either refuses with a fixed reply and ends the turn as ok, or swaps in the checked `UserMessage` (same id, plus `language`; English only via `SUPPORTED_LANGUAGES`). A check with no verdict stops the turn — it does not fail open like triage's split. Then it delegates to `TriageWorkflow`
+2. **`Orchestrator`** (`app/orchestration/orchestrator.py`) — transport lifecycle only: SSE, timeouts, cancellation, recording. The route builds a `RequestContext` around an `UnvalidatedUserMessage`; after the budget checks, `validate_user_message` (`app/orchestration/validation/`, 2026-09-25; since 2026-09-26 one gpt-6-luna call at reasoning effort `none`, `UserMsgValidation`: `reasoning`, then `security_issue`, `harmful_content`, `gibberish_or_incoherent`) either refuses with a fixed reply and ends the turn as ok, or swaps in the checked `UserMessage` (same id). It no longer checks language, code or prompt injection: a non-English message reaches triage, and code and injections are left to triage's `SecurityReview`. A check with no verdict stops the turn — it does not fail open like triage's split. Then it delegates to `TriageWorkflow`
 3. **`Triage`** decides whether to plan, and calls **`PlanJane`** if so; the plan then travels to **`TaskRunner`** as an artifact
 4. Results stream back to the client via **SSEStream** (`app/common/sse_stream.py`)
 

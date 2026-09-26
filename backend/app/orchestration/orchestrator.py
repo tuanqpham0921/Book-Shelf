@@ -165,8 +165,7 @@ class Orchestrator:
 
             raw = request_context.user_message
             request_context.user_message = UserMessage(
-                id=raw.id, content=raw.content, created=raw.created,
-                language=validation.language,
+                id=raw.id, content=raw.content, created=raw.created
             )
             messages.append(request_context.user_message)
 

@@ -168,7 +168,7 @@ eval-routing:
 # VALIDATION — the message check alone: each case in
 # validation/suites/validate_message.json goes through the check's own request
 # builder straight to OpenAI, and is graded on which fixed reply the user would
-# get. No backend and no database, but real gpt-5-mini calls.
+# get. No backend and no database, but real gpt-6-luna calls.
 # Debug a few with ARGS="--ids 1 2".
 .PHONY: eval-validation
 eval-validation:

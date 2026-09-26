@@ -8,9 +8,9 @@ the whole loop: the builder reads the prompt from disk on every call.
 
 A case passes when the outcome — which fixed reply `refusal_for` picks, or
 `pass` — is one of its `expected` outcomes. Grading the reply rather than each
-flag means only a difference the user would see fails: a code snippet the
-model also calls an injection gets the harmful reply, and a case where both
-readings are fair lists both.
+flag means only a difference the user would see fails: a security issue and
+harmful content get the same reply, and a case where both readings are fair
+lists both.
 
 The call is made here rather than through `validate_user_message`: that
 `@task` is the tracing around the same request, and needs a turn's context.
@@ -33,10 +33,8 @@ from pathlib import Path
 from airglider import TokenUsage, to_serializable
 from app.orchestration.validation import UserMsgValidation, refusal_for
 from app.orchestration.validation.validate import (
-    CODE_REPLY,
     HARMFUL_REPLY,
     INCOHERENT_REPLY,
-    LANGUAGE_REPLY,
     VALIDATE_PROMPT_PATH,
     build_validation_request,
 )
@@ -55,9 +53,7 @@ _STATUS_ICON = {"pass": "✅", "fail": "❌", "error": "⚠️"}
 _OUTCOME_OF_REPLY = {
     None: "pass",
     HARMFUL_REPLY: "harmful",
-    CODE_REPLY: "code",
     INCOHERENT_REPLY: "incoherent",
-    LANGUAGE_REPLY: "language",
 }
 
 
@@ -69,9 +65,8 @@ def load_cases(ids: list[int] | None) -> list[dict]:
 
 
 def flags_of(validation: UserMsgValidation) -> str:
-    """The verdict in one cell: the language, then every flag that is set."""
-    flags = [name for name, value in validation.model_dump().items() if value is True]
-    return ", ".join([validation.language, *flags])
+    """The verdict in one cell: every flag that is set."""
+    return ", ".join(name for name, value in validation.model_dump().items() if value is True)
 
 
 async def validate(
@@ -155,7 +150,8 @@ def build_report(results: list[dict], git_sha: str, generated_at: datetime) -> s
         if result["status"] == "error":
             lines.append(f"- error: {result['error']}")
         else:
-            lines.append(f"- got: {result['outcome']} ({flags_of(result['parsed'])})")
+            lines += [f"- got: {result['outcome']} ({flags_of(result['parsed'])})",
+                      f"- reasoning: {result['parsed'].reasoning}"]
         lines += [f"- note: {case['note']}", ""]
 
     return "\n".join(lines)

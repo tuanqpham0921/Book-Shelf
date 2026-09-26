@@ -146,9 +146,9 @@ mixed messages); off-topic asks (16x) expect `PlanJane`, because the router clar
 only what is unclear, not what is unsupported. Cases close to the prompt's own Examples
 say so in their note, since those partly test recall. Earlier turns can't be given yet
 — `build_route_request` takes the message alone — so a follow-up case expects
-`ClarifyingQuestion` unless it makes sense on its own ("more sci-fi please"). The message check runs before the router, so
-code and injections normally never reach it; those cases test the router as the
-backstop.
+`ClarifyingQuestion` unless it makes sense on its own ("more sci-fi please"). The message check runs before the router, but
+since 2026-09-26 it no longer stops code or injections, so the router's
+`SecurityReview` is the only thing that does.
 
 ## Validation — the message check (`validation/`)
 
@@ -162,14 +162,16 @@ make eval-validation ARGS="--save"          # -> validation/results/validate_mes
 Built like the router eval: `eval_validate_message.py` sends each case in
 `validation/suites/validate_message.json` through `build_validation_request` — the
 builder a real turn uses — straight to `OpenAIClient`. Editing `validate_message.txt`
-and rerunning is the whole loop; the whole suite costs about a cent.
+and rerunning is the whole loop.
 
 A case (`id`, `query`, `expected`, `note`) passes when the reply `refusal_for` picks is
-one of `expected`: `pass`, `harmful` (harmful or injection), `code`, `incoherent` or
-`language`. It grades the reply, not each flag, so only a difference the user would see
-fails; a case where two readings are fair (a shell command is code, and arguably an
-injection) lists both. The report splits failures into wrongly refused and wrongly
-passed, and shows every case's language and set flags. The cases are kept out of the
+one of `expected`: `pass`, `harmful` (a security issue or harmful content) or
+`incoherent`. It grades the reply, not each flag, so only a difference the user would see
+fails; a case where two readings are fair (a shell command after a book ask is harmless
+text, and arguably malware) lists both. The report splits failures into wrongly refused
+and wrongly passed, shows every case's set flags, and gives each failure's `reasoning`.
+Since 2026-09-26 the check has no code, injection or language flag, so those cases
+(3xx, 4xx, 605–608) now record what reaches triage rather than what the gate stops. The cases are kept out of the
 prompt's Examples section on purpose, so the suite tests the rules rather than recall —
 don't copy a failing case into the prompt to make it pass.
 

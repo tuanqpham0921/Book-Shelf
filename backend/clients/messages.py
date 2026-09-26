@@ -56,9 +56,6 @@ class UnvalidatedUserMessage(BaseModel):
 class UserMessage(BaseMessage):
     role: Literal[Role.USER] = Role.USER
     id: str = Field(default_factory=lambda: f"chat_{uuid_8()}")
-    # ISO 639-1, set by the validation check on the turn's own message; None on
-    # the user turns the app builds for its own LLM calls
-    language: str | None = None
     content: str
     created: str | None = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()

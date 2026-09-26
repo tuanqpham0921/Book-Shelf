@@ -37,12 +37,7 @@ from app.orchestration.token_budget import (
 )
 from app.orchestration.triage import TriageOutput
 from app.orchestration.validation import UserMsgValidation
-from app.orchestration.validation.validate import (
-    CODE_REPLY,
-    HARMFUL_REPLY,
-    INCOHERENT_REPLY,
-    LANGUAGE_REPLY,
-)
+from app.orchestration.validation.validate import HARMFUL_REPLY, INCOHERENT_REPLY
 from airglider import OperationResult, Response, TokenUsage
 from clients.messages import UnvalidatedUserMessage, UserMessage
 
@@ -78,13 +73,12 @@ def start_turn():
 
 def _validation(**flags) -> OperationResult:
     """What `validate_user_message` hands back: a passing check unless a flag
-    or language says otherwise."""
+    says otherwise."""
     fields = {
-        "language": "en",
-        "incoherent": False,
-        "harmful_query": False,
-        "prompt_injection": False,
-        "contains_code": False,
+        "reasoning": "",
+        "security_issue": False,
+        "harmful_content": False,
+        "gibberish_or_incoherent": False,
     } | flags
     return OperationResult(
         name="app.orchestration.validation.validate.validate_user_message",
@@ -627,18 +621,15 @@ class TestValidatingTheMessage:
         triage_cls.assert_called_once()
         assert isinstance(ctx.user_message, UserMessage)
         assert ctx.user_message.id == raw_id
-        assert ctx.user_message.language == "en"
 
     @pytest.mark.parametrize(
         ("flags", "reply"),
         [
-            ({"harmful_query": True}, HARMFUL_REPLY),
-            ({"prompt_injection": True}, HARMFUL_REPLY),
-            ({"contains_code": True}, CODE_REPLY),
-            ({"incoherent": True}, INCOHERENT_REPLY),
-            ({"language": "es"}, LANGUAGE_REPLY),
-            # the order is the priority: harm is named before language
-            ({"harmful_query": True, "language": "es"}, HARMFUL_REPLY),
+            ({"security_issue": True}, HARMFUL_REPLY),
+            ({"harmful_content": True}, HARMFUL_REPLY),
+            ({"gibberish_or_incoherent": True}, INCOHERENT_REPLY),
+            # the order is the priority: harm is named before gibberish
+            ({"harmful_content": True, "gibberish_or_incoherent": True}, HARMFUL_REPLY),
         ],
     )
     async def test_a_failed_check_gets_its_fixed_reply_and_no_triage(
@@ -657,7 +648,7 @@ class TestValidatingTheMessage:
         self, make_request_context, validate
     ):
         ctx = self._unvalidated(make_request_context)
-        validate.return_value = _validation(incoherent=True)
+        validate.return_value = _validation(gibberish_or_incoherent=True)
 
         _, record = await self._turn(ctx)
 
