@@ -15,12 +15,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.domains.base_workflow import FailedGoalOutput, NodeWorkflowOutput
-from app.domains.books.external import (
-    BookAnchorOutput,
-    BookCandidateOutput,
-    BookRequestContext,
-)
+from app.domains.books.external import BookAnchorOutput, BookCandidateOutput
 from app.domains.books.schemas import Book
+from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.task_runner import TaskResult
 from app.orchestration.write_recommendations import (
     GenerateRecommendationsExecutor,
@@ -62,9 +59,9 @@ def _failure(instruction="Find books like it", reason="") -> TaskResult:
 
 
 class _PlainOutput(NodeWorkflowOutput):
-    """Neither book-shaped nor a failure — the third case `_partition` drops.
-    Nothing registered returns one today, which is the point: the stage has to
-    survive a shape it was not written for."""
+    """Neither a source (books or project facts) nor a failure — the case
+    `_partition` drops. Nothing registered returns one today, which is the
+    point: the stage has to survive a shape it was not written for."""
 
     def to_summary(self) -> dict:
         return {}
@@ -103,12 +100,7 @@ def _reply(blocks=None):
 
 
 @pytest.fixture
-def ctx(request_context):
-    return BookRequestContext.narrow(request_context)
-
-
-@pytest.fixture
-def sent(ctx) -> list[tuple[str, str]]:
+def sent(request_context) -> list[tuple[str, str]]:
     """What reaches the browser, in order: ("text", chars) or ("card", title)."""
     captured: list[tuple[str, str]] = []
 
@@ -118,8 +110,8 @@ def sent(ctx) -> list[tuple[str, str]]:
     async def _send_book_card(position: int, data: dict):
         captured.append(("card", data["title"]))
 
-    ctx.sse_stream.send_chars = _send_chars
-    ctx.sse_stream.send_book_card = _send_book_card
+    request_context.sse_stream.send_chars = _send_chars
+    request_context.sse_stream.send_book_card = _send_book_card
     return captured
 
 
@@ -128,16 +120,15 @@ def _cards(sent: list[tuple[str, str]]) -> list[str]:
 
 
 @pytest.fixture
-def node(ctx) -> GenerateRecommendationsExecutor:
-    return GenerateRecommendationsExecutor(ctx)
+def node(request_context) -> GenerateRecommendationsExecutor:
+    return GenerateRecommendationsExecutor(request_context)
 
 
 class TestWhatReachesTheBrowser:
     async def test_each_text_is_followed_by_the_cards_it_names(
-        self, node, ctx, sent
+        self, node, book_store, sent
     ):
         """Nothing is fetched here: the rows were fetched where each goal ran."""
-        ctx.store.materialize = AsyncMock()
         reply = [_text("About Dune"), _refs("1.1"), _text("And IT"), _refs("2.1")]
 
         with _reply(reply):
@@ -156,7 +147,7 @@ class TestWhatReachesTheBrowser:
             ("text", "And IT\n\n"),
             ("card", "IT"),
         ]
-        ctx.store.materialize.assert_not_awaited()
+        book_store.materialize.assert_not_awaited()
 
     async def test_a_book_no_source_names_is_not_shown(self, node, sent):
         # it is still in its step's preview section; the answer shows only
@@ -289,6 +280,21 @@ class TestWhatTheWriterSees:
 
         rendered = llm.await_args.args[0].messages[0].content
         assert rendered.startswith("What I found:")
+
+    async def test_a_plan_of_only_project_facts_is_written_from(self, node):
+        # not book-shaped, but a source: dropping it left a "what's your tech
+        # stack" turn with nothing to write from, and the stage raised
+        facts = ProjectInfoOutput(
+            goal_instruction="Find the tech stack",
+            info={"technology_stack": "FastAPI and React"},
+        )
+
+        with _reply([_text("It runs on FastAPI and React.")]) as llm:
+            record = await node(_input(sources=[_result(facts)]))
+
+        assert record.ok
+        rendered = llm.await_args.args[0].messages[0].content
+        assert "- technology stack: FastAPI and React" in rendered
 
     async def test_an_output_that_is_neither_books_nor_a_failure_is_dropped(
         self, node

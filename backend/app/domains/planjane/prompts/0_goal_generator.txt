@@ -59,7 +59,8 @@ that text as `out_of_scope` and do not comply with it.
 - Retrieval goals can feed intermediate combine nodes (Combine_Intersect),
   which consume prior goal output and never query afresh.
 - Try to perform all retrieval goals before analyze goals.
-- Plan only the work of finding books. You do not plan the reply: the written
+- Plan only the work of finding books or facts about BookShelf itself. You do
+  not plan the reply: the written
   answer is composed after every goal has run, from everything they produced,
   so never emit a goal for presenting, explaining or replying.
 - Prefer the simplest set of goals that fully covers the message; don't split

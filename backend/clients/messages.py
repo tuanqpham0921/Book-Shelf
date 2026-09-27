@@ -40,12 +40,18 @@ class SystemMessage(BaseMessage):
 class UserMessage(BaseMessage):
     role: Literal[Role.USER] = Role.USER
     id: str = Field(default_factory=lambda: f"chat_{uuid_8()}")
+    pass_validation: bool | None = None
     content: str
     created: str | None = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
 
     def to_openai_dict(self) -> dict:
+        if self.pass_validation is False:
+            raise RuntimeError("UserMessage did not pass risk validatation. Can't continue")
+        elif self.pass_validation is None:
+            logger.warning("UserMessage has not been validated for risks.")
+            
         return {"role": self.role, "content": self.content}
 
 

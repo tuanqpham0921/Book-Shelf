@@ -212,7 +212,7 @@ block, walk the release checklist below.
 
 | Feature | Notes |
 |---|---|
-| **Multi-turn conversation context** | V1.1 flagship. `chat_runs` already records turns; needs history loading + prompt changes + summary (`PlannerOutput.to_summary` is a stub) |
+| **Multi-turn conversation context** | V1.1 flagship. `chat_runs` already records turns; needs history loading + prompt changes + summary (`PlannerOutput.to_summary` is a stub). **One prompt now asserts the opposite and must be unwound here**: the reply-writer's `# Role` states the system keeps no memory between messages, and its no-questions guideline is justified by that — see `write_recommendations/prompts/write_recommendations.txt` (2026-09-23) |
 | `Analyze_Compare` | Currently re-registered for eval testing; final fate waits on the analyze-book node ([design/execution-pipeline-v1.md](design/execution-pipeline-v1.md)) |
 | Extension-node graduation | Promote earned extended nodes via the standard add-a-node path |
 | User accounts & personalization | Preferences, saved books, reading history — all need a user DB |

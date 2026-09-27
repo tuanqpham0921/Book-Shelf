@@ -9,12 +9,17 @@ reading rule for both is in domains/README.md.
 
 from clients.messages import AssistantMessage
 from app.domains.books.base_workflow import BookWorkflow
+from db.stores import title_query
 from clients import OpenAIParserRequest
 
-from .schemas import FindByTitleArgs
+from .tools import FindByTitleArgs
 from .external import FindByTitleInput, FindByTitleOutput
 
 from common.prompts import basic_fill_schema_prompt
+
+# One field to fill, so the ceiling is far above anything healthy — it stops a
+# runaway, it does not shape the output. Counts reasoning too.
+MAX_COMPLETION_TOKENS = 1_000
 
 
 def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
@@ -31,7 +36,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         # instructions are enough while the conversation is single-turn.
         messages=[AssistantMessage(content=instruction)],
         tool_models=[FindByTitleArgs],
-        max_completion_tokens=2000,
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )
 
 
@@ -61,7 +66,7 @@ class FindByTitleExecutor(BookWorkflow[FindByTitleOutput]):
         await self.sse_stream.send_ui_loading(f"finding book titled: {book_title}")
 
         # 2. build the deferred query and count — no rows fetched
-        deferred = self.store.title_query(title=book_title)
+        deferred = title_query(title=book_title)
         total = (await self.count_books(deferred)).unwrap()
 
         # await self.sse_stream.send_chars(

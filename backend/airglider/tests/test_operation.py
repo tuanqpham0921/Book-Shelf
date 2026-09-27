@@ -193,6 +193,14 @@ class TestCostAttribution:
         assert full.cost_usd == MODEL_PRICES["gpt-4.1"].input
         assert mini.cost_usd != full.cost_usd
 
+    def test_gpt_6_sol_bills_at_its_published_rates(self):
+        # $2.00 input / $0.20 cached / $10.00 output per 1M
+        usage = TokenUsage(
+            model="gpt-6-sol", prompt=1_000_000, cached=500_000, completion=1_000_000
+        )
+        assert usage.cost_usd == round(0.5 * 2.00 + 0.5 * 0.20 + 10.00, 6)
+        assert usage.unpriced_models == []
+
     def test_dated_snapshot_model_resolves_to_base_rate(self):
         pinned = TokenUsage(model="gpt-4.1-mini-2025-04-14", prompt=1_000_000)
         assert pinned.cost_usd == MODEL_PRICES["gpt-4.1-mini"].input

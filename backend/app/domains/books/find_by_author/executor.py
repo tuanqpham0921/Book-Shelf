@@ -7,12 +7,16 @@ modules. The template and the reading rule are in domains/README.md.
 
 from clients.messages import AssistantMessage
 from app.domains.books.base_workflow import BookWorkflow
+from db.stores import author_query
 from clients import OpenAIParserRequest
 
-from .schemas import FindByAuthorArgs
+from .tools import FindByAuthorArgs
 from .external import FindByAuthorInput, FindByAuthorOutput
 
 from common.prompts import basic_fill_schema_prompt
+
+# One field to fill; see find_by_title/executor.py for the sizing rule.
+MAX_COMPLETION_TOKENS = 1_000
 
 
 def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
@@ -29,7 +33,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         # instructions are enough while the conversation is single-turn.
         messages=[AssistantMessage(content=instruction)],
         tool_models=[FindByAuthorArgs],
-        max_completion_tokens=2000,
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )
 
 
@@ -60,7 +64,7 @@ class FindByAuthorExecutor(BookWorkflow[FindByAuthorOutput]):
         await self.sse_stream.send_ui_loading(f"finding books by: {author}")
 
         # 2. build the deferred query and count — no rows fetched
-        deferred = self.store.author_query(author=author)
+        deferred = author_query(author=author)
         total = (await self.count_books(deferred)).unwrap()
 
         await self.sse_stream.send_chars(f"- Found {total} books by: {author}")

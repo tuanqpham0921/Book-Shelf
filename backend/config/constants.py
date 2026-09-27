@@ -8,13 +8,58 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 class AppConfig:
     """System-level constants."""
     SESSION_PREFIX   = "session"
-    DATABASE_TIMEOUT = 10.0  # SQLAlchemy engine init / connectivity
+
+    # What a new session may spend, across every call of every turn. Unlike the
+    # per-call caps in OpenAIConstants this is a real budget: it is spent down
+    # once per turn and never refills, so when it runs out the deployed service
+    # refuses the next message. The sessions table deliberately has no DEFAULT
+    # on remaining_tokens — this is the only place the number lives.
+    SESSION_TOKEN_BUDGET = 200_000
+
+    # What the whole deployed site may spend in a rolling 24 hours, across
+    # every session. The per-session budget above cannot bound this on its own:
+    # the session id comes from the URL, so a caller gets a fresh budget by
+    # making one up. Production only (token_budget.read_site_spend).
+    SITE_DAILY_TOKEN_BUDGET = 3_000_000
+
+    # Chat messages one IP may send per window, in production. Counted in each
+    # instance's memory, so with max-instances=3 the real ceiling is up to 3x
+    # this — a brake on one noisy caller, not an exact quota.
+    MESSAGES_PER_IP        = 30
+    MESSAGES_PER_IP_WINDOW = 60 * 60  # seconds
+
+    # Bounds on one feedback row's comment list, which the chat can write in
+    # production. The frontend's feedback popup and review editor stop at the
+    # same numbers.
+    FEEDBACK_MAX_COMMENTS   = 20
+    FEEDBACK_COMMENT_LENGTH = 500
+
+    # The ceiling on any one statement a store runs, in seconds. Applied by the
+    # engine (db/async_engine.py), which derives every layer from it, each one
+    # sitting above what it backs up: Postgres' statement_timeout, asyncpg's
+    # command_timeout above that, and pool_timeout and the connect timeout for
+    # the two waits Postgres cannot see. Enforced there rather than around the
+    # await, so a query that runs long is cancelled by the server and the
+    # connection survives — cancelling mid-execute leaves it in a state
+    # SQLAlchemy no longer knows. Orchestrator.DEBIT_TOKENS_TIMEOUT is one rung
+    # further out again, since a debit pays those waits before its statement.
+    # Firebase App Check's public signing keys. Firebase asks callers to cache
+    # them for no more than six hours, which is the lifespan used.
+    APP_CHECK_JWKS_URL      = "https://firebaseappcheck.googleapis.com/v1/jwks"
+    APP_CHECK_JWKS_LIFESPAN = 6 * 60 * 60
+
+    DATABASE_TIMEOUT = 10.0
     OPENAI_TIMEOUT   = 10.0
     DEFAULT_TIMEOUT  = 10.0
 
 
 class OpenAIConstants:
-    MAX_TOKENS = 100_000
+    # App wide limit. Guards against a runaway, not a budget: you are billed
+    # for tokens generated, so a cap costs nothing until it binds — and when
+    # it binds it fails the turn. A node may set a smaller
+    # `max_completion_tokens`; above this is refused.
+    MAX_INPUT_TOKENS       = 25_000  # whole payload, tool schemas included
+    MAX_DEFAULT_COMPLETION = 10_000  # reasoning + visible output together
 
 class FilesLocationConstants:
     """Repository paths resolved from the backend package root."""

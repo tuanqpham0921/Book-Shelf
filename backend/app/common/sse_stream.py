@@ -106,6 +106,8 @@ class SSEStream:
 
     async def send_divider(self, data: str = "\n\n---\n\n"):
         """Send divider."""
+        # TODO: make this into a seperate event type
+        # so you can append or not by checking the previous message on UI
         await self.send(event_type="content.delta", data=data)
 
     async def send_mermaid(self, data: str):

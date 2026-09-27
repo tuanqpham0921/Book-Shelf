@@ -1,17 +1,15 @@
 """What the books domain exposes to the layers around it: the output shape a
-node claims in its `Returns:` (and a downstream `NodeInput` declares a field
-of), and the services view every book node runs against.
+node claims in its `Returns:`, and that a downstream `NodeInput` declares a
+field of.
 """
 
 from typing import Any
 
 from pydantic import ConfigDict, Field
 
-from app.common.request_context import RequestContext
 from app.domains.base_workflow import NodeWorkflowOutput
 from app.domains.books.schemas import Book
 from db.stores import DeferredBookQuery
-from db.stores.book_store import BookStore
 
 
 class BookRetrievalOutput(NodeWorkflowOutput):
@@ -118,18 +116,3 @@ class BookCandidateOutput(BookRetrievalOutput):
     catalog", and *pooling* it with `"or"` is lossy in a way the result cannot
     show (see `DeferredBookQuery`). The shape is otherwise identical.
     """
-
-
-class BookRequestContext(RequestContext):
-    """The services a book node runs against — the base plus a typed store.
-
-    `narrow()` turns the context's opaque type-keyed `stores` bag into this, so
-    a request without a `BookStore` fails once at dispatch naming the store, and
-    the domain knowledge stays in the books package.
-    """
-
-    store: BookStore = Field(..., exclude=True)
-
-    @classmethod
-    def narrow(cls, ctx: RequestContext) -> "BookRequestContext":
-        return cls(**ctx.base_fields(), store=ctx.require_store(BookStore))

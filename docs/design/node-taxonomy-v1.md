@@ -53,7 +53,7 @@ response generation that always gets attached when the intent is to find books")
 | `Analyze_Recommend` | `RecommendationStrategy` | LLM ranking/response step, **no filters field** |
 | *(new)* clarification/rejection | not yet built | Turns refused or ambiguous goals into a helpful reply — still open |
 | `Provide_Feedback` | `FeedbackRequest` | Registered 2026-07-17 (`app/domains/project/registry.py`) — conversational feedback about the app, distinct from the reviewer workflow's `PUT /feedback/review` |
-| `Retrieve_Project_Info` | `ProjectInfoRequest` | Kept — cheap, already works |
+| `Retrieve_Project_Info` | `ProjectInfoRequest` | Registered 2026-09-26 (`app/domains/project/find_project_info/`) — see "`Retrieve_Project_Info` re-registered" below |
 | `Retrieve_User_Info` | `UserInfoRequest` | Kept |
 | `Retrieve_Developer_Info` | `DeveloperInfoRequest` | Kept |
 
@@ -765,6 +765,31 @@ the "24 occurrences" quoted in the parking record above counts mentions in `note
 The precedent for leaving suites alone was for *parked* nodes, where the name would come back;
 this one will not, so the cases were rewritten. Cases 56/57/59 were re-decided at the same
 time, as case 65's note had been asking for since the combine tier was designed.
+
+### `Retrieve_Project_Info` re-registered (2026-09-26)
+
+The first node outside books since the V1 cleanup removed the old `project/` domain, and
+under its old name, so `query_suite.json` cases 5 and 29 (plus the cross-domain 37, 45
+and 47) already expect it. `app/domains/project/find_project_info/` follows `find_by_title/`: a fieldless
+`ProjectInfoRequest`, a `ProjectInfoArgs` of `ProjectInfoField`s (the old enum, `all`
+included) filled by one gpt-5-nano parse, and a lookup in `PROJECT_INFO` — fixed text in
+the executor, so there is no store and no query. The catalog is 7 tools at 3,123 tokens.
+
+Two things outside the slice had to move with it. The planner prompt said "plan only the
+work of finding books", which would have kept it from being planned. And the reply stage
+only knew book outputs, so a project lookup reached the writer as "found nothing":
+`render.py` now gives it a `<project>` block and the writer prompt says how to answer from
+it. `ProjectInfoOutput` is not book-shaped on purpose, so no book node can depend on it.
+The stage's `_partition` had to learn it too: it kept only book outputs and failures, so
+a plan of nothing but a project lookup reached the writer empty and raised.
+
+Later the same day, triage's router was offered `ProjectInfoArgs` itself, with parallel
+tool calls turned on. A project question is now looked up in triage
+(`select_project_info`, no plan) and handed to the reply stage on
+`TriageOutput.project_info`. When the message asks for something else too, the router
+also calls `PlanJane` with the rest of the message in `message`, and that remainder is
+all the planner reads. The node stays registered, since it is the planner's way to
+the same facts when routing fails and the whole message goes through.
 
 ## V1 conversation contract: clarify-only, single-turn
 

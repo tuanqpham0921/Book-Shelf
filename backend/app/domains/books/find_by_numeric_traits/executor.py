@@ -18,10 +18,11 @@ from typing import Any
 
 from clients.messages import AssistantMessage
 from app.domains.books.base_workflow import BookWorkflow
+from db.stores import numeric_traits_query
 from clients import OpenAIParserRequest
 from db.schema import BookMetadataFilter
 
-from .schemas import FindByNumericTraitsArgs
+from .tools import FindByNumericTraitsArgs
 from .external import FindByNumericTraitsInput, FindByNumericTraitsOutput
 
 from app.common.prompt_loader import load_prompt
@@ -29,6 +30,10 @@ from app.common.prompt_loader import load_prompt
 ARGS_PARSER_PROMPT_PATH = (
     "domains/books/find_by_numeric_traits/prompts/numeric_traits_args_parser.txt"
 )
+
+# The widest argument schema in the app — a whole BookMetadataFilter — and it
+# runs at reasoning_effort="low", which spends from the same budget.
+MAX_COMPLETION_TOKENS = 2_000
 
 
 def range_phrase(
@@ -142,7 +147,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         # instructions are enough while the conversation is single-turn.
         messages=[AssistantMessage(content=instruction)],
         tool_models=[FindByNumericTraitsArgs],
-        max_completion_tokens=2000,
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )
 
 
@@ -179,7 +184,7 @@ class FindByNumericTraitsExecutor(BookWorkflow[FindByNumericTraitsOutput]):
         await self.sse_stream.send_ui_loading(f"finding books: {bounds}")
 
         # 2. build the deferred query and count — no rows fetched
-        deferred = self.store.numeric_traits_query(parsed_args.traits)
+        deferred = numeric_traits_query(parsed_args.traits)
         total = (await self.count_books(deferred)).unwrap()
 
         await self.sse_stream.send_chars(f"- Found {total} books: {bounds}")

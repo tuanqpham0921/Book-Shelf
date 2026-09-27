@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.schema import ChatRunModel, FeedbackModel
@@ -14,9 +14,24 @@ class ChatRunStore(BaseStore[ChatRunModel]):
         super().__init__(session, ChatRunModel)
 
     async def insert_run(self, row: Dict[str, Any]) -> None:
-        """Insert one chat run row (keys must match ChatRunModel columns)."""
+        """Insert one chat run row (keys must match ChatRunModel columns).
+
+        Staged, not committed: the `session_factory.begin()` block this store
+        was built inside flushes and commits it on exit.
+        """
         self.session.add(ChatRunModel(**row))
-        await self.session.commit()
+
+    async def belongs_to(self, chat_id: str, session_id: str) -> bool:
+        """Whether this session produced this chat run. False when there is no
+        such run, including one whose turn has not been recorded yet."""
+        stmt = select(
+            exists().where(
+                ChatRunModel.chat_id == chat_id,
+                ChatRunModel.session_id == session_id,
+            )
+        )
+        result = await self.execute_statement(stmt)
+        return bool(result.scalar())
 
     async def get_all(
         self,
@@ -39,7 +54,7 @@ class ChatRunStore(BaseStore[ChatRunModel]):
             stmt = stmt.where(ChatRunModel.session_id.ilike(f"%{session_id}%"))
         stmt = stmt.limit(limit).offset(offset)
 
-        result = await self.session.execute(stmt)
+        result = await self.execute_statement(stmt)
         return [
             {**run.to_dict(), "num_reviews": count} for run, count in result.all()
         ]

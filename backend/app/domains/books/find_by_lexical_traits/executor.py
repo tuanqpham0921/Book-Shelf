@@ -11,16 +11,21 @@ the order the steps happen in.
 
 from app.common.prompt_loader import load_prompt
 from app.domains.books.base_workflow import BookWorkflow
+from db.stores import lexical_query
 from clients import OpenAIParserRequest
 from clients.messages import AssistantMessage
 from db.schema import AudienceEnum
 
 from .external import FindByLexicalTraitsInput, FindByLexicalTraitsOutput
-from .schemas import FindByLexicalTraitsArgs
+from .tools import FindByLexicalTraitsArgs
 
 ARGS_PARSER_PROMPT_PATH = (
     "domains/books/find_by_lexical_traits/prompts/lexical_traits_args_parser.txt"
 )
+
+# More room than the single-field parsers: keywords is a list, and this node
+# runs at reasoning_effort="low", which spends from the same budget.
+MAX_COMPLETION_TOKENS = 2_000
 
 
 def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
@@ -42,7 +47,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         reasoning_effort="low",
         messages=[AssistantMessage(content=instruction)],
         tool_models=[FindByLexicalTraitsArgs],
-        max_completion_tokens=2000,
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )
 
 
@@ -107,7 +112,7 @@ class FindByLexicalTraitsExecutor(BookWorkflow[FindByLexicalTraitsOutput]):
         await self.sse_stream.send_ui_loading(f"finding {described}")
 
         # 2. build the deferred query and count — no rows fetched
-        deferred = self.store.lexical_query(
+        deferred = lexical_query(
             keywords=parsed_args.keywords,
             genre=parsed_args.genre,
             audience=parsed_args.audience,

@@ -1,10 +1,13 @@
-from app.domains.books.external import BookRequestContext
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindByLexicalTraitsExecutor
-from .external import FindByLexicalTraitsInput, FindByLexicalTraitsOutput
+from .external import (
+    FindByLexicalTraitsRetrieval,
+    FindByLexicalTraitsInput,
+    FindByLexicalTraitsOutput,
+)
 from .labels import FindLexicalTraitsNodeTypeEnum
-from .schemas import FindByLexicalTraitsArgs, FindByLexicalTraitsRetrieval
+from .tools import FindByLexicalTraitsArgs
 
 SPEC = NodeSpec(
     node_type=FindLexicalTraitsNodeTypeEnum.REQUEST.value,
@@ -13,7 +16,6 @@ SPEC = NodeSpec(
     input=FindByLexicalTraitsInput,
     output=FindByLexicalTraitsOutput,
     executor=FindByLexicalTraitsExecutor,
-    context=BookRequestContext,
 )
 
 __all__ = [

@@ -20,7 +20,9 @@ line numbers may drift, the file and symbol names are the stable part.
   through the entire chat history of every user with a plain GET. Gate it as an
   internal/admin route at minimum before it's reachable from the internet. (For dev,
   fetching all chat_runs is fine; prod likely wants it limited to test suites.)
-- **Feedback endpoints have no ownership check** (`app/api/routes/feedback.py`) —
+- **Review feedback endpoints have no ownership check** (`app/api/routes/feedback.py`,
+  `review_router`; not served in production since 2026-09-24 — the chat's own
+  feedback route checks `ChatRunStore.belongs_to`) —
   `GET /feedback?chat_id=` and `PUT /feedback/review` take caller-supplied
   chat_id/session_id and the store just queries/upserts whatever is passed. Combined
   with the chat_runs disclosure both IDs are trivially harvestable, so anyone can read
@@ -73,15 +75,31 @@ line numbers may drift, the file and symbol names are the stable part.
 Shape-level planner questions live in
 [design/planner-shape.md](design/planner-shape.md); these are the concrete work items.
 
-- **Small talk and gibberish become system goals.** They should be filtered before the
-  goal stage — a pre-check that classifies small talk / gibberish, or rewords a
-  continuation query, rather than letting the goal generator invent a node for "hello".
-  Overlaps with the clarification node (roadmap Phase 1): decide whether this is a cheap
-  pre-classifier or just another thing the clarification node handles.
+- ~~**Small talk and gibberish become system goals.**~~ **Fixed 2026-09-24.** Triage's
+  gpt-5-mini query decomposition (`app/orchestration/triage/`) splits the message into
+  portions labelled `in_domain`, `small_talk`, `out_of_scope` (plainly not a book app's
+  job), `security` (misuse) or `gibberish` before the planner runs. The planner is asked the
+  `in_domain` portions only; a message with none gets one fixed reply. Still open from the
+  original item: continuation queries ("that one we talked about"). The split's prompt
+  already passes a follow-up that relates to earlier turns *when it is given them*, but
+  nothing supplies them — turns are recorded, never read back — so today a follow-up that
+  can't stand alone is labelled `gibberish`. Also open: whether rewording it belongs to
+  the clarification node (roadmap Phase 1).
+- **Project and session questions have no node.** The decomposition labels "how do you
+  pick similar books?" and "how many messages do I have left?" `in_domain` on purpose
+  (only name / what-can-you-do is `small_talk`), but no capability answers them, so the
+  planner returns no goals and the turn ends with triage's "I couldn't understand your
+  request". Needs either a fixed reply per question, an FAQ node, or the writer answering
+  from a project blurb. **Partly fixed 2026-09-26:** `Retrieve_Project_Info` answers what
+  the app is, its tech stack and its links from fixed facts. Still open: how it works in
+  more depth ("how do you pick similar books?") and the user's own session.
 - **The prompt-injection / preflight parse is not well designed or tested.** It needs its
   own tests *before* more nodes are added, and it matters more inside nodes than in the
   planner — a node's arguments are where an injected string actually lands. (A pre-check
-  node was tried and reverted in commit `ed34d95`.)
+  node was tried and reverted in commit `ed34d95`.) Since 2026-09-24 a *clear* injection
+  is split off by triage's query decomposition and never reaches the planner. But the
+  split fails open, only catches the obvious cases, and the reply writer still reads the
+  user's whole message — so the writer and node arguments are still unprotected.
 - ~~**A similarity ask with a quantitative constraint has nowhere to put it.**~~ **Fixed
   2026-08-24.** "Books like Dune but under 300 pages" is now `Retrieve_by_Title` →
   `Analyze_Similar_Books`, plus `Retrieve_by_Numeric_Traits`, joined by `Combine_Intersect`.

@@ -1,17 +1,52 @@
 import logging
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.api.schemas import ReviewIn
-from app.api.dependencies import get_feedback_store
+from app.api.schemas import FeedbackIn, ReviewIn
+from app.api.dependencies import get_chat_run_store, get_feedback_store
+from db.stores.chat_run_store import ChatRunStore
 from db.stores.feedback_store import FeedbackStore
 
 logger = logging.getLogger(__name__)
 
+# Two routers over the one feedback table, because only one of them is served
+# in production (app/main.py): `router` is the chat's thumbs up/down on its own
+# replies, `review_router` is the /review page's surface, which reads every
+# session's reviews and has no admin gate yet (docs/deployment.md §4.1).
 router = APIRouter(tags=["Feedback"])
+review_router = APIRouter(tags=["Feedback"])
 
 
-@router.put("/feedback/review")
+@router.put("/session/{session_id}/message/{chat_id}/feedback")
+async def submit_feedback(
+    session_id: str,
+    chat_id: str,
+    feedback: FeedbackIn,
+    chat_runs: ChatRunStore = Depends(get_chat_run_store),
+    store: FeedbackStore = Depends(get_feedback_store),
+):
+    """Like, dislike or comment on one of this session's own replies, replacing
+    any earlier feedback from it whole. A run another session produced is a
+    404, as is one whose turn has not been recorded yet — so a session can only
+    rate what it asked, and each run holds at most one row from it."""
+    if not await chat_runs.belongs_to(chat_id, session_id):
+        raise HTTPException(status_code=404, detail="Chat run not found")
+    row = await store.upsert_review(
+        chat_id=chat_id,
+        session_id=session_id,
+        liked=feedback.liked,
+        comments=[comment.model_dump() for comment in feedback.comments],
+    )
+    logger.info(
+        "👍 Feedback recorded for chat run %s (liked=%s, %d comment(s))",
+        chat_id,
+        feedback.liked,
+        len(feedback.comments),
+    )
+    return row.to_dict()
+
+
+@review_router.put("/feedback/review")
 async def submit_review(
     review: ReviewIn,
     store: FeedbackStore = Depends(get_feedback_store),
@@ -34,7 +69,7 @@ async def submit_review(
     return row.to_dict()
 
 
-@router.get("/feedback")
+@review_router.get("/feedback")
 async def get_feedback(
     chat_id: str = Query(...),
     store: FeedbackStore = Depends(get_feedback_store),

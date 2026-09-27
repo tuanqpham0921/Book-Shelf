@@ -4,6 +4,7 @@ from typing import Any
 from .base import BaseLLMRequest
 
 from config import settings
+from config.constants import OpenAIConstants
 from clients.messages import AssistantMessage, SystemMessage, ToolMessage
 from openai import pydantic_function_tool
 from openai.types.chat import ChatCompletionFunctionToolParam
@@ -12,20 +13,46 @@ from typing import Annotated
 
 logger = logging.getLogger(__name__)
 
-MAX_COMPLETION_TOKENS = 300
 TEMPERATURE = 0.3
 TOP_P = 0.8
 SEED = 42
+REASONING_EFFORT = "low"
+
+# The two model families, and what each one takes. A reasoning model is told
+# how hard to think; everything else is told how to sample. Sending the wrong
+# set is not a soft error at the API, so the split is enforced below rather
+# than left to whoever writes the next `build_*_request`.
+NOT_REASONING_MODEL_PREFIX = "gpt-4"
+SAMPLING_FIELDS = frozenset({"temperature", "top_p", "seed"})
+
+# The app's own list, not the SDK's: `openai.types.shared.ReasoningEffort`
+# omits "none", which gpt-5.6 accepts and the planner uses. Widen this when a
+# model gains a level — an unknown value is a typo far more often than a
+# feature, and the API rejects it either way.
+REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high"})
 
 
 class OpenAIBaseRequest(BaseLLMRequest):
     model: str = settings.openai.BASE_MODEL
-    temperature: float | None = TEMPERATURE
-    top_p: float | None = TOP_P
+    temperature: float | None = Field(default=TEMPERATURE, ge=0.0, le=2.0)
+    top_p: float | None = Field(default=TOP_P, ge=0.0, le=1.0)
     seed: int | None = SEED
-    reasoning_effort: str | None = 'low'
+    reasoning_effort: str | None = REASONING_EFFORT
 
-    max_completion_tokens: int = 1000
+    # The app-wide guard is both the default and the ceiling: a node may ask
+    # for less when it knows its output is small, and asking for more is a
+    # misconfiguration rather than a choice.
+    max_completion_tokens: int = Field(
+        default=OpenAIConstants.MAX_DEFAULT_COMPLETION,
+        gt=0,
+        le=OpenAIConstants.MAX_DEFAULT_COMPLETION,
+    )
+
+    @property
+    def is_reasoning_model(self) -> bool:
+        """Which family this request is for. One definition — the validator
+        below and `base_payload` both ask it, and they must agree."""
+        return (not self.model.startswith(NOT_REASONING_MODEL_PREFIX))
 
     @model_validator(mode="after")
     def check_tool_message_linkage(self) -> "OpenAIBaseRequest":
@@ -49,14 +76,49 @@ class OpenAIBaseRequest(BaseLLMRequest):
 
         return self
     
-    def model_post_init(self, __context: Any) -> None:
-        if self.model.startswith("gpt-5"):
+    @model_validator(mode="after")
+    def check_model_family_settings(self) -> "OpenAIBaseRequest":
+        """Refuse a setting the chosen model does not take, then clear the
+        other family's defaults.
+
+        The distinction that makes this usable is *explicitly set* vs. left at
+        the class default: every one of these fields has a default, so raising
+        on a mere value would reject every request. `model_fields_set` is what
+        the caller actually passed, so a `build_*_request` that names a field
+        its model ignores fails here — at construction, naming the field and
+        the model — instead of having the value silently dropped on the way to
+        the payload.
+
+        Copied, because assigning below adds those names to the live set.
+        """
+        configured = set(self.model_fields_set)
+
+        if self.is_reasoning_model:
+            ignored = sorted(SAMPLING_FIELDS & configured)
+            if ignored:
+                raise ValueError(
+                    f"{self.model} is a reasoning model and ignores "
+                    f"{', '.join(ignored)} — set reasoning_effort instead"
+                )
+            if self.reasoning_effort not in REASONING_EFFORTS:
+                raise ValueError(
+                    f"reasoning_effort={self.reasoning_effort!r} is not one of "
+                    f"{', '.join(sorted(REASONING_EFFORTS))}"
+                )
             self.temperature = None
             self.top_p = None
             self.seed = None
         else:
+            if "reasoning_effort" in configured:
+                raise ValueError(
+                    f"{self.model} is not a reasoning model and ignores "
+                    f"reasoning_effort — set temperature, top_p or seed instead"
+                )
             self.reasoning_effort = None
-            
+
+        return self
+
+
     def to_summary(self) -> dict[str, Any]:
         """Adds the two OpenAI-specific things a trace is read for: the
         reasoning effort a cost line is explained by, and *which* schema a
@@ -85,10 +147,10 @@ class OpenAIBaseRequest(BaseLLMRequest):
             "model": self.model,
             "messages": self.to_messages_payload(),
             "stream_options": {"include_usage": True},
-            # "max_completion_tokens": self.max_completion_tokens
+            "max_completion_tokens": self.max_completion_tokens,
         }
 
-        if self.model.startswith("gpt-5"):
+        if self.is_reasoning_model:
             payload["reasoning_effort"] = self.reasoning_effort
         else:
             payload["temperature"] = self.temperature
@@ -102,9 +164,11 @@ class OpenAIBaseRequest(BaseLLMRequest):
 
 
 class OpenAIParserRequest(OpenAIBaseRequest):
-    """Support only one tool model for parsing 1 request"""
+    """Tool calls, parsed. One tool model pins the call to it; several let the
+    model call any of them — more than one at once — or answer in text
+    instead."""
 
-    tool_models: Annotated[list[type], Field(min_length=1, max_length=1)]
+    tool_models: Annotated[list[type], Field(min_length=1)]
     tool_override: dict | None = None
     # A node class docstring is *selection* prose — it exists so the planner can
     # choose between tools. When tool_choice already pins the one tool, sending
@@ -116,43 +180,43 @@ class OpenAIParserRequest(OpenAIBaseRequest):
         payload = self.base_payload()
 
         payload["tools"] = (
-            [self.to_function_tools()]
+            self.to_function_tools()
             if not self.tool_override
             else [self.tool_override]
         )
-        payload["tool_choice"] = {
-            "type": "function",
-            "function": {"name": self.tool_models[0].__name__},
-        }
+        if len(self.tool_models) == 1:
+            payload["tool_choice"] = {
+                "type": "function",
+                "function": {"name": self.tool_models[0].__name__},
+            }
+        else:
+            # several calls allowed, since one message can need more than one
+            # tool. Parallel calls are not held to strict schemas: one that
+            # does not match fails to parse and the whole call raises, so a
+            # caller offering several tools needs a fallback for that
+            payload["tool_choice"] = "auto"
+            payload["parallel_tool_calls"] = True
         return payload
 
-    def to_function_tools(self) -> ChatCompletionFunctionToolParam:
-        tool_name = self.tool_models[0].__name__
-        tool = pydantic_function_tool(
-            self.tool_models[0],
-            name=tool_name,
-        )
-        if not self.include_tool_description:
-            # Mutate in place: tool["function"] is a PydanticFunctionTool (a dict
-            # subclass carrying .model) and the openai lib keys auto-parsing off
-            # that type. Replacing the dict would silently downgrade
-            # parsed_arguments to a raw dict.
-            tool["function"].pop("description", None)
-        return tool
+    def to_function_tools(self) -> list[ChatCompletionFunctionToolParam]:
+        tools = []
+        for model in self.tool_models:
+            tool = pydantic_function_tool(model, name=model.__name__)
+            if not self.include_tool_description:
+                # Mutate in place: tool["function"] is a PydanticFunctionTool (a
+                # dict subclass carrying .model) and the openai lib keys
+                # auto-parsing off that type. Replacing the dict would silently
+                # downgrade parsed_arguments to a raw dict.
+                tool["function"].pop("description", None)
+            tools.append(tool)
+        return tools
 
 
 class OpenAIChatRequest(OpenAIBaseRequest):
     """Support only sse stream no tool choice"""
-    
-    max_complete_chat_tokens: int = Field(default = MAX_COMPLETION_TOKENS)
 
     @model_validator(mode="after")
     def check_sse_stream(self) -> "OpenAIChatRequest":
         if not self.sse_stream:
             raise ValueError("Usage error: sse_stream must be provided")
         return self
-
-    def to_payload(self) -> dict[str, Any]:
-        payload = self.base_payload()
-        payload["max_completion_tokens"] = self.max_complete_chat_tokens
-        return payload

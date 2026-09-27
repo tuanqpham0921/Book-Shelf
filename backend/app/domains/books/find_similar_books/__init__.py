@@ -1,10 +1,8 @@
-from app.domains.books.external import BookRequestContext
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindSimilarBooksExecutor
+from .external import SimilarBooksSearch, SimilarBooksInput, SimilarBooksOutput
 from .labels import SimilarBooksNodeTypeEnum
-from .schemas import SimilarBooksSearch
-from .external import SimilarBooksInput, SimilarBooksOutput
 
 SPEC = NodeSpec(
     node_type=SimilarBooksNodeTypeEnum.REQUEST.value,
@@ -13,7 +11,6 @@ SPEC = NodeSpec(
     input=SimilarBooksInput,
     output=SimilarBooksOutput,
     executor=FindSimilarBooksExecutor,
-    context=BookRequestContext,
 )
 
 __all__ = [

@@ -103,6 +103,44 @@ class ChatRunModel(Base):
         return row
 
 
+class SessionModel(Base):
+    """One chat session's token allowance: what it has left to spend.
+
+    Created on the session's first message (POST /session/new persists nothing)
+    and debited once per turn with that turn's whole cost. `last_updated` moves
+    on both, so it means "last active". Can go negative by up to one turn — the
+    route checks the balance before a turn and the turn is charged after it runs.
+
+    remaining_tokens takes no default here or in the DDL: the starting allowance
+    is AppConfig.SESSION_TOKEN_BUDGET, and a client-side `default=` would not
+    apply to the `postgresql.insert()` the store uses anyway."""
+
+    __tablename__ = "sessions"
+
+    session_id = Column(String, primary_key=True)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_updated = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    remaining_tokens = Column(Integer, nullable=False)
+
+    def __repr__(self):
+        return (
+            f"<SessionModel(session_id='{self.session_id}', "
+            f"remaining_tokens={self.remaining_tokens})>"
+        )
+
+    def to_dict(self) -> dict:
+        """Convert model to dictionary (table columns only)."""
+        row = {c.name: getattr(self, c.name) for c in SessionModel.__table__.columns}
+        for ts in ("created_at", "last_updated"):
+            if row.get(ts) is not None:
+                row[ts] = row[ts].isoformat()
+        return row
+
+
 class FeedbackModel(Base):
     """One review of a chat run from the internal /review page: an overall
     like/dislike plus a JSONB list of {title, message, positive} comments.

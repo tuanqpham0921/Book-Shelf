@@ -4,6 +4,13 @@ The node type system — what the planner can plan with — plus PlanJane, the p
 itself. The V1 node set and its rationale live in
 [docs/design/node-taxonomy-v1.md](../../../docs/design/node-taxonomy-v1.md).
 
+Two domains: `books/`, and `project/`, whose one node
+(`find_project_info/`, `Retrieve_Project_Info`) looks up fixed facts about
+BookShelf. It is `find_by_title/`'s shape minus the store — parse → look up →
+finalize — so its executor subclasses `AppWorkflow` rather than a domain base,
+and there is no `project/base_workflow.py` or `schemas.py` until a second node
+needs one.
+
 ## How it fits together
 
 A capability is a **vertical slice**: one folder holding everything about one node.
@@ -11,15 +18,20 @@ A capability is a **vertical slice**: one folder holding everything about one no
 ```
 books/find_by_title/
 ├── labels.py     # the planner-facing name, as a one-member str Enum
-├── schemas.py    # request schema (docstring = tool description) + its *Args subclass
+├── external.py   # what other layers read: request (docstring = catalog entry), Input, Output
+├── tools.py      # what the node's own parse call ships to an LLM: its *Args
 ├── executor.py   # the executor that runs it (book nodes: a BookWorkflow)
-└── __init__.py   # SPEC = NodeSpec(...) tying the three together
+└── __init__.py   # SPEC = NodeSpec(...) tying them together
 ```
 
-Those four files *are* the single-call template — `find_by_title/` is the
+The file names say who reads the classes: `external.py` is the slice's public
+surface — the three things `SPEC` points at, i.e. how to ask this node for work
+and what comes back — `tools.py` is shipped to a model by the node itself, and
+`<domain>/schemas.py` (below) is the shared data model. A node that parses no
+arguments (`find_similar_books/`, `intersect_books/`) has no `tools.py`. Those five files *are* the single-call template — `find_by_title/` is the
 worked example (parse args → build the query → count → preview → finalize),
 and a new node starts as a copy of it, not as a blank folder. A slice with
-several LLM calls grows past those four files by one rule
+several LLM calls grows past those five files by one rule
 (`find_similar_books/` is the worked example): **executor.py stays the flow** —
 `run()` plus every step, methods in the order `run` calls them, pure helpers
 module-level beside them — and each **satellite module is one LLM call's pure
@@ -164,19 +176,35 @@ properties off the `RequestContext` it holds. Context and input split on
 lifetime: services are built once per HTTP request, an input is assembled per
 dispatch.
 
-**A node declares the services view it needs too**, as `NodeSpec.context`.
-`RequestContext.stores` is a `dict[type, BaseStore]` — the opaque carrier that
-lets `app/common/` hold a `BookStore` without importing the books domain — and
-a domain turns it into a typed field with a `narrow()`:
-`BookRequestContext.narrow(ctx)` resolves `store` once, at dispatch, so a
-request missing it fails there (naming the store) rather than at the first
-query. `BookWorkflow.store` is then a plain field read, and `RequestContext`
-never grows a field per domain.
+**The database is the exception to "built once per request", and a node opens
+its own.** `RequestContext` carries the session *factory* and nothing else
+database-shaped; `ctx.store(BookStore)` is an async context manager that opens
+one session inside `session_factory.begin()`, yields the store, and commits and
+closes on the way out:
 
-Those stores are constructed on the FastAPI request-scoped session (see
-`get_sqlalchemy_session` in `app/api/dependencies.py`). **Don't rebuild them
-lazily from `ctx.session_factory`** — that opens a *different* session, so a
-read in one node and a write in another quietly stop sharing a transaction.
+```python
+async with self.ctx.store(BookStore) as store:
+    total = await store.count(query)
+```
+
+Per use, not per request, because the turn runs *after* the HTTP handler has
+returned — FastAPI exits yield-dependencies when the handler returns, which for
+the SSE chat route is before the first event is sent. A store parked on the
+context at request time would spend the whole turn on a session that was
+already closed. It is also what lets `Orchestrator._finalize` write after the
+request is over, inside its `asyncio.shield`.
+
+Two rules follow. **Keep the block around the round trip and nothing else** — it
+holds a pooled connection and an open transaction while entered, and building a
+query needs no store at all (`title_query`, `lexical_query` and the rest are
+module-level functions in `db/stores/book_store.py`). And **no store commits
+for itself**: the block owns the transaction, and a store that commits closes it
+early, so the next statement in the block raises.
+
+This replaced `NodeSpec.context`, `RequestContext.stores` and
+`BookRequestContext.narrow()`, which resolved one store for one domain at
+dispatch — machinery that only existed because the store had to be built
+somewhere earlier than it was used.
 
 ## Naming: Workflow, Executor
 
@@ -213,9 +241,9 @@ pointing at it; `base_workflow.py` holding the bases they build on.
   used elsewhere. `external.py` is what the plan *is* and the address every
   other layer imports it from: `SystemGoal`, `PlanJaneOutput`, and
   `ExecutionOrder` with `execution_order()`, the dependency layering the task
-  runner consumes. `schemas.py` is what the LLM fills in (`GoalParseRequest`,
+  runner consumes. `tools.py` is what the LLM fills in (`GoalParseRequest`,
   `MAX_SYSTEM_GOALS`). `executor.py` runs (`PlanJaneExecutor`: message →
-  goals). The dependency runs `external ← schemas ← executor`, so a consumer of
+  goals). The dependency runs `external ← tools ← executor`, so a consumer of
   the plan pulls in neither the prompt example nor the executor — import from
   the `planjane` package root and the split stays free to move. Prompts live in
   `planjane/prompts/*.txt`.
@@ -233,8 +261,8 @@ pointing at it; `base_workflow.py` holding the bases they build on.
   deliberate: PlanJane is headed for being a service of its own, and this is
   the corner already free to travel. Import from `dial`, not from its modules.
 
-  What decides *whether* to call PlanJane — cache, small talk, out of scope —
-  is `app/orchestration/triage.py`, not here: it is not a capability, and
+  What decides *whether* to call PlanJane — cache, small talk, unclear, misuse —
+  is `app/orchestration/triage/`, not here: it is not a capability, and
   no `NodeSpec.executor` will ever point at it.
 - `TaskRunnerWorkflow` lives in **`app/orchestration/task_runner.py`** (it
   dispatches capabilities rather than being one, like Triage). It takes a
@@ -260,8 +288,8 @@ assumed, not restated, here.
    never a flag on an existing executor and never one executor reached two
    ways. Reworking how a node runs is a new spec too; park the old one.
 1a. **The request schema declares the capability; a separate `*Args` model
-   carries the arguments.** `schemas.py` holds both, and they share nothing but
-   the file. `FindByNumericTraitsRetrieval(BaseRequest)` is what `SPEC` points
+   carries the arguments.** The request lives in `external.py`, the `*Args` in
+   `tools.py`, and they share nothing. `FindByNumericTraitsRetrieval(BaseRequest)` is what `SPEC` points
    at and what the planner reads — a docstring and the `node_type` Literal, no
    fields, because the planner picks a capability and writes a goal
    *description*, so a field on the request is a field it would be invited to
@@ -389,7 +417,7 @@ branches on `runtime_error.type`.
    node with no store needs neither).
 5. Add that SPEC to the domain's `guide.py`. That is the only file outside the
    slice you touch.
-6. Add eval cases with `expected_nodes` in `backend/evals/suites/` — see
+6. Add eval cases with `expected_nodes` in `backend/evals/planjane/suites/` — see
    [docs/eval-strategy.md](../../../docs/eval-strategy.md).
 
 Run `make tools-catalog` afterwards: it reads the live registry, so it confirms

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from typing import Any, Optional
 
@@ -44,7 +45,7 @@ class OpenAIClient(BaseLLMClient):
         self.base_model           = openai_settings.BASE_MODEL
         self.embedding_model      = openai_settings.EMBEDDING_MODEL
         self.embedding_dimensions = openai_settings.EMBEDDING_DIMENSIONS
-        self.max_tokens = OpenAIConstants.MAX_TOKENS
+        self.max_input_tokens     = OpenAIConstants.MAX_INPUT_TOKENS
         
         self.semaphore = asyncio.Semaphore(openai_settings.MAX_CONCURRENCY)
     
@@ -52,8 +53,10 @@ class OpenAIClient(BaseLLMClient):
         """Embed `input`. Raises through the caller on failure — no tracing
         here (see `BaseLLMClient`): the step envelope and the usage promotion
         happen on the app's wrapper, `AppWorkflow.get_embeddings`."""
-        if self.token_count(input) > self.max_tokens:
-            raise ValueError(f"Input is too long. Max tokens: {self.max_tokens}")
+        if self.token_count(input) > self.max_input_tokens:
+            raise ValueError(
+                f"Input is too long. Max input tokens: {self.max_input_tokens}"
+            )
 
         async with self.semaphore:
             response = await self.client.embeddings.create(
@@ -81,11 +84,36 @@ class OpenAIClient(BaseLLMClient):
         holds a `BaseLLMRequest`) an error.
         """
         payload = req.to_payload()
+        
+        # Serialized, because the bill is messages *and* tool schemas: the
+        # numeric-traits parse is 74% tool schema, so counting message content
+        # alone undercounts it ~4x. This overcounts by ~5% (JSON syntax) —
+        # the safe direction for a ceiling — and, unlike a hand-picked list of
+        # keys, cannot silently miss a component a new request type adds.
+        # (Passing `payload` itself counted its *keys*: 4 tokens.)
+        prompt_tokens = self.token_count(json.dumps(payload, default=str))
+        if prompt_tokens > self.max_input_tokens:
+            raise ValueError(
+                f"Input is too long: {prompt_tokens} tokens. "
+                f"Max input tokens: {self.max_input_tokens}"
+            )
 
         async with self.semaphore:
             final_completion = await self._chat_stream(payload, req.sse_stream)
-        
-        response_message = final_completion.choices[0].message
+
+        choice = final_completion.choices[0]
+        # The cap bounds reasoning + output together on gpt-5, so a call that
+        # hits it returns a truncated tool call — which reaches the app as an
+        # empty `tool_calls` and gets reported as "no tool calls", naming the
+        # symptom rather than the cause. This is the only layer that can see
+        # both the finish reason and the cap that produced it.
+        if choice.finish_reason == "length":
+            raise ValueError(
+                f"hit max_completion_tokens ({payload.get('max_completion_tokens')}) "
+                f"before finishing — the response is truncated"
+            )
+
+        response_message = choice.message
         assistant_msg = AssistantMessage(
             id=final_completion.id,
             content=response_message.content,
@@ -151,13 +179,26 @@ class OpenAIClient(BaseLLMClient):
 
     def token_count(self, text: str | list[str]) -> int:
         import tiktoken
-        
+
+        # a dict iterates as its keys, so the list branch below would happily
+        # "count" a payload and return a handful of tokens. Anything that is
+        # not the declared type is a caller bug, not an empty count.
+        if not isinstance(text, (str, list)):
+            raise TypeError(
+                f"token_count takes a string or list of strings, "
+                f"not {type(text).__name__}"
+            )
+
+        # Always the embedding model's encoding, including when counting a
+        # chat prompt: `encoding_for_model` raises KeyError for every chat
+        # model in use here (gpt-5*, gpt-4.1*), so there is no per-model
+        # encoding to pick. Approximate by design — this feeds a ceiling.
         encoding = tiktoken.encoding_for_model(self.embedding_model)
-        
+
         # single string
         if isinstance(text, str):
             return len(encoding.encode(text))
-        
+
         # list of strings
         return sum(len(encoding.encode(item)) for item in text)
     

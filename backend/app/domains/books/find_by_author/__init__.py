@@ -1,10 +1,8 @@
-from app.domains.books.external import BookRequestContext
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindByAuthorExecutor
+from .external import FindByAuthorRetrieval, FindByAuthorInput, FindByAuthorOutput
 from .labels import FindAuthorNodeTypeEnum
-from .schemas import FindByAuthorRetrieval
-from .external import FindByAuthorInput, FindByAuthorOutput
 
 SPEC = NodeSpec(
     node_type=FindAuthorNodeTypeEnum.REQUEST.value,
@@ -13,7 +11,6 @@ SPEC = NodeSpec(
     input=FindByAuthorInput,
     output=FindByAuthorOutput,
     executor=FindByAuthorExecutor,
-    context=BookRequestContext,
 )
 
 __all__ = [

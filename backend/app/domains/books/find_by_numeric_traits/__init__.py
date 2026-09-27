@@ -1,10 +1,13 @@
-from app.domains.books.external import BookRequestContext
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindByNumericTraitsExecutor
+from .external import (
+    FindByNumericTraitsRetrieval,
+    FindByNumericTraitsInput,
+    FindByNumericTraitsOutput,
+)
 from .labels import FindNumericTraitsNodeTypeEnum
-from .schemas import FindByNumericTraitsArgs, FindByNumericTraitsRetrieval
-from .external import FindByNumericTraitsInput, FindByNumericTraitsOutput
+from .tools import FindByNumericTraitsArgs
 
 SPEC = NodeSpec(
     node_type=FindNumericTraitsNodeTypeEnum.REQUEST.value,
@@ -13,7 +16,6 @@ SPEC = NodeSpec(
     input=FindByNumericTraitsInput,
     output=FindByNumericTraitsOutput,
     executor=FindByNumericTraitsExecutor,
-    context=BookRequestContext,
 )
 
 __all__ = [

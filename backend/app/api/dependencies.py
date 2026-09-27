@@ -1,10 +1,13 @@
 import logging
+import time
+from collections import defaultdict, deque
 from typing import AsyncGenerator
 
-from fastapi import Request, HTTPException, Depends
+import jwt
+from fastapi import Request, HTTPException, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.stores.book_store import BookStore
+from config import settings, AppConfig
 from db.stores.chat_run_store import ChatRunStore
 from db.stores.feedback_store import FeedbackStore
 from clients import OpenAIClient
@@ -42,22 +45,21 @@ def get_sqlalchemy_session_factory(request: Request):
 async def get_sqlalchemy_session(
     session_factory=Depends(get_sqlalchemy_session_factory),
 ) -> AsyncGenerator[AsyncSession, None]:
-    """Get a SQLAlchemy session"""
-    async with session_factory() as session:
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+    """One session and one transaction for the length of a request.
 
+    `.begin()` rather than `()`: it commits on a clean exit, rolls back on an
+    exception and closes either way, which is why no store commits for itself
+    (see `BaseStore.execute_statement`). The commit therefore lands when the
+    dependency is torn down, after the handler has returned its value — fine
+    here because `expire_on_commit=False` keeps the returned rows readable.
 
-async def get_book_store(
-    session: AsyncSession = Depends(get_sqlalchemy_session),
-) -> BookStore:
-    """Get BookStore instance with injected session."""
-    return BookStore(session)
+    Only the plain HTTP routes use this, because only there is the request the
+    unit of work. `/session/{id}/message` streams its response and outlives
+    this scope entirely; it opens its own sessions through
+    `RequestContext.store`.
+    """
+    async with session_factory.begin() as session:
+        yield session
 
 
 async def get_chat_run_store(
@@ -87,7 +89,6 @@ def get_sse_stream() -> SSEStream:
 
 async def get_request_context_factory(
     llm_client=Depends(get_openai_client),
-    book_store=Depends(get_book_store),
     sse_stream=Depends(get_sse_stream),
     app_env: str = Depends(get_app_env),
     session_factory=Depends(get_sqlalchemy_session_factory),
@@ -97,19 +98,88 @@ async def get_request_context_factory(
     from app.common.request_context import RequestContext
 
     async def create_context(session_id: str, user_message: UserMessage):
-        # The *widest* context, always — this runs before there is a plan, so
-        # it cannot know which nodes will run, and wiring per-node views here
-        # would make this module import every slice. The task runner narrows
-        # it at dispatch, via NodeSpec.context.
+        # The factory, never a session or a store built on one: this runs in
+        # the handler, and the turn it serves runs after the handler returns.
+        # Each unit of work opens its own through `RequestContext.store`.
         return RequestContext(
             app_env=app_env,
             session_id=session_id,
             user_message=user_message,
             llm_client=llm_client,
-            # keyed by class; a domain's context narrows to its own store
-            stores={BookStore: book_store},
             sse_stream=sse_stream,
             session_factory=session_factory,
         )
 
     return create_context
+
+
+# `PyJWKClient` caches the key set, so it is built once rather than per request.
+_app_check_keys = jwt.PyJWKClient(
+    AppConfig.APP_CHECK_JWKS_URL, lifespan=AppConfig.APP_CHECK_JWKS_LIFESPAN
+)
+
+
+def require_app_check(
+    x_firebase_appcheck: str | None = Header(default=None),
+) -> None:
+    """Refuse a request that doesn't carry a valid Firebase App Check token.
+
+    The token proves the request came from the registered web app on
+    tuanqpham0921.web.app, attested by reCAPTCHA. It is not authentication: a
+    visitor can copy a live token out of their browser and replay it with curl
+    until it expires. What it stops is the scripted caller who has never loaded
+    the page.
+
+    A plain `def`, so FastAPI runs it on the threadpool: fetching the key set
+    is a blocking HTTP call, made once per cache lifespan.
+    """
+    project_number = settings.app.FIREBASE_PROJECT_NUMBER
+    if project_number is None:
+        return
+    if not x_firebase_appcheck:
+        raise HTTPException(status_code=401, detail="Missing App Check token")
+    try:
+        signing_key = _app_check_keys.get_signing_key_from_jwt(x_firebase_appcheck)
+        jwt.decode(
+            x_firebase_appcheck,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=f"projects/{project_number}",
+            issuer=f"https://firebaseappcheck.googleapis.com/{project_number}",
+        )
+    except jwt.PyJWTError as exc:
+        logger.warning("Rejected App Check token: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid App Check token")
+
+
+# Arrival times of each IP's recent messages, per instance. Never swept: it
+# grows by one small entry per distinct caller until the instance recycles,
+# which min-instances=0 does whenever the site goes idle.
+_recent_messages: dict[str, deque[float]] = defaultdict(deque)
+
+
+def limit_messages_per_ip(request: Request) -> None:
+    """Refuse an IP that has sent `MESSAGES_PER_IP` messages this window.
+
+    Production only, like the site-wide token cap: an eval suite fires every
+    case from one address. The IP is the *last* `X-Forwarded-For` entry, the
+    one Cloud Run's front end appends — anything before it the caller wrote.
+    """
+    if settings.app.ENVIRONMENT != "production":
+        return
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        ip = forwarded.split(",")[-1].strip()
+    else:
+        ip = request.client.host if request.client else "unknown"
+
+    now = time.monotonic()
+    arrivals = _recent_messages[ip]
+    while arrivals and now - arrivals[0] > AppConfig.MESSAGES_PER_IP_WINDOW:
+        arrivals.popleft()
+    if len(arrivals) >= AppConfig.MESSAGES_PER_IP:
+        logger.warning("🚫 Rate limited %s", ip)
+        raise HTTPException(
+            status_code=429, detail="Too many messages. Please try again later."
+        )
+    arrivals.append(now)

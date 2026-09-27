@@ -61,14 +61,60 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 --------------------------
 
-0. fix the session bookstore (should be session factory)
-00. merge this or create a new branch (clean up stuff)
+have a basic intro for small talk tool
+the triage can pick them
+
+add in simple test for continuation
+add better triage router examples
+add a keyword only for the common tool
+  * UI or internal
+  * interal message to raise
+  * UI use the friendly messages
+
+have the planner take in a query schema
+with simple things like domains or simple things
+
+
+-----------------------
+
+so what is it that I'm trying to do?
+I want to off load some work for the Planner
+  * intro/small talks  - but not too much
+  * so clear rejection - but also not too much
+    * 
+  * conversation continuation - re-wording
+    * or not, since I can do a compact 500 tokens max context
+    * and the planner has more info to plan
+
+
+* coversation continuation rejection
+* add rejection and small talks
+* need a out of scope place better
+* how should I do out of scope? just reject?
+
+should I just have the nodes and then raise not implemented?
+might need to split up the docstrings for easier access?
+
+might need a clearer contracts between planJane and triage
+so when it comeback it will be as a task thing?
+
+----------------------------
+
+* set up pgAdmin neon
+4. run evals
 
 2. format the task runner better
 3. fix the ingestion thing with the ISBN
 4. add limit to task and such
-5. set up the tokens limit per session
-6. deploy (or set up a deploy script)
+
+**Eval suites and the session token budget — no longer urgent, but still true.**
+The budget is only *enforced* in production (`token_budget.ENFORCED_IN`), so a
+suite run against `make dev` is never refused. It is still charged, though, and
+`run_suites.py` mints one `test_` session and reuses it for the whole suite — so
+the row goes tens of thousands of tokens into the red and a suite's spend is one
+number instead of one per case. The flag to fix that exists and is unused: add
+`--new-session-per-query` to the `RUN_SUITE` line in `evals/makefile` (covers all
+four suite targets). Note the suites *would* be cut off under `make local-prod`.
 
 continue with CI/CD
 * clean up (UI)

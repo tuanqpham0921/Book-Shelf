@@ -14,10 +14,11 @@ import pytest
 from app.domains.base_workflow import FailedGoalOutput, NodeWorkflowOutput
 from app.domains.books.external import BookAnchorOutput, BookCandidateOutput
 from app.domains.books.find_by_title.external import FindByTitleOutput
-from app.domains.books.find_by_title.schemas import FindByTitleArgs
+from app.domains.books.find_by_title.tools import FindByTitleArgs
 from app.domains.books.find_similar_books import SimilarBooksOutput
 from app.domains.books.find_similar_books.external import SimilarBooksArgs
 from app.domains.books.schemas import Book
+from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.task_runner import TaskResult
 from app.orchestration.write_recommendations import GenerationResult
 from app.orchestration.write_recommendations.render import (
@@ -240,6 +241,21 @@ class TestRenderSection:
     def test_a_section_with_no_books_has_no_books_block(self):
         assert "<books>" not in render_section(1, _source(num_books=0))
         assert "<books>" not in render_section(1, _failure())
+
+    def test_project_facts_are_their_own_block_not_an_empty_catalog(self):
+        # without its own block a project lookup reads as "found nothing"
+        output = ProjectInfoOutput(
+            goal_instruction="Find the tech stack",
+            info={"technology_stack": "FastAPI and React"},
+        )
+        rendered = render_section(1, _result(output))
+
+        assert "found facts about BookShelf" in rendered
+        assert "found nothing" not in rendered
+        assert rendered.endswith(
+            "<project>\n- technology stack: FastAPI and React\n</project>"
+        )
+        assert "<books>" not in rendered
 
 
 class TestRenderReport:

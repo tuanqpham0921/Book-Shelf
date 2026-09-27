@@ -181,151 +181,154 @@ def embedding_search_stmt(
     return DeferredBookQuery(stmt, label="similar")
 
 
+def title_query(title: str, similarity_threshold: float = 0.7) -> DeferredBookQuery:
+    """Build the title search without running it: isbn13 plus the fuzzy
+    score, with no ORDER BY and no LIMIT so the result can be composed
+    into a CTE."""
+    stmt = select(
+        BookModel.isbn13,
+        func.similarity(BookModel.title, title).label("score"),
+    ).where(
+        or_(
+            BookModel.title.ilike(f"{title}"),
+            func.similarity(BookModel.title, title) > similarity_threshold,
+        )
+    )
+    return DeferredBookQuery(stmt, label="title")
+
+
+
+
+def author_query(author: str, similarity_threshold: float = 0.7) -> DeferredBookQuery:
+    """Build the author search without running it — same shape as
+    `title_query`: isbn13 plus the fuzzy score, no ORDER BY and no LIMIT,
+    so the result composes into a CTE.
+
+    Matched as a substring rather than by equality, and scored with
+    `word_similarity` rather than `similarity`, because `books.authors` is
+    one semicolon-delimited credit string per book
+    ("Brian Herbert;Kevin J. Anderson"). Whole-string similarity against a
+    two-name credit scores a solo author low enough to lose them;
+    `word_similarity` scores the name against the best-matching extent of
+    the credit, so a co-credited book still surfaces on either author's
+    bibliography.
+    """
+    stmt = select(
+        BookModel.isbn13,
+        func.word_similarity(author, BookModel.authors).label("score"),
+    ).where(
+        or_(
+            BookModel.authors.ilike(f"%{author}%"),
+            func.word_similarity(author, BookModel.authors) > similarity_threshold,
+        )
+    )
+    return DeferredBookQuery(stmt, label="author")
+
+
+def numeric_traits_query(filters: BookMetadataFilter) -> DeferredBookQuery:
+    """Build the metadata search over the whole catalog, without running it.
+
+    **The only reading of a bound there is**, since 2026-08-24: a bound
+    that narrows someone else's search ("Murakami books after 2005") is this
+    same query composed with theirs by `Combine_Intersect`, rather than a
+    second parse of `BookMetadataFilter` inside a filter node. That is what
+    retired `filter_query` and the numbers-only rule together.
+
+    No `score` column, unlike `title_query`/`author_query`: a bound is not a
+    degree of match, so there is nothing to rank by. `materialize_stmt`
+    therefore falls back to `average_rating DESC`, which is the right order
+    for the asks that reach here — "well rated", "most popular". It is also
+    what lets an intersect against this one keep the *other* input's
+    ranking: with no score of its own, a bound never competes for it.
+
+    An empty filter is refused rather than answered: no predicates means
+    selecting the entire catalog and reporting it as a search result.
+    """
+    predicates = metadata_predicates(BookModel, filters)
+    if not predicates:
+        raise ValueError("Cannot search on an empty metadata filter")
+
+    stmt = select(BookModel.isbn13).where(*predicates)
+    return DeferredBookQuery(stmt, label="numeric_traits")
+
+
+def lexical_query(
+    keywords: List[str] | None = None,
+    genre: GenreEnum | None = None,
+    audience: AudienceEnum | None = None,
+) -> DeferredBookQuery:
+    """Build the lexical search over the whole catalog, without running it.
+
+    Lexical, not semantic: this matches the words a book's text actually
+    contains, never what it is *like*. Three facets, ANDed: what the book is
+    about (full text over title, shelf label and blurb), whether it is
+    fiction, and who it is for. All three in one node because they cut one
+    question — "non-fiction about history" is a single search, not two to
+    intersect — which is the same exception `numeric_traits_query` takes for
+    bounds.
+
+    Keywords are joined into one `plainto_tsquery`, which already ANDs the
+    words it is handed: two keywords are the same query as one two-word
+    keyword, and one tsquery is one index probe rather than N bitmap scans to
+    AND together. Precision over recall is deliberate — "cozy mystery"
+    finding one book is a better answer than "cozy OR mystery" finding two
+    hundred. `plainto_tsquery` rather than `to_tsquery` for a second reason:
+    it ignores punctuation in a parsed keyword instead of raising a syntax
+    error on it.
+
+    A `score` column only when there are keywords. `ts_rank` is a degree of
+    match; shelf membership is not, so a genre-only search leaves
+    `materialize_stmt` to fall back to `average_rating DESC` exactly as
+    `numeric_traits_query` does.
+
+    Empty args are refused for `numeric_traits_query`'s reason, and as hard:
+    with no predicates this selects the entire catalog and reports it as a
+    search result.
+    """
+    predicates = []
+    columns: list = [BookModel.isbn13]
+
+    terms = " ".join(word for kw in (keywords or []) if (word := kw.strip()))
+    if terms:
+        document = search_document(BookModel)
+        tsquery = func.plainto_tsquery(_TS_CONFIG, terms)
+        predicates.append(document.op("@@")(tsquery))
+        columns.append(func.ts_rank(document, tsquery).label("score"))
+
+    values = genre_values(genre, audience)
+    if values:
+        predicates.append(BookModel.genre.in_(values))
+
+    if not predicates:
+        raise ValueError("Cannot search on an empty lexical filter")
+
+    stmt = select(*columns).where(*predicates)
+    return DeferredBookQuery(stmt, label="lexical")
+
+
 class BookStore(BaseStore[BookModel]):
-    """SQLAlchemy-based book data access layer.
+    """SQLAlchemy-based book data access layer — the execute half, and only it.
 
-    The store builds queries from a search dimension (which needs the model)
-    and executes statements (which needs the session). What can be derived
-    from an already-built query — counting it, materializing it, pooling
-    several — lives on `DeferredBookQuery` itself.
+    Building a query needs the model; running one needs a session. Those used
+    to be two kinds of method on this class, with the embedding search as the
+    documented exception. The exception is now the rule: every builder is a
+    module-level pure function above (`title_query`, `author_query`,
+    `numeric_traits_query`, `lexical_query`, `embedding_search_stmt`), so a
+    node can build and record a query — and compose it with another node's —
+    without holding a database connection to do it. What is left here is the
+    three calls that actually go to Postgres.
 
-    One exception: the embedding search is built by the module-level
-    `embedding_search_stmt` instead of a method here, so a caller can record
-    its SQL (`compile_sql`) before executing it — a `@task` on the store would
-    mean airglider imported into `db/`, which stays free of it on purpose. It
-    still hands back a `DeferredBookQuery`, so `count`/`score_stats`/
-    `materialize` are its execute half like any other.
+    What can be derived from an already-built query — counting it,
+    materializing it, pooling several — lives on `DeferredBookQuery` itself.
+
+    **Short-lived by construction.** A store is built inside
+    `RequestContext.store(BookStore)`, which opens one session and one
+    transaction for the length of a `with` block, so it never outlives the
+    round trip it was made for and never commits for itself.
     """
 
     def __init__(self, session: AsyncSession):
         super().__init__(session, BookModel)
-
-    # --- deferred queries: build now, count now, fetch rows once at the end ---
-
-    def title_query(
-        self, title: str, similarity_threshold: float = 0.7
-    ) -> DeferredBookQuery:
-        """Build the title search without running it: isbn13 plus the fuzzy
-        score, with no ORDER BY and no LIMIT so the result can be composed
-        into a CTE."""
-        stmt = select(
-            self.model.isbn13,
-            func.similarity(self.model.title, title).label("score"),
-        ).where(
-            or_(
-                self.model.title.ilike(f"{title}"),
-                func.similarity(self.model.title, title) > similarity_threshold,
-            )
-        )
-        return DeferredBookQuery(stmt, label="title")
-
-    def author_query(
-        self, author: str, similarity_threshold: float = 0.7
-    ) -> DeferredBookQuery:
-        """Build the author search without running it — same shape as
-        `title_query`: isbn13 plus the fuzzy score, no ORDER BY and no LIMIT,
-        so the result composes into a CTE.
-
-        Matched as a substring rather than by equality, and scored with
-        `word_similarity` rather than `similarity`, because `books.authors` is
-        one semicolon-delimited credit string per book
-        ("Brian Herbert;Kevin J. Anderson"). Whole-string similarity against a
-        two-name credit scores a solo author low enough to lose them;
-        `word_similarity` scores the name against the best-matching extent of
-        the credit, so a co-credited book still surfaces on either author's
-        bibliography.
-        """
-        stmt = select(
-            self.model.isbn13,
-            func.word_similarity(author, self.model.authors).label("score"),
-        ).where(
-            or_(
-                self.model.authors.ilike(f"%{author}%"),
-                func.word_similarity(author, self.model.authors)
-                > similarity_threshold,
-            )
-        )
-        return DeferredBookQuery(stmt, label="author")
-
-    def numeric_traits_query(self, filters: BookMetadataFilter) -> DeferredBookQuery:
-        """Build the metadata search over the whole catalog, without running it.
-
-        **The only reading of a bound there is**, since 2026-08-24: a bound
-        that narrows someone else's search ("Murakami books after 2005") is this
-        same query composed with theirs by `Combine_Intersect`, rather than a
-        second parse of `BookMetadataFilter` inside a filter node. That is what
-        retired `filter_query` and the numbers-only rule together.
-
-        No `score` column, unlike `title_query`/`author_query`: a bound is not a
-        degree of match, so there is nothing to rank by. `materialize_stmt`
-        therefore falls back to `average_rating DESC`, which is the right order
-        for the asks that reach here — "well rated", "most popular". It is also
-        what lets an intersect against this one keep the *other* input's
-        ranking: with no score of its own, a bound never competes for it.
-
-        An empty filter is refused rather than answered: no predicates means
-        selecting the entire catalog and reporting it as a search result.
-        """
-        predicates = metadata_predicates(self.model, filters)
-        if not predicates:
-            raise ValueError("Cannot search on an empty metadata filter")
-
-        stmt = select(self.model.isbn13).where(*predicates)
-        return DeferredBookQuery(stmt, label="numeric_traits")
-
-    def lexical_query(
-        self,
-        keywords: List[str] | None = None,
-        genre: GenreEnum | None = None,
-        audience: AudienceEnum | None = None,
-    ) -> DeferredBookQuery:
-        """Build the lexical search over the whole catalog, without running it.
-
-        Lexical, not semantic: this matches the words a book's text actually
-        contains, never what it is *like*. Three facets, ANDed: what the book is
-        about (full text over title, shelf label and blurb), whether it is
-        fiction, and who it is for. All three in one node because they cut one
-        question — "non-fiction about history" is a single search, not two to
-        intersect — which is the same exception `numeric_traits_query` takes for
-        bounds.
-
-        Keywords are joined into one `plainto_tsquery`, which already ANDs the
-        words it is handed: two keywords are the same query as one two-word
-        keyword, and one tsquery is one index probe rather than N bitmap scans to
-        AND together. Precision over recall is deliberate — "cozy mystery"
-        finding one book is a better answer than "cozy OR mystery" finding two
-        hundred. `plainto_tsquery` rather than `to_tsquery` for a second reason:
-        it ignores punctuation in a parsed keyword instead of raising a syntax
-        error on it.
-
-        A `score` column only when there are keywords. `ts_rank` is a degree of
-        match; shelf membership is not, so a genre-only search leaves
-        `materialize_stmt` to fall back to `average_rating DESC` exactly as
-        `numeric_traits_query` does.
-
-        Empty args are refused for `numeric_traits_query`'s reason, and as hard:
-        with no predicates this selects the entire catalog and reports it as a
-        search result.
-        """
-        predicates = []
-        columns: list = [self.model.isbn13]
-
-        terms = " ".join(word for kw in (keywords or []) if (word := kw.strip()))
-        if terms:
-            document = search_document(self.model)
-            tsquery = func.plainto_tsquery(_TS_CONFIG, terms)
-            predicates.append(document.op("@@")(tsquery))
-            columns.append(func.ts_rank(document, tsquery).label("score"))
-
-        values = genre_values(genre, audience)
-        if values:
-            predicates.append(self.model.genre.in_(values))
-
-        if not predicates:
-            raise ValueError("Cannot search on an empty lexical filter")
-
-        stmt = select(*columns).where(*predicates)
-        return DeferredBookQuery(stmt, label="lexical")
 
     async def count(self, query: DeferredBookQuery) -> int:
         """How many books the query matches. Zero is an answer, not a failure."""
@@ -360,6 +363,11 @@ class BookStore(BaseStore[BookModel]):
     async def materialize(
         self, query: DeferredBookQuery, limit: int = 10
     ) -> List[Dict[str, Any]]:
-        """Run a deferred query for rows — the last step of a plan."""
+        """Run a deferred query for rows — the last step of a plan.
+
+        `to_dict()` runs here, inside the caller's transaction, so the rows
+        that leave are plain dicts rather than ORM entities that would need a
+        live session to read.
+        """
         result = await self.execute_statement(query.materialize_stmt(self.model, limit))
         return [row.to_dict() for row in result.scalars().all()]

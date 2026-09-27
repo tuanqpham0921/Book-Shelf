@@ -5,7 +5,7 @@ Same reading rule as the book slices (domains/README.md;
 `books/find_similar_books/executor.py` is the worked example): this file is the
 flow — `run()` plus every step, methods in the order `run` reaches them — with
 the request builder as a module-level pure function beside it. The satellites
-hold what outlives the run: `schemas.py` is what the LLM fills in,
+hold what outlives the run: `tools.py` is what the LLM fills in,
 `external.py` is what the plan *is*, `dial/` is how the plan is shown.
 """
 
@@ -20,7 +20,7 @@ from clients import OpenAIParserRequest
 
 from app.domains.planjane.dial.mermaid import get_goals_mermaid_diagram
 from .external import PlanJaneOutput
-from .schemas import MAX_SYSTEM_GOALS, GoalParseRequest
+from .tools import MAX_SYSTEM_GOALS, GoalParseRequest
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 PlanJaneInput = NodeInput | ParsedInput[GoalParseRequest]
 
 GOAL_GENERATOR_PROMPT_PATH = "domains/planjane/prompts/0_goal_generator.txt"
+
+# A maximal plan — MAX_SYSTEM_GOALS (10) goals with every string at its bound —
+# serializes to ~1,341 tokens, so this is the schema's own worst case plus
+# margin. Raise it with MAX_SYSTEM_GOALS or MAX_INSTRUCTION_LENGTH.
+MAX_COMPLETION_TOKENS = 2_000
 # PLAYGORUND_PROMPT_PATH = "../playground/prompting/planner_prompt._extended.txt"
 
 
@@ -51,7 +56,7 @@ def build_goal_parse_request(query: str) -> OpenAIParserRequest:
 
     return OpenAIParserRequest(
         prompt=system_prompt,
-        model="gpt-5.6-terra",
+        model="gpt-6-sol",
         reasoning_effort="none",
         # NOTE: this should be a list of previous messages as well
         # but for now we can just do clear and direct instructions
@@ -61,15 +66,12 @@ def build_goal_parse_request(query: str) -> OpenAIParserRequest:
         # what gets parsed.
         messages=[UserMessage(content=query)],
         tool_models=[GoalParseRequest],
-        max_completion_tokens=1000,
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
     )
 
 
 class PlanJaneExecutor(AppWorkflow[PlanJaneOutput]):
     ui_loading_message = "Thinking..."
-    intent_reject_message = (
-        "I can't help with that request. Please try again with a book-related question."
-    )
     continuation_reject_message = "I don't have memory of earlier messages yet — please restate your full request in one message."
 
     async def run(self, node_input: PlanJaneInput) -> None:

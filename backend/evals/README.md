@@ -1,10 +1,19 @@
 # backend/evals
 
-The planner eval harness — versioned query suites with per-case node expectations,
-a runner, and report generators. **Why it's built this way and where it's headed:**
-[docs/eval-strategy.md](../../docs/eval-strategy.md).
+Evals, one folder per thing under test. **Why it's built this way and where it's
+headed:** [docs/eval-strategy.md](../../docs/eval-strategy.md).
 
-## Suites (`suites/`)
+| Path | What it grades |
+|---|---|
+| `planjane/` | The planner, through the whole running app — versioned query suites with per-case node expectations, the runner, the two DB reports, and the tool catalog |
+| `triage/` | Triage's router alone — one LLM call per case, no backend, no database (see [Triage](#triage--the-router-triage)) |
+| `validation/` | The message check alone — one LLM call per case, no backend, no database (see [Validation](#validation--the-message-check-validation)) |
+| `common.py` | Shared plumbing. It sits here rather than in `planjane/` because a script puts its own folder first on `sys.path`, and a `common.py` there would shadow the backend's `common` package |
+| `results/`, `logs/` | Campaign outputs and run logs, for every folder above |
+
+A node's own `*Args` parse would get the same treatment as triage, under `nodes/<node>/`.
+
+## PlanJane suites (`planjane/suites/`)
 
 | Suite | Cases | Targets |
 |---|---|---|
@@ -16,7 +25,7 @@ a runner, and report generators. **Why it's built this way and where it's headed
 Each case: `id`, `query`, `difficulty`, `expected_nodes`, `note` (+ `category`/`domain`
 in adversarial/stress).
 
-## Workflow
+## PlanJane workflow
 
 Backend must be running (`make dev`). Every path in `makefile` is anchored to the
 evals directory, so these run identically from `backend/` (via the root Makefile's
@@ -38,7 +47,7 @@ SLEEP=0` finishes in seconds. `query-suite-smoke` is exactly that pairing (overr
 count with `SMOKE_LIMIT=n`). Smoke runs record to `chat_runs`/`test_runs` like any
 other, so both reports work on them.
 
-The runner (`run_suites.py`) POSTs each query to `/session/{id}/message`, consumes the
+The runner (`planjane/run_suites.py`) POSTs each query to `/session/{id}/message`, consumes the
 SSE stream, and records its `test_runs` row (chat_id FK → `chat_runs` + suite name +
 case id) right away — not batched until the run finishes — so an interrupted run still
 has everything it completed recorded. Sessions are minted as `test_<uuid8>` so eval
@@ -62,7 +71,7 @@ Both take `ARGS="--all"` for every run (default: latest run per case), `ARGS="--
 report is the pass/fail gate and mentions no numbers that change run to run, so its
 diffs stay readable; the cost report is where tokens, dollars and latency live.
 
-## Tool catalog (`tools_catalog.py`)
+## Tool catalog (`planjane/tools_catalog.py`)
 
 ```bash
 make tools-catalog                        # print
@@ -102,6 +111,73 @@ out rather than hidden:
 - a run whose `token_usage.unpriced_models` is non-empty still *has* a cost, just too low
   — the report prints an explicit "costs are understated" warning naming the models. Add
   them to `airglider/src/config.py`; only future runs will be right.
+
+## Triage — the router (`triage/`)
+
+```bash
+make eval-routing                          # every case, printed
+make eval-routing ARGS="--ids 101 409"     # a few, while iterating
+make eval-routing CAMPAIGN=v1_triage       # -> results/v1_triage/route_query.md
+make eval-routing ARGS="--save"            # -> triage/results/route_query_<timestamp>/
+```
+
+Grades the gpt-5-mini pick that triage runs ahead of the planner, on its own: no
+backend, no database, no `test_runs` rows. `eval_route_query.py` sends each case in
+`triage/suites/route_query.json` through `build_route_request` — the builder a real
+turn uses, so the prompt, model and the four tools are exactly what production sends
+— straight to `OpenAIClient`. The builder reads `route_query.txt` from disk on every
+call, so editing the prompt and rerunning is the whole loop. The whole suite costs
+about three cents.
+
+A case (`id`, `query`, `expected`, `note`) passes when the route is one of `expected`:
+`PlanJane`, `ProjectInfoArgs`, `ClarifyingQuestion`, `SecurityReview`, or `reply` when
+the model called no tool and answered in text. The router can call several tools at
+once (2026-09-26), so a route is every tool's name, sorted and joined with ` + ` —
+`PlanJane + ProjectInfoArgs` is a project question split off from the rest. The tool's
+arguments are not graded: a security flag always turns the message away and a
+clarification always asks the user to try again, so the arguments change only the
+wording. A split's `PlanJane.message` is the exception worth reading — it is what the
+planner gets — so check the detail column on those cases. A case where two routes are fair lists both
+(the misspelling cases do: an obvious fix is the planner's, but a clarification is
+a fair reading). The report splits failures into book asks kept from the
+planner and misuse let through (to the planner or a direct reply), and prints every
+direct reply in full, since that is the one route whose words reach the user as the
+model wrote them. `--save [DIR]` also writes `results.json` with each case's route, its
+arguments or reply, and usage.
+
+The cases are grouped by route (1xx plan, 2xx reply, 3xx clarify, 4xx security, 5xx
+mixed messages, 6xx project facts); off-topic asks (16x) expect `PlanJane`, because the router clarifies
+only what is unclear, not what is unsupported. Cases close to the prompt's own Examples
+say so in their note, since those partly test recall. Earlier turns can't be given yet
+— `build_route_request` takes the message alone — so a follow-up case expects
+`ClarifyingQuestion` unless it makes sense on its own ("more sci-fi please"). The message check runs before the router, but
+since 2026-09-26 it no longer stops code or injections, so the router's
+`SecurityReview` is the only thing that does.
+
+## Validation — the message check (`validation/`)
+
+```bash
+make eval-validation                        # every case, printed
+make eval-validation ARGS="--ids 304 403"   # a few, while iterating
+make eval-validation CAMPAIGN=v1_validation # -> results/v1_validation/validate_message.md
+make eval-validation ARGS="--save"          # -> validation/results/validate_message_<timestamp>/
+```
+
+Built like the router eval: `eval_validate_message.py` sends each case in
+`validation/suites/validate_message.json` through `build_validation_request` — the
+builder a real turn uses — straight to `OpenAIClient`. Editing `validate_message.txt`
+and rerunning is the whole loop.
+
+A case (`id`, `query`, `expected`, `note`) passes when the reply `refusal_for` picks is
+one of `expected`: `pass`, `harmful` (a security issue or harmful content) or
+`incoherent`. It grades the reply, not each flag, so only a difference the user would see
+fails; a case where two readings are fair (a shell command after a book ask is harmless
+text, and arguably malware) lists both. The report splits failures into wrongly refused
+and wrongly passed, shows every case's set flags, and gives each failure's `reasoning`.
+Since 2026-09-26 the check has no code, injection or language flag, so those cases
+(3xx, 4xx, 605–608) now record what reaches triage rather than what the gate stops. The cases are kept out of the
+prompt's Examples section on purpose, so the suite tests the rules rather than recall —
+don't copy a failing case into the prompt to make it pass.
 
 ## Repo sizing (`app_docs/`)
 

@@ -14,6 +14,11 @@ class AppSettings(BaseSettings):
     # for list-typed fields before validators run, which breaks on a plain
     # comma-separated string. The field_validator below does the real split.
     ALLOW_ORIGINS: Annotated[list[str], NoDecode]
+    # Firebase App Check is enforced exactly when this is set — the token's
+    # audience and issuer are both built from it, so it is the one value the
+    # check needs. The deploy recipe sets it; local dev leaves it unset, since
+    # a Vite dev server has no reCAPTCHA key to earn a token with.
+    FIREBASE_PROJECT_NUMBER: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=FilesLocationConstants.ENV_FILE,

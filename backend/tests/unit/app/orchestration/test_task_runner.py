@@ -19,14 +19,12 @@ from unittest.mock import patch
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from app.common.request_context import RequestContext
 from app.domains.base_workflow import (
     AppWorkflow,
     FailedGoalOutput,
     NodeWorkflowOutput,
 )
 from app.domains.books import find_by_title
-from app.domains.books.external import BookRequestContext
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.domains.node_input import NodeInput
 from app.domains.node_spec import NodeSpec
@@ -99,7 +97,6 @@ def _spec(executor: type | None, **overrides) -> NodeSpec:
         **{
             "executor": executor,
             "input": _Input,
-            "context": RequestContext,
             **overrides,
         },
     )
@@ -446,23 +443,14 @@ class TestPlanRequirement:
 
 
 class TestUnpreparableNodes:
-    """The two skip paths that were not possible before: a node whose services
-    aren't on this request, and one whose input can't be assembled. Both fail
-    the single goal and leave the rest of the plan running — and both are where
-    an agentic runner would ask the planner for a fix instead of skipping."""
+    """The skip path for a node whose input can't be assembled: it fails the
+    single goal and leaves the rest of the plan running — and it is where an
+    agentic runner would ask the planner for a fix instead of skipping.
 
-    async def test_a_node_whose_context_cannot_be_narrowed_is_skipped(
-        self, runner, request_context, events
-    ):
-        request_context.stores.clear()
-        await drive(
-            runner, [_goal()], _spec(_OkExecutor, context=BookRequestContext)
-        )
-
-        assert runner.result.failed_task == ["1"]
-        assert isinstance(runner.result.task_results["1"].output, FailedGoalOutput)
-        # never started, so no section is left hanging open
-        assert of_type(events, "task.start") == []
+    There used to be a sibling here for a node whose services weren't on the
+    request. It went with `NodeSpec.context`: a node opens its own database
+    session when it needs one, so there is no longer a services view that can
+    fail to resolve at dispatch."""
 
     async def test_a_node_missing_a_required_input_is_skipped(self, runner, events):
         class _NeedsAnchor(NodeInput):

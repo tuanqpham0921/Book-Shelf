@@ -17,6 +17,21 @@ CREATE TABLE IF NOT EXISTS books (
     embedding VECTOR(1024)
 );
 
+-- Chat sessions: one row per session that has actually sent a message.
+-- Created lazily on the first message (POST /session/new stays stateless, so
+-- page loads and bots write nothing), then debited once per turn by the
+-- orchestrator with what that turn cost — planner, tasks and reply together.
+-- remaining_tokens carries no DEFAULT on purpose: the allowance a new session
+-- starts with is AppConfig.SESSION_TOKEN_BUDGET, and a second copy here is a
+-- number that drifts. No CHECK (remaining_tokens >= 0) either: a turn is charged
+-- after it runs, so a session's last turn legitimately overshoots into the red.
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_updated TIMESTAMPTZ NOT NULL DEFAULT now(),
+    remaining_tokens INTEGER NOT NULL
+);
+
 -- Chat run records: one row per orchestrated chat turn.
 -- Envelopes stored as JSONB (queryable via -> / ->>), hot stats promoted to columns.
 -- Review state lives entirely in the feedback table: a run's review count is
@@ -48,9 +63,10 @@ CREATE TABLE IF NOT EXISTS test_runs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Reviews from the internal /review page: one row per (chat_id, session_id),
--- where session_id is the *reviewing* session, not the session that produced
--- the run. A session re-submitting replaces its review in place (see unique
+-- Reviews from the internal /review page and the chat's own feedback: one
+-- row per (chat_id, session_id), where session_id is the *reviewing* session —
+-- for the review page not the session that produced the run, for the chat
+-- always that same session (its route checks it). A session re-submitting replaces its review in place (see unique
 -- index) rather than appending; a different session appends a new review.
 -- liked: the reviewer's overall like/dislike of the run (optional).
 -- comments: JSONB list of {title, message, positive} observations, replaced
