@@ -18,12 +18,12 @@ const SubHeader = ({ activeView, setActiveView }) => {
                 Chat
             </button>
 
-            <button
+            {/* <button
                 onClick={() => handleViewChange('review')}
                 className={`underline-animated underline-button ${activeView === 'review' ? 'active' : ''}`}
             >
                 Review
-            </button>
+            </button> */}
 
             <button
                 onClick={() => handleViewChange('blog')}
@@ -32,7 +32,7 @@ const SubHeader = ({ activeView, setActiveView }) => {
                 Blog
             </button>
 
-            <VersionDropdown />
+            {/* <VersionDropdown /> */}
         </div>
     );
 };
