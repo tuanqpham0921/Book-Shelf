@@ -9,7 +9,7 @@ const NavBar = () => {
     };
 
     const navigationItems = [
-        { icon: Briefcase, label: 'Portfolio', href: 'https://www.tuanqpham0921.com', external: false },
+        // { icon: Briefcase, label: 'Portfolio', href: 'https://www.tuanqpham0921.com', external: false },
         { icon: Linkedin, label: 'LinkedIn', href: 'https://linkedin.com/in/tuanqpham0921', external: true },
         { icon: Github, label: 'GitHub', href: 'https://github.com/tuanqpham0921', external: true },
         // { icon: FileText, label: 'Resume', href: '/resume', external: false }
@@ -71,9 +71,9 @@ const NavBar = () => {
                         <div className="text-sm">
                             tuanqpham0921@gmail.com
                         </div>
-                        <div className="text-sm">
+                        {/* <div className="text-sm">
                             San Marcos, TX
-                        </div>
+                        </div> */}
                     </div>
                 </div>
             </nav>
