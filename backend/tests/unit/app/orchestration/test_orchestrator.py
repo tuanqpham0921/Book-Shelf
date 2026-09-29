@@ -28,6 +28,7 @@ from app.domains.planjane import PlanJaneOutput, SystemGoal
 from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.orchestrator import (
     DEBIT_TOKENS_TIMEOUT,
+    OUT_OF_SCOPE_REASON,
     Orchestrator,
     _best_effort,
 )
@@ -323,6 +324,62 @@ class TestWritingTheReply:
 
         node_input = writer_cls.return_value.await_args.args[0]
         assert [result.output for result in node_input.results] == [facts, found]
+
+    async def test_out_of_scope_alone_is_written_from_without_a_runner(
+        self, request_context
+    ):
+        # "what's the weather?": the planner plans nothing and sets it aside,
+        # and the reply says so rather than the turn ending in the generic error
+        triage, runner_p, writer_p, record = self._drive(
+            request_context,
+            _runner_with({}),
+            plan=PlanJaneOutput(out_of_scope=["What's the weather?"]),
+        )
+        with triage, runner_p as runner_cls, writer_p as writer_cls, record:
+            await Orchestrator().run(request_context)
+
+        runner_cls.assert_not_called()
+        node_input = writer_cls.return_value.await_args.args[0]
+        assert [result.output for result in node_input.results] == [
+            FailedGoalOutput(
+                goal_instruction="What's the weather?", reason=OUT_OF_SCOPE_REASON
+            )
+        ]
+
+    async def test_out_of_scope_comes_after_the_plans_results(self, request_context):
+        plan = _plan()
+        plan.out_of_scope = ["What's the weather?"]
+        found = BookAnchorOutput(num_books=1, goal_instruction="Find It")
+        triage, runner_p, writer_p, record = self._drive(
+            request_context, _runner_with({"1": found}), plan=plan
+        )
+        with triage, runner_p, writer_p as writer_cls, record:
+            await Orchestrator().run(request_context)
+
+        node_input = writer_cls.return_value.await_args.args[0]
+        outputs = [result.output for result in node_input.results]
+        assert outputs[0] == found
+        assert outputs[1].goal_instruction == "What's the weather?"
+
+    @pytest.mark.parametrize("ok", [True, False])
+    async def test_only_a_failed_reply_sends_an_error(self, request_context, ok):
+        """Verbatim, like the budget refusals: without it the stream ends on
+        the task sections with no reply and no reason."""
+        request_context.sse_stream.send_error = AsyncMock()
+        triage, runner_p, writer_p, record = self._drive(
+            request_context,
+            _runner_with({"1": BookAnchorOutput(num_books=1)}),
+        )
+        with triage, runner_p, writer_p as writer_cls, record:
+            writer_cls.return_value.record = OperationResult(name="writer", ok=ok)
+            await Orchestrator().run(request_context)
+
+        if ok:
+            request_context.sse_stream.send_error.assert_not_awaited()
+        else:
+            request_context.sse_stream.send_error.assert_awaited_once_with(
+                Orchestrator.reply_failure_message
+            )
 
     async def test_the_replys_record_lands_on_the_turns_trace(self, request_context):
         """Its spend and duration belong to the turn — the root envelope is

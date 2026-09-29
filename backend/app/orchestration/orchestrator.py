@@ -7,8 +7,10 @@ from config import AppConfig
 from app.common.sse_stream import SSEStream
 from app.common.request_context import RequestContext
 
+from app.domains.base_workflow import FailedGoalOutput
 from app.domains.node_input import NodeInput
 from app.domains.project.find_project_info import ProjectInfoNodeTypeEnum
+from app.registry import UnknownNodeTypeEnum
 from app.orchestration.triage import TriageWorkflow
 from app.orchestration.task_runner import (
     TaskResult,
@@ -51,6 +53,9 @@ CONVERSATION_TIMEOUT = 120  # seconds
 # connection. Leave it the loosest thing that still terminates.
 DEBIT_TOKENS_TIMEOUT = AppConfig.DATABASE_TIMEOUT * 3  # seconds
 
+# Relayed by the reply stage as the reason an out-of-scope portion was not done.
+OUT_OF_SCOPE_REASON = "it is outside what a book assistant does"
+
 
 async def _best_effort(
     coro: Coroutine[Any, Any, Any], timeout: float, what: str, turn_id: str
@@ -86,6 +91,11 @@ async def _best_effort(
 
 class Orchestrator:
     """Main orchestration engine for processing user queries through AI pipelines."""
+
+    reply_failure_message = (
+        "Sorry, I couldn't finish writing my reply this time.\n"
+        "Please try sending your message again."
+    )
 
     def __init__(self):
         pass
@@ -206,7 +216,7 @@ class Orchestrator:
 
             # What the reply is written from: the project facts triage looked
             # up without planning, first because they came first, then every
-            # goal the plan ran. Either alone is enough to write from.
+            # goal the plan ran. Any one part alone is enough to write from.
             results: list[TaskResult] = []
             if triage_output.project_info:
                 results.append(
@@ -226,8 +236,26 @@ class Orchestrator:
                     timeout=CONVERSATION_TIMEOUT,
                 )
                 results.extend(task_runner.result.task_results.values())
+            # Last, what the planner set aside as not a book assistant's job —
+            # as failures, so the reply says so instead of dropping it. Alone,
+            # it is still a reply: "what's the weather?" plans nothing.
+            if plan and plan.out_of_scope:
+                results.extend(
+                    TaskResult(
+                        task_id="planjane",
+                        node_type=UnknownNodeTypeEnum.UNKNOWN.value,
+                        output=FailedGoalOutput(
+                            goal_instruction=portion, reason=OUT_OF_SCOPE_REASON
+                        ),
+                    )
+                    for portion in plan.out_of_scope
+                )
             if results:
                 writer = await self._write_reply(request_context, results, messages)
+                if not writer.record.ok:
+                    # the sections above are all the user has; without this
+                    # the stream ends on them with no reply and no reason
+                    await sse_stream.send_error(self.reply_failure_message)
             elif task_runner is not None:
                 # a plan whose every goal was unreachable: nothing to write
                 # from, so the stage would only invent evidence

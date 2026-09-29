@@ -98,7 +98,8 @@ class PlanJaneExecutor(AppWorkflow[PlanJaneOutput]):
         self.process_parse_result(parse_result)
 
         # 3. show the plan — the diagram is the plan rendered
-        # TODO: generate an "unable to help with" reply for the refused half
+        # TODO: refused goals still reach no reply — only `out_of_scope` does,
+        # which the orchestrator hands to the reply stage
         if self.result.accepted_goals:
             await self.send_mermaid(self.result.accepted_goals)
 

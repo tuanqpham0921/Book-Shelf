@@ -527,6 +527,23 @@ class TestProjectFacts:
         assert orchestrator.result.project_info is not None
         assert not orchestrator.result.parse_result.accepted_goals
 
+    async def test_a_planner_that_set_it_all_aside_still_gets_a_reply(
+        self, orchestrator
+    ):
+        # "what's the weather?": nothing planned, but the out-of-scope part is
+        # something the orchestrator's reply stage answers
+        planner = _mock_child_workflow(
+            OperationResult(ok=False), PlanJaneOutput(out_of_scope=["the weather?"])
+        )
+        with _routes_to(PLAN), patch(
+            "app.orchestration.triage.executor.PlanJaneExecutor",
+            return_value=planner,
+        ):
+            record = await orchestrator(NodeInput(instruction="the weather?"))
+
+        assert record.ok
+        assert orchestrator.result.parse_result.out_of_scope == ["the weather?"]
+
     async def test_without_facts_a_planner_that_planned_nothing_fails(
         self, orchestrator
     ):

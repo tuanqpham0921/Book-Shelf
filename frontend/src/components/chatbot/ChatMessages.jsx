@@ -71,7 +71,7 @@ function renderSection(section, responseId, sectionIndex) {
     // Error section
     if (section.type === 'error' && section.content) {
         return (
-            <div key={key} className="message-bubble text-[var(--accent-negative)] italic mt-2">
+            <div key={key} className="message-bubble text-[var(--accent-negative)] italic mt-2 whitespace-pre-wrap">
                 <span>{section.content}</span>
             </div>
         );

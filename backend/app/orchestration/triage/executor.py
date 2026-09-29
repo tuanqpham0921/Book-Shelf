@@ -185,14 +185,17 @@ class TriageWorkflow(AppWorkflow[TriageOutput]):
                 await self.sse_stream.send_error(self.planner_failure_message)
                 self.finalize_result(ok=False)
                 return
-            if self.result.project_info is None:
+            if self.result.project_info is None and not planner.result.out_of_scope:
                 self.finalize_result(ok=False)
                 return
             # the planner turned what was left down, which does not cost the
-            # user the facts already found — the reply is written from those
-            self.add_details("nothing planned; replying from the project facts")
+            # user a reply — it is written from the facts already found, or
+            # says the out-of-scope part is not something BookShelf does
+            self.add_details(
+                "nothing planned; replying from the project facts or out of scope"
+            )
 
-        # a plan came out of this turn, or the facts are something to reply from
+        # a plan came out of this turn, or there is something to reply from
         self.finalize_result(ok=True)
 
     @task
