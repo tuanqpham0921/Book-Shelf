@@ -59,53 +59,32 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 ## In flight
 
---------------------------
+---
 
-have a basic intro for small talk tool
-the triage can pick them
+this is okay for now
 
-add in simple test for continuation
-add better triage router examples
-add a keyword only for the common tool
-  * UI or internal
-  * interal message to raise
-  * UI use the friendly messages
+* change the writting recommendation UI loading to something else
+* have the out of scope thing for PlanJane
+* ensure no spoiler
+* remove extra sse_send to UI in other nodes
+* remove console.log for UI
 
-have the planner take in a query schema
-with simple things like domains or simple things
+* have a page or places for PlanJane explanation
+* maybe have the reasonings of LLM send to
 
+* have better examples query on the UI
+    with different sections
 
------------------------
+* add no re-try message or limitations somewhere
 
-so what is it that I'm trying to do?
-I want to off load some work for the Planner
-  * intro/small talks  - but not too much
-  * so clear rejection - but also not too much
-    * 
-  * conversation continuation - re-wording
-    * or not, since I can do a compact 500 tokens max context
-    * and the planner has more info to plan
+* clean up the docs / blogs
+* update resume and other places
 
+* then this should be good for this for now
+* we can keep making it better and review things
 
-* coversation continuation rejection
-* add rejection and small talks
-* need a out of scope place better
-* how should I do out of scope? just reject?
+---
 
-should I just have the nodes and then raise not implemented?
-might need to split up the docstrings for easier access?
-
-might need a clearer contracts between planJane and triage
-so when it comeback it will be as a task thing?
-
-----------------------------
-
-* set up pgAdmin neon
-4. run evals
-
-2. format the task runner better
-3. fix the ingestion thing with the ISBN
-4. add limit to task and such
 
 **Eval suites and the session token budget — no longer urgent, but still true.**
 The budget is only *enforced* in production (`token_budget.ENFORCED_IN`), so a
