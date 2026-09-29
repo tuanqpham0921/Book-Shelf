@@ -32,7 +32,7 @@ def anchor_queries(anchors: list[BookRetrievalOutput]) -> list[DeferredBookQuery
 
 
 class CombineIntersectExecutor(BookWorkflow[CombineIntersectOutput]):
-    ui_loading_message = "Narrowing the results..."
+    ui_loading_message = "narrowing the results..."
 
     async def run(self, node_input: CombineIntersectInput) -> None:
         """AND the upstream queries in SQL and hand the intersection on.

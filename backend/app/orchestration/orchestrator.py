@@ -27,7 +27,7 @@ from app.orchestration.token_budget import (
     start_session_turn,
 )
 from app.orchestration.validation import refusal_for, validate_user_message
-from app.orchestration.write_recommendations import (
+from app.orchestration.write_reply import (
     GenerateRecommendationsExecutor,
     RecommendationsInput,
 )
@@ -135,7 +135,7 @@ class Orchestrator:
             # `run` builds this root rather than being a unit of work itself,
             # so nothing is in scope to adopt the step — and attached before
             # the unwrap, so a read that failed is still on the record.
-            await sse_stream.send_ui_loading("Checking Budget...")
+            await sse_stream.send_ui_loading("checking budget...")
             budget_step = await start_session_turn(request_context)
             record.add_step(budget_step)
             remaining_tokens = budget_step.unwrap()
@@ -166,7 +166,7 @@ class Orchestrator:
             # The message arrives unvalidated, and nothing past this point reads
             # it until it passes. Unwrapped like the balance read: a check that
             # returned no verdict stops the turn rather than waving it through.
-            await sse_stream.send_ui_loading("Reading your message...")
+            await sse_stream.send_ui_loading("reading your message...")
             validation_step = await validate_user_message(request_context)
             record.add_step(validation_step)
             validation = validation_step.unwrap()
@@ -185,7 +185,7 @@ class Orchestrator:
             request_context.user_message.pass_validation = True
             messages.append(request_context.user_message)
 
-            await sse_stream.send_ui_loading("Starting conversation...")
+            await sse_stream.send_ui_loading("starting conversation...")
             triage_workflow = TriageWorkflow(request_context, messages=messages)
             await asyncio.wait_for(
                 triage_workflow(
@@ -227,7 +227,7 @@ class Orchestrator:
                     )
                 )
             if plan and plan.accepted_goals:
-                await sse_stream.send_ui_loading("Starting Tasks...")
+                await sse_stream.send_ui_loading("starting tasks...")
                 task_runner = TaskRunnerWorkflow(request_context, messages=messages)
                 await asyncio.wait_for(
                     # the only place triage and the runner are wired together,

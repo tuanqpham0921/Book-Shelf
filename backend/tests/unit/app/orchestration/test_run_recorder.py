@@ -14,7 +14,7 @@ from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.orchestration.triage import TriageOutput
 from app.domains.planjane import PlanJaneOutput, SystemGoal
 from app.orchestration.run_recorder import build_chat_run_row, record_chat_run
-from app.orchestration.write_recommendations import RecommendationsOutput, TextBlock
+from app.orchestration.write_reply import RecommendationsOutput, TextBlock
 from airglider import OperationResult, Response, TokenUsage
 from config import FilesLocationConstants
 from db.stores.deferred_query import DeferredBookQuery

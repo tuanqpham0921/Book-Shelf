@@ -19,7 +19,7 @@ from app.domains.books.external import BookAnchorOutput, BookCandidateOutput
 from app.domains.books.schemas import Book
 from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.task_runner import TaskResult
-from app.orchestration.write_recommendations import (
+from app.orchestration.write_reply import (
     GenerateRecommendationsExecutor,
     GenerationResult,
     RecommendationsInput,

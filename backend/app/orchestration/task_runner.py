@@ -158,7 +158,7 @@ class TaskRunnerOutput(NodeWorkflowOutput):
 
 
 class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
-    ui_loading_message = "Running tasks..."
+    ui_loading_message = "running tasks..."
 
     async def run(self, node_input: TaskRunnerInput) -> None:
         """Execute accepted tasks in dependency order, assembling each task's

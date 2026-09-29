@@ -95,7 +95,7 @@ def _first(picks: list[Pick], tool: type[ToolT]) -> ToolT | None:
 
 class TriageWorkflow(AppWorkflow[TriageOutput]):
     planner_failure_message = "I couldn't understand your request. Please try again."
-    ui_loading_message = "Starting conversation..."
+    ui_loading_message = "starting conversation..."
 
     async def run(self, node_input: NodeInput, *, use_caching=True) -> None:
         await self.sse_stream.send_ui_loading(self.ui_loading_message)

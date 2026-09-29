@@ -65,7 +65,7 @@ from clients.messages import AssistantMessage, UserMessage
 
 from .external import GenerationResult
 
-PROMPT_PATH = "orchestration/write_recommendations/prompts/write_recommendations.txt"
+PROMPT_PATH = "orchestration/write_reply/prompts/reply.txt"
 
 # A section's two caps, in characters (~4 per token). The info block is
 # grounding, so it is the one allowed to lose its tail; a book entry is sized so

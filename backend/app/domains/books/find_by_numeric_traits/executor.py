@@ -152,7 +152,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
 
 
 class FindByNumericTraitsExecutor(BookWorkflow[FindByNumericTraitsOutput]):
-    ui_loading_message = "Getting Books By Traits..."
+    ui_loading_message = "getting books by traits..."
 
     async def run(self, node_input: FindByNumericTraitsInput) -> None:
         """Count the books inside the bounds and hand the query downstream.
@@ -181,7 +181,7 @@ class FindByNumericTraitsExecutor(BookWorkflow[FindByNumericTraitsOutput]):
                 "No measurable trait was parsed: this goal has nothing to search "
                 "on, and bounds are all this node can search by"
             )
-        await self.sse_stream.send_ui_loading(f"finding books: {bounds}")
+        await self.sse_stream.send_ui_loading(f"finding books: {bounds}...")
 
         # 2. build the deferred query and count — no rows fetched
         deferred = numeric_traits_query(parsed_args.traits)

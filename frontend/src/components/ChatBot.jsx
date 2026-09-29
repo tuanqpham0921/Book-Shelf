@@ -58,7 +58,7 @@ function ChatBot() {
             turnId: turnID,
             isUser: false,
             isLoading: true,
-            loadingText: 'Sending Request...',
+            loadingText: 'sending request...',
             isStreaming: true,
             sections: [
                 // Each section is a distinct unit of response.
@@ -170,7 +170,7 @@ function ChatBot() {
                 /// 🔄 Loading message
                 if (event.type === 'ui.loading') {
                     setTurn(draft => {
-                        draft[draft.length - 1].response.loadingText = event.data || 'Thinking...';
+                        draft[draft.length - 1].response.loadingText = event.data || 'thinking...';
                         draft[draft.length - 1].response.isLoading = true;
                         draft[draft.length - 1].response.isStreaming = true;
                     });

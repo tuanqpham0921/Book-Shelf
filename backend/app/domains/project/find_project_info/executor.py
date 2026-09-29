@@ -73,7 +73,7 @@ def select_project_info(fields: list[ProjectInfoField]) -> dict[str, str]:
 
 
 class ProjectInfoExecutor(AppWorkflow[ProjectInfoOutput]):
-    ui_loading_message = "Getting project info..."
+    ui_loading_message = "getting project info..."
 
     async def run(self, node_input: ProjectInfoInput) -> None:
         await self.sse_stream.send_ui_loading(self.ui_loading_message)

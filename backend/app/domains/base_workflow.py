@@ -88,7 +88,7 @@ class AppWorkflow(Workflow[OutputT], ABC):
 
     ctx: RequestContext
 
-    ui_loading_message = "Working..."
+    ui_loading_message = "working..."
 
     # A generation node owns the reply, so its section is not folded away.
     # Every other node's is: its cards are working material, and the prose

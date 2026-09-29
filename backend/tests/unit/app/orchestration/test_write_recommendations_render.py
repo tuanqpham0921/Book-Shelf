@@ -20,8 +20,8 @@ from app.domains.books.find_similar_books.external import SimilarBooksArgs
 from app.domains.books.schemas import Book
 from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.task_runner import TaskResult
-from app.orchestration.write_recommendations import GenerationResult
-from app.orchestration.write_recommendations.render import (
+from app.orchestration.write_reply import GenerationResult
+from app.orchestration.write_reply.render import (
     MAX_BOOK_CHARS,
     MAX_INFO_CHARS,
     books_by_handle,

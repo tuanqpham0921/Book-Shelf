@@ -86,7 +86,7 @@ def describe_lexical_traits(args: FindByLexicalTraitsArgs) -> str:
 
 
 class FindByLexicalTraitsExecutor(BookWorkflow[FindByLexicalTraitsOutput]):
-    ui_loading_message = "Searching The Catalog's Text..."
+    ui_loading_message = "searching the catalog's text..."
 
     async def run(self, node_input: FindByLexicalTraitsInput) -> None:
         """Count the books matching the lexical traits and hand the query downstream."""
@@ -109,7 +109,7 @@ class FindByLexicalTraitsExecutor(BookWorkflow[FindByLexicalTraitsOutput]):
                 "No lexical traits were parsed: this goal names no keyword, "
                 "genre or audience, and those are all this node can search by"
             )
-        await self.sse_stream.send_ui_loading(f"finding {described}")
+        await self.sse_stream.send_ui_loading(f"finding {described}...")
 
         # 2. build the deferred query and count — no rows fetched
         deferred = lexical_query(

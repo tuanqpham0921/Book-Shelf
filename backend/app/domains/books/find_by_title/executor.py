@@ -41,7 +41,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
 
 
 class FindByTitleExecutor(BookWorkflow[FindByTitleOutput]):
-    ui_loading_message = "Getting Book By Title..."
+    ui_loading_message = "getting book by title..."
 
     async def run(self, node_input: FindByTitleInput) -> None:
         """Count the matching titles and hand the query downstream — not the set.
@@ -63,7 +63,7 @@ class FindByTitleExecutor(BookWorkflow[FindByTitleOutput]):
         book_title = parsed_args.title
         if not book_title:
             raise ValueError("No title was parsed")
-        await self.sse_stream.send_ui_loading(f"finding book titled: {book_title}")
+        await self.sse_stream.send_ui_loading(f"finding book titled: {book_title}...")
 
         # 2. build the deferred query and count — no rows fetched
         deferred = title_query(title=book_title)
