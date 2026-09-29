@@ -109,7 +109,6 @@ class FindByLexicalTraitsExecutor(BookWorkflow[FindByLexicalTraitsOutput]):
                 "No lexical traits were parsed: this goal names no keyword, "
                 "genre or audience, and those are all this node can search by"
             )
-        await self.sse_stream.send_ui_loading(f"finding {described}...")
 
         # 2. build the deferred query and count — no rows fetched
         deferred = lexical_query(

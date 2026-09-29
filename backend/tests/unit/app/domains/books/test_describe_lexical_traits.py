@@ -1,6 +1,6 @@
 """Tests for `describe_lexical_traits` — the subject as the line the user reads.
 
-The string is read twice by the user (the loading message and the count line)
+The string is read by the user (the count line)
 and never by anything else, so what is covered here is that it reads as English
 and that an empty parse renders falsy — the executor branches on exactly that to
 refuse a goal it was wrongly handed.

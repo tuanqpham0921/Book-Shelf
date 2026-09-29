@@ -63,7 +63,6 @@ class FindByTitleExecutor(BookWorkflow[FindByTitleOutput]):
         book_title = parsed_args.title
         if not book_title:
             raise ValueError("No title was parsed")
-        await self.sse_stream.send_ui_loading(f"finding book titled: {book_title}...")
 
         # 2. build the deferred query and count — no rows fetched
         deferred = title_query(title=book_title)

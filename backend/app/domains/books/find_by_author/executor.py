@@ -61,7 +61,6 @@ class FindByAuthorExecutor(BookWorkflow[FindByAuthorOutput]):
         author = parsed_args.author
         if not author:
             raise ValueError("No author was parsed")
-        await self.sse_stream.send_ui_loading(f"finding books by: {author}...")
 
         # 2. build the deferred query and count — no rows fetched
         deferred = author_query(author=author)

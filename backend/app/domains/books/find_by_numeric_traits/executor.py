@@ -66,9 +66,9 @@ def describe_bounds(filters: BookMetadataFilter) -> str:
 
     Only what the parse actually set — every other field is None, and an
     all-None filter is what `run` reads to refuse the goal. The words are the
-    point: this string is read twice by the user (the loading message and the
-    count line) and never by anything else, so it says what the bounds mean
-    rather than which fields carry them. Both ends are inclusive, which is why
+    point: this string is read by the user (the count line) and never by
+    anything else, so it says what the bounds mean rather than which fields
+    carry them. Both ends are inclusive, which is why
     every phrase is "or more"/"or fewer" rather than "over"/"under".
 
     Private to this slice, like `describe_lexical_traits` is to its own. It was
@@ -181,7 +181,6 @@ class FindByNumericTraitsExecutor(BookWorkflow[FindByNumericTraitsOutput]):
                 "No measurable trait was parsed: this goal has nothing to search "
                 "on, and bounds are all this node can search by"
             )
-        await self.sse_stream.send_ui_loading(f"finding books: {bounds}...")
 
         # 2. build the deferred query and count — no rows fetched
         deferred = numeric_traits_query(parsed_args.traits)
