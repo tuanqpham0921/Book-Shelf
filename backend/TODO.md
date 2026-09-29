@@ -63,9 +63,8 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 this is okay for now
 
-* change the writting recommendation UI loading to something else
+
 * ensure no spoiler
-* remove extra sse_send to UI in other nodes
 * remove console.log for UI
 
 * have a page or places for PlanJane explanation
