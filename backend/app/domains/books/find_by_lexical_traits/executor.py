@@ -118,8 +118,6 @@ class FindByLexicalTraitsExecutor(BookWorkflow[FindByLexicalTraitsOutput]):
         )
         total = (await self.count_books(deferred)).unwrap()
 
-        await self.sse_stream.send_chars(f"- Found {total} {described}")
-
         # 3. Cards for the section, kept on the output as `preview` for the
         # record and the reply; downstream still composes the query.
         if total:

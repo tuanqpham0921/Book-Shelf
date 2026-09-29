@@ -65,10 +65,6 @@ class CombineIntersectExecutor(BookWorkflow[CombineIntersectOutput]):
         deferred = DeferredBookQuery.compose(upstream, op="and", label="intersected")
         total = (await self.count_books(deferred)).unwrap()
 
-        await self.sse_stream.send_chars(
-            f"- {total} books match all {len(upstream)} conditions"
-        )
-
         # 3. Cards for the section, kept on the output as `preview` for the
         # record and the reply — what travels downstream is the intersected
         # query on `self.result`. Skipped entirely when nothing satisfied every

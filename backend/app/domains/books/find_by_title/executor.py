@@ -68,10 +68,6 @@ class FindByTitleExecutor(BookWorkflow[FindByTitleOutput]):
         deferred = title_query(title=book_title)
         total = (await self.count_books(deferred)).unwrap()
 
-        # await self.sse_stream.send_chars(
-        #     f"- Found {total} books titled: {book_title}"
-        # )
-
         # 3. Cards for the section, kept on the output as `preview` for the
         # record and the reply. What travels downstream is still the query on
         # `self.result`, which reaches the whole match rather than these few

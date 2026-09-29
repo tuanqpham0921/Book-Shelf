@@ -186,8 +186,6 @@ class FindByNumericTraitsExecutor(BookWorkflow[FindByNumericTraitsOutput]):
         deferred = numeric_traits_query(parsed_args.traits)
         total = (await self.count_books(deferred)).unwrap()
 
-        await self.sse_stream.send_chars(f"- Found {total} books: {bounds}")
-
         # 3. Cards for the section, kept on the output as `preview` for the
         # record and the reply. What travels downstream is still the query on
         # `self.result`, which reaches every book inside the bounds rather than

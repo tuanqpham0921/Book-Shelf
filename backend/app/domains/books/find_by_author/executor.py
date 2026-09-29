@@ -66,8 +66,6 @@ class FindByAuthorExecutor(BookWorkflow[FindByAuthorOutput]):
         deferred = author_query(author=author)
         total = (await self.count_books(deferred)).unwrap()
 
-        await self.sse_stream.send_chars(f"- Found {total} books by: {author}")
-
         # 3. Cards for the section, kept on the output as `preview` for the
         # record and the reply. What travels downstream is still the query on
         # `self.result`, which reaches the whole bibliography rather than these
