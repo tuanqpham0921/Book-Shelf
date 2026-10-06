@@ -9,6 +9,7 @@ const TEXTAREA_MAX_HEIGHT_PX = 128 // keep in sync with max-h-32 below
 
 function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onStop }) {
     const [showSuggestions, setShowSuggestions] = useState(true)
+    const [suggestionGroup, setSuggestionGroup] = useState(Object.keys(userInputSuggestions)[0])
     const suggestionsRef = useRef(null) // Ref for the suggestions container
     const hintsButtonRef = useRef(null) // Ref for the hints button
     const textareaRef = useRef(null) // Ref for auto-growing the textarea
@@ -50,11 +51,19 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
                         ref={suggestionsRef} // Attach ref to suggestions container
                         className="absolute bottom-full left-0 right-0 mb-2 bg-[var(--bg-primary)] border border-[var(--border-light)] rounded-lg shadow-lg max-h-48 overflow-y-auto z-50"
                     >
-                        <div className="sticky top-0 bg-white z-20 border-b border-[var(--border-light)]">
-                            <div className="text-xs text-[var(--text-inactive)] p-2 px-5">Quick suggestions:</div>
+                        <div className="sticky top-0 bg-white z-20 border-b border-[var(--border-light)] flex gap-4 p-2 px-5">
+                            {Object.keys(userInputSuggestions).map((name) => (
+                                <button
+                                    key={name}
+                                    onClick={() => setSuggestionGroup(name)}
+                                    className={`text-xs ${suggestionGroup === name ? 'text-[var(--text-active)] font-medium' : 'text-[var(--text-inactive)] hover:text-[var(--text-hover)]'}`}
+                                >
+                                    {name}
+                                </button>
+                            ))}
                         </div>
                         <div className="p-2 pt-0">
-                            {userInputSuggestions.map((text) => (
+                            {userInputSuggestions[suggestionGroup].map((text) => (
                                 <DropdownItem
                                     key={text}
                                     onClick={() => handleSuggestionClick(text)}
