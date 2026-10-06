@@ -167,7 +167,8 @@ function ChatMessages({ messages, sessionId }) {
                         {/* AI disclaimer - show on last message */}
                         {index === messages.length - 1 && !response.isLoading && !response.isStreaming && (
                             (response.sections?.length > 0 || response.text) && (
-                                <div className="flex justify-end mt-5 mr-2">
+                                // The reply bubble's box at full width, so this ends where reply text does
+                                <div className="message-bubble response w-full text-right">
                                     <span className="text-xs text-[var(--text-muted)] italic">
                                         AI can make mistakes. Please double-check responses.
                                     </span>
