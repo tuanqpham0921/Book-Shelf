@@ -9,7 +9,7 @@ function App() {
   useEffect(() => {
     const checkBackendHealth = async () => {
       const res = await api.backEndPing()
-      console.log(res)
+      // console.log(res)
     }
     checkBackendHealth()
   }, [])

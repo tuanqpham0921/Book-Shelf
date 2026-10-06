@@ -106,11 +106,11 @@ function ChatBot() {
             for await (const event of parseSSEStream(stream)) {
                 // Check if request was aborted
                 if (abortController.signal.aborted) {
-                    console.log('Stream aborted by controller');
+                    // console.log('Stream aborted by controller');
                     break;
                 }
 
-                console.log("🔗 event: ", event.type);
+                // console.log("🔗 event: ", event.type);
 
                 // 🆔 Chat id is known before any work starts on the backend —
                 // grab it immediately so feedback can attach to this run even
@@ -292,11 +292,6 @@ function ChatBot() {
                     });
                     continue;
                 }
-
-                console.log("----------------------------")
-                console.log(turn)
-                console.log("----------------------------")
-
             }
 
         } catch (err) {

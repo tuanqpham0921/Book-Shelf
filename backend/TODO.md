@@ -65,7 +65,6 @@ this is okay for now
 
 
 * ensure no spoiler
-* remove console.log for UI
 
 * have a page or places for PlanJane explanation
 * maybe have the reasonings of LLM send to
