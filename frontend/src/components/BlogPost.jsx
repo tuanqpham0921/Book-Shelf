@@ -15,7 +15,7 @@ const BlogPost = ({ postId = 1 }) => {
             title: "An AI System for Book Discovery",
             author: "Tuan Pham",
             date: "November 5, 2025",
-            contentFile: "/blog-posts/README.md"
+            contentFile: "/about/bookshelf/README.md"
         }
     };
 
