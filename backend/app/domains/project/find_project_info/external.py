@@ -15,7 +15,8 @@ class ProjectInfoRequest(BaseRequest):
 
     Args:
         fields: One or more ProjectInfoField values to retrieve (name,
-            description, technology_stack, planjane, airglider, project_url,
+            description, technology_stack, planjane, airglider, limitations,
+            project_url,
             project_github_url,
             project_github_repo_name, project_github_repo_url, all).
 

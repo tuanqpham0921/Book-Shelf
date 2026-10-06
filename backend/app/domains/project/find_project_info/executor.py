@@ -50,6 +50,16 @@ PROJECT_INFO: dict[ProjectInfoField, str] = {
         "be inspected as a tree. It lives in the BookShelf repo but depends on "
         "nothing in the app, so it can be lifted out as its own library."
     ),
+    ProjectInfoField.LIMITATIONS: (
+        "BookShelf is kept small on purpose, mostly to keep costs down. It "
+        "does not remember earlier messages: each one is answered on its own, "
+        "because sending the whole conversation with every request costs more. "
+        "For the same reason it has no internet search, and knows only the "
+        "books in its own catalog of about 5,200 titles. What it can do is "
+        "limited too: it finds books by title, author, subject, or numbers "
+        "like page count and rating, and finds books similar to ones you name. "
+        "It cannot yet compare books, look up an ISBN, or pick a random book."
+    ),
     ProjectInfoField.PROJECT_URL: "https://tuanqpham0921.web.app",
     ProjectInfoField.PROJECT_GITHUB_URL: "https://github.com/tuanqpham0921",
     ProjectInfoField.PROJECT_GITHUB_REPO_NAME: "Book-Shelf",
