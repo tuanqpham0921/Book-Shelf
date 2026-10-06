@@ -63,19 +63,17 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 this is okay for now
 
+* send Airglider logs to the UI
+    * flattern first
+* have a link from PlanJane to blog
+* have a link to Airglider
+
+* enable caching for the Prod
+    * need to move the cache to load in
 
 * ensure no spoiler
 
-* have a page or places for PlanJane explanation
-* maybe have the reasonings of LLM send to
-
-* have better examples query on the UI
-    with different sections
-
-* add no re-try message or limitations somewhere
-
 * clean up the docs / blogs
-* update resume and other places
 
 * then this should be good for this for now
 * we can keep making it better and review things

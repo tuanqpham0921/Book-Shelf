@@ -174,10 +174,10 @@ function ChatMessages({ messages, sessionId }) {
                                             This assistant can make mistakes. Learn more
                                         </summary>
                                         <ul className="list-disc pl-5 mt-1 space-y-0.5">
-                                            <li>Simple algorithm implementations</li>
-                                            <li>Basic data cleaning</li>
                                             <li>Limited eval tests</li>
-                                            <li>Ongoing improvements</li>
+                                            <li>Basic data cleaning</li>
+                                            <li>Simple algorithm implementations</li>
+                                            <li>Ongoing improvements (no retry yet)</li>
                                         </ul>
                                     </details>
                                 </div>
