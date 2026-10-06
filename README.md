@@ -133,7 +133,7 @@ frontend/
     components/     chat, book cards, mermaid diagram, review queue
     pages/          BookShelfPage (shell), ChatReviewPage
     design-system/  buttons, modals, dropdowns
-  public/blog-posts/  static markdown for the /blog view
+  public/about/       static markdown for the about pages (/bookshelf, /airglider, /planjane)
 docs/               roadmap, backlog, eval strategy, design records, runbooks
 ```
 

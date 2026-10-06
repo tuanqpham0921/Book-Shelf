@@ -186,11 +186,11 @@ The app's own layer on top is `AppWorkflow` (`app/domains/base_workflow.py`), wh
 
 ### Frontend
 
-- Single-page React app — `/`, `/blog`, and `/review` all render `BookShelfPage`, which maps the path to a view (chat / blog post / review queue); see `frontend/src/README.md`
+- Single-page React app — `/`, `/bookshelf`, `/airglider`, `/planjane` and `/review` all render `BookShelfPage`, which maps the path to a view (chat / one about page each / review queue); see `frontend/src/README.md`
 - `src/api.js` — all backend calls; uses `VITE_API_URL`; SSE streaming handled in the chat component
 - State management uses `use-immer` for complex nested state
 - Mermaid diagrams rendered client-side with pan/zoom via `@panzoom/panzoom`
-- Blog posts are static markdown files in `public/blog-posts/`
+- About pages are static markdown at `public/about/<page>/README.md`, images beside it (`BlogPost.jsx` resolves image paths against the file, as GitHub does); titles live in `PAGES` there
 
 ### Infrastructure
 

@@ -1,6 +1,6 @@
 # frontend/src
 
-Single-page React app (React 19 + Vite). All routes (`/`, `/blog`, `/review`) render
+Single-page React app (React 19 + Vite). All routes (`/`, `/bookshelf`, `/airglider`, `/planjane`, `/review`) render
 `BookShelfPage`, which maps the path to a view; views are lazy-loaded and stay
 mounted once visited.
 

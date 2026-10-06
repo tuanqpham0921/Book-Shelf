@@ -2,31 +2,23 @@ import { useState, useEffect } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-const BlogPost = ({ postId = 1 }) => {
+// One entry per about page; each file lives at public/about/<page>/README.md
+const PAGES = {
+    bookshelf: { title: "An AI System for Book Discovery", date: "November 5, 2025" },
+    airglider: { title: "Airglider" },
+    planjane: { title: "PlanJane" },
+};
+
+const BlogPost = ({ page }) => {
     const [post, setPost] = useState(null);
     const [content, setContent] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Post metadata - you can move this to a separate JSON file later
-    const postsData = {
-        1: {
-            id: 1,
-            title: "An AI System for Book Discovery",
-            author: "Tuan Pham",
-            date: "November 5, 2025",
-            contentFile: "/about/bookshelf/README.md"
-        }
-    };
-
     useEffect(() => {
         const loadBlogPost = async () => {
             try {
-                // Get post metadata
-                const postMeta = postsData[postId];
-                if (!postMeta) {
-                    throw new Error('Blog post with ID ' + postId + ' not found');
-                }
+                const postMeta = { ...PAGES[page], contentFile: `/about/${page}/README.md` };
 
                 // Load markdown content from public folder
                 const response = await fetch(postMeta.contentFile);
@@ -46,7 +38,7 @@ const BlogPost = ({ postId = 1 }) => {
         };
 
         loadBlogPost();
-    }, [postId]);
+    }, [page]);
 
     if (loading) {
         return (
@@ -77,8 +69,8 @@ const BlogPost = ({ postId = 1 }) => {
                     </h1>
 
                     <div className="blog-meta">
-                        <span>By {post.author}</span>
-                        <span>{post.date}</span>
+                        <span>By Tuan Pham</span>
+                        {post.date && <span>{post.date}</span>}
                     </div>
                 </header>
 

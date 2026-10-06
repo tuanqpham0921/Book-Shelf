@@ -33,13 +33,13 @@ const DisplayPanel = ({ activeView }) => {
                     </Suspense>
                 </div>
             )}
-            {visited.has('blog') && (
-                <div className={`absolute inset-0 h-full w-full min-h-0 overflow-y-auto ${activeView === 'blog' ? '' : 'hidden'}`}>
+            {['bookshelf', 'airglider', 'planjane'].map(page => visited.has(page) && (
+                <div key={page} className={`absolute inset-0 h-full w-full min-h-0 overflow-y-auto ${activeView === page ? '' : 'hidden'}`}>
                     <Suspense fallback={<LoadingSpinner />}>
-                        <BlogPost />
+                        <BlogPost page={page} />
                     </Suspense>
                 </div>
-            )}
+            ))}
             {visited.has('review') && (
                 <div className={`absolute inset-0 h-full w-full min-h-0 overflow-y-auto ${activeView === 'review' ? '' : 'hidden'}`}>
                     <Suspense fallback={<LoadingSpinner />}>

@@ -3,6 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import Header from '@/components/Header'
 import DisplayPanel from '@/components/DisplayPanel'
 
+// Every view but chat lives at /<view>; chat is / and the fallback for any other path
+const VIEWS = ['review', 'bookshelf', 'airglider', 'planjane']
+
 function BookShelfPage() {
   const [activeView, setActiveView] = useState('chat')
   const navigate = useNavigate()
@@ -10,26 +13,14 @@ function BookShelfPage() {
 
   // Sync URL with activeView state
   useEffect(() => {
-    const path = location.pathname
-    if (path === '/blog') {
-      setActiveView('blog')
-    } else if (path === '/review') {
-      setActiveView('review')
-    } else {
-      setActiveView('chat') // Default to chat for any other path
-    }
+    const view = location.pathname.slice(1)
+    setActiveView(VIEWS.includes(view) ? view : 'chat')
   }, [location.pathname])
 
   // Custom setActiveView that also updates URL
   const handleViewChange = (view) => {
     setActiveView(view)
-    if (view === 'blog') {
-      navigate('/blog')
-    } else if (view === 'review') {
-      navigate('/review')
-    } else {
-      navigate('/')
-    }
+    navigate(view === 'chat' ? '/' : `/${view}`)
   }
 
   return (

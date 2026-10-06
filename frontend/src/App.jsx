@@ -19,7 +19,6 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<BookShelfPage />} />
-        {/* <Route path="/blog" element={<BookShelfPage />} /> */}
         {/* <Route path="/review" element={<BookShelfPage />} /> */}
         {/* Catch all other routes and redirect to home */}
         <Route path="*" element={<BookShelfPage />} />

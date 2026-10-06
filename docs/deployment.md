@@ -420,7 +420,7 @@ the credential, so guessing it buys nothing.
 **Be honest about the limit:** a `VITE_*` value is baked into the Vite bundle in
 plaintext. So **do not ship `/review` publicly.** Keep the token in your *local*
 `frontend/.env` and run the review page locally; the Firebase bundle ships
-without it, serving `/` and `/blog`. A genuinely public review page needs real
+without it, serving `/` and the about pages. A genuinely public review page needs real
 auth (Firebase Auth) and is separate work — don't fake it with a bundled token.
 
 ### 4.2 Turn recording ✅ (2026-09-23)
