@@ -10,6 +10,8 @@ class ProjectInfoField(str, Enum):
     NAME = "name"
     DESCRIPTION = "description"
     TECHNOLOGY_STACK = "technology_stack"
+    PLANJANE = "planjane"
+    AIRGLIDER = "airglider"
     PROJECT_URL = "project_url"
     PROJECT_GITHUB_URL = "project_github_url"
     PROJECT_GITHUB_REPO_NAME = "project_github_repo_name"
@@ -22,7 +24,8 @@ class ProjectInfoField(str, Enum):
 # question is answered without planning. Keep it true for both.
 class ProjectInfoArgs(BaseModel):
     """Pick the facts about BookShelf itself that are asked for: its name, what
-    it is, its tech stack, its site and its GitHub links."""
+    it is, its tech stack, what PlanJane (its planner) and Airglider (its
+    tracing library) are, its site and its GitHub links."""
 
     fields: list[ProjectInfoField] = Field(
         ..., json_schema_extra={"example": ["technology_stack"]}

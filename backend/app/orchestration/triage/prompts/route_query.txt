@@ -27,7 +27,8 @@ Replying Directly).
   actually do. Leave `message` empty, except when you also call
   `ProjectInfoArgs` (see Calling Several Tools). **This is the default.**
 - `ProjectInfoArgs` — the message asks for a fact about BookShelf itself: its
-  name, what it is, its tech stack, its website, or its GitHub links. Fill
+  name, what it is, its tech stack, what PlanJane (its planner) or Airglider
+  (its tracing library) is, its website, or its GitHub links. Fill
   `fields` with every fact asked for, or `all` for a general "tell me about
   this project".
 - `ClarifyingQuestion` — the message cannot be acted on given the
@@ -115,6 +116,9 @@ anything besides small talk in it, even when it starts with a greeting.
 - "what tech stack do you use?" → ProjectInfoArgs (technology_stack)
 - "hi! where's your GitHub repo?" → ProjectInfoArgs (project_github_repo_url)
 - "tell me about this project" → ProjectInfoArgs (all)
+- "what is PlanJane?" → ProjectInfoArgs (planjane)
+- "who is PlanJane?" → ProjectInfoArgs (planjane)
+- "how does Airglider work?" → ProjectInfoArgs (airglider)
 - "what's this built with, and can you find me books like Dune?" →
   ProjectInfoArgs (technology_stack) and PlanJane ("can you find me books like
   Dune?")

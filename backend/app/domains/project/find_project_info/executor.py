@@ -36,9 +36,23 @@ PROJECT_INFO: dict[ProjectInfoField, str] = {
         "models plan each request, parse search arguments, embed descriptions "
         "and write the reply. React and Vite frontend on Firebase Hosting."
     ),
+    ProjectInfoField.PLANJANE: (
+        "PlanJane is BookShelf's planner. It turns each message into an "
+        "explicit plan: a short list of steps, each one a capability with its "
+        "own instruction and the steps it waits on, shown to the user as a "
+        "diagram before anything runs. It is being built to become a service "
+        "of its own."
+    ),
+    ProjectInfoField.AIRGLIDER: (
+        "Airglider is the tracing library BookShelf runs on. Every step of a "
+        "request (planning, each search, writing the reply) is recorded with "
+        "its inputs, outcome, duration, tokens and cost, so a whole turn can "
+        "be inspected as a tree. It lives in the BookShelf repo but depends on "
+        "nothing in the app, so it can be lifted out as its own library."
+    ),
     ProjectInfoField.PROJECT_URL: "https://tuanqpham0921.web.app",
     ProjectInfoField.PROJECT_GITHUB_URL: "https://github.com/tuanqpham0921",
-    ProjectInfoField.PROJECT_GITHUB_REPO_NAME: "Book-Recommender",
+    ProjectInfoField.PROJECT_GITHUB_REPO_NAME: "Book-Shelf",
     ProjectInfoField.PROJECT_GITHUB_REPO_URL: (
         "https://github.com/tuanqpham0921/Book-Recommender"
     ),
@@ -52,7 +66,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
 
     return OpenAIParserRequest(
         prompt=basic_fill_schema_prompt,
-        model="gpt-5-nano",
+        model="gpt-5-mini",
         reasoning_effort="minimal",
         # the instruction is the planner's own work, not something the user typed.
         messages=[AssistantMessage(content=instruction)],
