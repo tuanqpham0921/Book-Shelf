@@ -1,6 +1,6 @@
 # BookShelf
 
-An AI book recommender that **plans before it searches**. Instead of routing a
+An AI assistant for finding books that **plans before it searches**. Instead of routing a
 message through a fixed graph, it asks an LLM to turn the message into an
 explicit set of goals — each one a typed capability with its own arguments —
 shows you that plan as a diagram, then executes it against a Postgres catalog of
@@ -15,7 +15,7 @@ shows you that plan as a diagram, then executes it against a Postgres catalog of
 ```
 "Find horror novels similar to It by Stephen King"
 "Books like Dune but under 300 pages"
-"Compare Dune and The Iliad based on themes and complexity"
+"Stephen King books over 500 pages"
 "I want something philosophical but easy to read"
 ```
 

@@ -4,7 +4,7 @@ _"Helping readers find the perfect book they've been missing."_
 
 ## Project Overview
 
-The **Book Recommender System** is designed to help users discover books that truly resonate with them — emotionally, thematically, or intellectually.  
+**BookShelf** is designed to help users discover books that truly resonate with them — emotionally, thematically, or intellectually.  
 By combining **Large Language Models (LLMs)** with **embedding-based similarity search**, the system can understand **semantic**, **mood-based**, and **vibes** to suggest books that align with the user's intent.
 
 Unlike general-purpose AI models such as ChatGPT, Gemini, or Claude, this project focuses exclusively on **book discovery** and **user experience** tailored for recommending books and transparency around the recommendation system.
@@ -124,7 +124,7 @@ A future **hybrid model** may blend pre-planning with limited run-time reasoning
 ## Development Experience
 
 ### 1. Design Around Limitation and Restriction
-It can be overwhelming at first due to the large number of possible user requests, even for a small domain book recommender system. I have realized that it's important to have a way to restrict the features. I solve this problem by starting with the possible **retrieval strategies** first and basing my available features on them. By focusing first on **retrieval strategies** (e.g., `FindByTitle`, `FindByTraits`), I defined the project's true scope early and avoided unnecessary complexity. At the same time, I was able to easily help guide the users to available features in a contained system.
+It can be overwhelming at first due to the large number of possible user requests, even for a small-domain book system. I have realized that it's important to have a way to restrict the features. I solve this problem by starting with the possible **retrieval strategies** first and basing my available features on them. By focusing first on **retrieval strategies** (e.g., `FindByTitle`, `FindByTraits`), I defined the project's true scope early and avoided unnecessary complexity. At the same time, I was able to easily help guide the users to available features in a contained system.
 
 ### 2. Balance Validation with Flexibility
 Initially, I focused on validation to prevent hallucinations. I thought **enforcing correctness** would help with development cycles. While this added safety, it also **slowed progress** dramatically. Unlike traditional software engineering where inputs are predictable, LLM outputs are **non-deterministic** and user queries are **highly variable**, making extensive validation impractical and leading to an **unmaintainable codebase** early.
@@ -152,7 +152,7 @@ The long-term goal is to deliver a **unique**, **trustworthy**, and **transparen
 
 ## Outro
 
-The **Book Recommender System** is still evolving, but it already demonstrates how LLMs can be specialized into domain-focused agents with rich reasoning and transparency.
+**BookShelf** is still evolving, but it already demonstrates how LLMs can be specialized into domain-focused agents with rich reasoning and transparency.
 
 If you'd like to share ideas, feedback, or collaborate:
 
