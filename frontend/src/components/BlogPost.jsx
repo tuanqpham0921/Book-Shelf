@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Markdown from 'react-markdown';
+import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 const BlogPost = ({ postId = 1 }) => {
@@ -83,7 +83,13 @@ const BlogPost = ({ postId = 1 }) => {
                 </header>
 
                 <div className="markdown-body">
-                    <Markdown remarkPlugins={[remarkGfm]}>
+                    {/* Image paths resolve against the .md file, as they do on GitHub */}
+                    <Markdown
+                        remarkPlugins={[remarkGfm]}
+                        urlTransform={(url, key) => defaultUrlTransform(
+                            key === 'src' ? new URL(url, new URL(post.contentFile, window.location.origin)).pathname : url
+                        )}
+                    >
                         {content}
                     </Markdown>
                 </div>

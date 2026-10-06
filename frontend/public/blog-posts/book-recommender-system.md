@@ -58,7 +58,7 @@ This allows:
 - **Transparent task flow** for debugging and visualization  
 - **Human-in-the-loop control** before execution  
 
-![Task-Based Orchestration Flow](blog-posts/task_orchestration.svg)
+![Task-Based Orchestration Flow](task_orchestration.svg)
 
 _Note: This is the current simplified version of the archecture. In the future, caching layers, and messages queues can be added to the system._
 
@@ -73,7 +73,7 @@ Instead, this project **dynamically generates graphs per user query**, based on 
 
 > **Query**: "Find horror novels like It by Stephen King. Then compare the book results"
 
-![Dependency Resolver Example](/blog-posts/dependency_resolver.svg)
+![Dependency Resolver Example](dependency_resolver.svg)
 
 ---
 
@@ -86,7 +86,7 @@ Rather than having the LLM decide the next action at runtime, the system **plans
 
 > **Query**: "compare Dune to the Iliad based on rating and page numbers. Then compare Dune to To Kill a Mockingbird theme. Then recommend me some books similar to the first two books"
 
-![Multistage Dependency Resolver](/blog-posts/multi_stage.svg)
+![Multistage Dependency Resolver](multi_stage.svg)
 
 _Notice: each retrieval node is mapped to its corresponding analysis strategy. To Kill a Mockingbird is not passed into the recommendation node._
 
