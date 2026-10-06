@@ -36,9 +36,9 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
         }
     }
 
-    const handleSuggestionClick = (suggestion) => {
+    const handleSuggestionClick = (text) => {
         setShowSuggestions(false)
-        setNewMessage(suggestion.text)
+        setNewMessage(text)
     }
 
     return (
@@ -54,13 +54,13 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
                             <div className="text-xs text-[var(--text-inactive)] p-2 px-5">Quick suggestions:</div>
                         </div>
                         <div className="p-2 pt-0">
-                            {userInputSuggestions.map((suggestion) => (
+                            {userInputSuggestions.map((text) => (
                                 <DropdownItem
-                                    key={suggestion.id}
-                                    onClick={() => handleSuggestionClick(suggestion)}
+                                    key={text}
+                                    onClick={() => handleSuggestionClick(text)}
                                     className="rounded"
                                 >
-                                    {suggestion.text}
+                                    {text}
                                 </DropdownItem>
                             ))}
                         </div>
