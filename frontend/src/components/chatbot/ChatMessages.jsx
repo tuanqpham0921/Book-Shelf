@@ -168,10 +168,18 @@ function ChatMessages({ messages, sessionId }) {
                         {index === messages.length - 1 && !response.isLoading && !response.isStreaming && (
                             (response.sections?.length > 0 || response.text) && (
                                 // The reply bubble's box at full width, so this ends where reply text does
-                                <div className="message-bubble response w-full text-right">
-                                    <span className="text-xs text-[var(--text-muted)] italic">
-                                        AI can make mistakes. Please double-check responses.
-                                    </span>
+                                <div className="message-bubble response w-full text-left">
+                                    <details className="text-xs text-[var(--text-muted)]">
+                                        <summary className="list-none [&::-webkit-details-marker]:hidden italic cursor-pointer hover:text-[var(--text-hover)]">
+                                            This assistant can make mistakes. Learn more
+                                        </summary>
+                                        <ul className="list-disc pl-5 mt-1 space-y-0.5">
+                                            <li>Simple algorithm implementations</li>
+                                            <li>Basic data cleaning</li>
+                                            <li>Limited eval tests</li>
+                                            <li>Ongoing improvements</li>
+                                        </ul>
+                                    </details>
                                 </div>
                             )
                         )}
