@@ -61,10 +61,10 @@ PROJECT_INFO: dict[ProjectInfoField, str] = {
         "It cannot yet compare books, look up an ISBN, or pick a random book."
     ),
     ProjectInfoField.PROJECT_URL: "https://tuanqpham0921.web.app",
-    ProjectInfoField.PROJECT_GITHUB_URL: "https://github.com/tuanqpham0921",
+    ProjectInfoField.PROJECT_GITHUB_URL: "https://github.com/tuanqpham0921/Book-Shelf/",
     ProjectInfoField.PROJECT_GITHUB_REPO_NAME: "Book-Shelf",
     ProjectInfoField.PROJECT_GITHUB_REPO_URL: (
-        "https://github.com/tuanqpham0921/Book-Recommender"
+        "https://github.com/tuanqpham0921/Book-Shelf/"
     ),
 }
 
