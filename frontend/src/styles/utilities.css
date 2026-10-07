@@ -83,8 +83,8 @@
 }
 
 /* Underline Animation System - Tailwind v4 Style.
-   Used by NavBar links and SubHeader/VersionDropdown tabs — the
-   generic Tab component wraps `underline-button`. */
+   Used by NavBar links, SubHeader/VersionDropdown tabs and the chat
+   suggestion group tabs. */
 @utility underline-animated {
   position: relative;
   font-weight: 500;

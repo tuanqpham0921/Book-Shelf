@@ -56,7 +56,7 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
                                 <button
                                     key={name}
                                     onClick={() => setSuggestionGroup(name)}
-                                    className={`text-xs ${suggestionGroup === name ? 'text-[var(--text-active)] font-medium' : 'text-[var(--text-inactive)] hover:text-[var(--text-hover)]'}`}
+                                    className={`text-xs underline-animated underline-button ${suggestionGroup === name ? 'active' : ''}`}
                                 >
                                     {name}
                                 </button>
