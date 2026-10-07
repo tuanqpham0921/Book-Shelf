@@ -6,7 +6,7 @@ entry to describe. `Orchestrator` constructs the executor directly, once, after
 the task runner. See `executor.py` for why.
 """
 
-from .executor import GenerateRecommendationsExecutor
+from .executor import GenerationExecutor
 from .external import (
     GenerationResult,
     RecommendationsInput,
@@ -16,7 +16,7 @@ from .external import (
 )
 
 __all__ = [
-    "GenerateRecommendationsExecutor",
+    "GenerationExecutor",
     "GenerationResult",
     "RecommendationsInput",
     "RecommendationsOutput",

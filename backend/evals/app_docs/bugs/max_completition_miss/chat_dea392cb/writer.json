@@ -1,7 +1,7 @@
 {
   "id": "op_aba0b65e",
   "parent_id": "op_40766a86",
-  "name": "app.orchestration.write_recommendations.executor.GenerateRecommendationsExecutor",
+  "name": "app.orchestration.write_recommendations.executor.GenerationExecutor",
   "ok": false,
   "timing": {
     "start_time": "2026-09-11T19:20:43.566504+00:00",
@@ -235,7 +235,7 @@
   },
   "details": [
     "writing from 4 source(s), 0 failure(s)",
-    "FAILED STEP: app.orchestration.write_recommendations.executor.GenerateRecommendationsExecutor.write_recommendations"
+    "FAILED STEP: app.orchestration.write_recommendations.executor.GenerationExecutor.write_recommendations"
   ],
   "token_usage": {
     "total": 0,
@@ -247,14 +247,14 @@
   },
   "runtime_error": {
     "type": "StepFailure",
-    "message": "Step failed: app.orchestration.write_recommendations.executor.GenerateRecommendationsExecutor.write_recommendations",
-    "traceback": "Traceback (most recent call last):\n  File \"/home/tuani/Book-Recommender/backend/airglider/src/span.py\", line 60, in record_span\n    yield record\n  File \"/home/tuani/Book-Recommender/backend/airglider/src/base_glider.py\", line 77, in __call__\n    await self.run(*args, **kwargs)\n  File \"/home/tuani/Book-Recommender/backend/app/orchestration/write_recommendations/executor.py\", line 77, in run\n    ).unwrap()\n      ^^^^^^^^\n  File \"/home/tuani/Book-Recommender/backend/airglider/src/schemas/record.py\", line 131, in unwrap\n    raise StepFailure(f\"Step failed: {self.name}\")\nairglider.src.exception.StepFailure: Step failed: app.orchestration.write_recommendations.executor.GenerateRecommendationsExecutor.write_recommendations\n"
+    "message": "Step failed: app.orchestration.write_recommendations.executor.GenerationExecutor.write_recommendations",
+    "traceback": "Traceback (most recent call last):\n  File \"/home/tuani/Book-Recommender/backend/airglider/src/span.py\", line 60, in record_span\n    yield record\n  File \"/home/tuani/Book-Recommender/backend/airglider/src/base_glider.py\", line 77, in __call__\n    await self.run(*args, **kwargs)\n  File \"/home/tuani/Book-Recommender/backend/app/orchestration/write_recommendations/executor.py\", line 77, in run\n    ).unwrap()\n      ^^^^^^^^\n  File \"/home/tuani/Book-Recommender/backend/airglider/src/schemas/record.py\", line 131, in unwrap\n    raise StepFailure(f\"Step failed: {self.name}\")\nairglider.src.exception.StepFailure: Step failed: app.orchestration.write_recommendations.executor.GenerationExecutor.write_recommendations\n"
   },
   "steps": [
     {
       "id": "op_703d0886",
       "parent_id": "op_aba0b65e",
-      "name": "app.orchestration.write_recommendations.executor.GenerateRecommendationsExecutor.write_recommendations",
+      "name": "app.orchestration.write_recommendations.executor.GenerationExecutor.write_recommendations",
       "ok": false,
       "timing": {
         "start_time": "2026-09-11T19:20:43.779326+00:00",

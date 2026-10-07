@@ -559,7 +559,7 @@ reasoning, is recorded in [../roadmap.md](../roadmap.md) under "Next move".
 
 **Status: built.** `Generate_Recommendations` is gone from the registry, `NodeTier.GENERATE`
 is gone with it, and the slice moved to `app/orchestration/write_recommendations/`.
-`Orchestrator._write_reply` constructs `GenerateRecommendationsExecutor` once, after the
+`Orchestrator._write_reply` constructs `GenerationExecutor` once, after the
 task runner, and feeds it `TaskRunnerOutput.task_results` — every goal's output, not one
 chain's. This is the sink-shaped alternative above, taken with `single_answer=True`: the
 "still open" question is now answered **one per turn**.

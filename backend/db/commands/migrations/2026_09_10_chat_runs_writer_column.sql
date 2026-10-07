@@ -1,6 +1,6 @@
 -- Reply-stage envelope migration (2026-09-10).
 -- chat_runs gains a third JSONB envelope beside planner and tasks: writer, the
--- record of the once-per-turn reply stage (GenerateRecommendationsExecutor).
+-- record of the once-per-turn reply stage (GenerationExecutor).
 -- Stored in full rather than as its to_summary() — the summary is two counts,
 -- and the prose only ever existed as SSE deltas, so this is the only copy of
 -- what the turn actually said. Runs before the stage existed leave it NULL.

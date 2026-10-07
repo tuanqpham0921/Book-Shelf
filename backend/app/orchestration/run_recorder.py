@@ -35,7 +35,7 @@ from app.common.request_context import RequestContext
 from app.orchestration.triage import TriageWorkflow, TriageOutput
 from app.orchestration.task_runner import TaskRunnerWorkflow, TaskRunnerOutput
 from app.orchestration.write_reply import (
-    GenerateRecommendationsExecutor,
+    GenerationExecutor,
     RecommendationsOutput,
 )
 
@@ -106,7 +106,7 @@ async def _insert_chat_run(
     record: OperationResult,
     planner: TriageWorkflow | None,
     task_runner: TaskRunnerWorkflow | None,
-    writer: GenerateRecommendationsExecutor | None,
+    writer: GenerationExecutor | None,
 ) -> None:
     """The production sink: one row, built by `build_chat_run_row`.
 
@@ -136,7 +136,7 @@ def _save_turn_files(
     request_context: RequestContext,
     record: OperationResult,
     task_runner: TaskRunnerWorkflow | None,
-    writer: GenerateRecommendationsExecutor | None,
+    writer: GenerationExecutor | None,
     messages: list[APIMessage] | None,
 ) -> None:
     """The development sink: one directory of JSON per turn, named by chat_id
@@ -190,7 +190,7 @@ async def record_chat_run(
     record: OperationResult,
     planner: TriageWorkflow | None = None,
     task_runner: TaskRunnerWorkflow | None = None,
-    writer: GenerateRecommendationsExecutor | None = None,
+    writer: GenerationExecutor | None = None,
     messages: list[APIMessage] | None = None,
 ) -> None:
     """Hand a finished turn to this environment's sink, and never raise.

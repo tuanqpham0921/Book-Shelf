@@ -28,7 +28,7 @@ from app.orchestration.token_budget import (
 )
 from app.orchestration.validation import refusal_for, validate_user_message
 from app.orchestration.write_reply import (
-    GenerateRecommendationsExecutor,
+    GenerationExecutor,
     RecommendationsInput,
 )
 from airglider import OperationResult, RuntimeErrorInfo
@@ -81,7 +81,10 @@ async def _best_effort(
         await asyncio.wait_for(coro, timeout=timeout)
     except TimeoutError:
         logger.warning(
-            "⏱️ %s gave up after %ss and was cancelled — turn %s", what, timeout, turn_id
+            "⏱️ %s gave up after %ss and was cancelled — turn %s",
+            what,
+            timeout,
+            turn_id,
         )
     except Exception:
         # Reachable from `sse_stream.close()`, which catches nothing of its
@@ -109,14 +112,15 @@ class Orchestrator:
         # place and re-raises rather than returning it.
         triage_workflow: TriageWorkflow | None = None
         task_runner: TaskRunnerWorkflow | None = None
-        writer: GenerateRecommendationsExecutor | None = None
+        writer: GenerationExecutor | None = None
         # Root of the turn's trace tree; the workflow envelopes are hung off it
         # in the finally block, so ok/duration/token_usage cover the whole turn.
         record = OperationResult(
             name=f"orchestrator_{request_context.user_message.id}",
-            input={"raw" : request_context.user_message.content,
-                   "pass_validation": request_context.user_message.pass_validation
-                }
+            input={
+                "raw": request_context.user_message.content,
+                "pass_validation": request_context.user_message.pass_validation,
+            },
         )
         # empty until the message passes validation — an unvalidated one is not
         # an APIMessage, and a refused turn has nothing to record here
@@ -334,7 +338,7 @@ class Orchestrator:
         request_context: RequestContext,
         results: list[TaskResult],
         messages: list[APIMessage],
-    ) -> GenerateRecommendationsExecutor:
+    ) -> GenerationExecutor:
         """Write the turn's reply from everything triage and the plan produced.
 
         The third layer of the turn, and the only one that speaks prose. It is
@@ -349,7 +353,7 @@ class Orchestrator:
         passes an empty list — the `ValueError` in the stage's `run` is what
         that would hit.
         """
-        writer = GenerateRecommendationsExecutor(request_context, messages=messages)
+        writer = GenerationExecutor(request_context, messages=messages)
         await asyncio.wait_for(
             writer(RecommendationsInput(results=results)),
             timeout=CONVERSATION_TIMEOUT,
@@ -362,7 +366,7 @@ class Orchestrator:
         record: OperationResult,
         triage_workflow: TriageWorkflow | None,
         task_runner: TaskRunnerWorkflow | None,
-        writer: GenerateRecommendationsExecutor | None,
+        writer: GenerationExecutor | None,
         messages: list[APIMessage] | None,
         sse_stream: SSEStream,
     ) -> None:

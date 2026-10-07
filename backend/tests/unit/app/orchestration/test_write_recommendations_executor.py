@@ -20,7 +20,7 @@ from app.domains.books.schemas import Book
 from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.task_runner import TaskResult
 from app.orchestration.write_reply import (
-    GenerateRecommendationsExecutor,
+    GenerationExecutor,
     GenerationResult,
     RecommendationsInput,
     SourceBlock,
@@ -89,7 +89,7 @@ DEFAULT_REPLY = [_text("Dune's closest neighbours lean hard sci-fi."), _refs("1.
 def _reply(blocks=None):
     """Patch the one LLM step, leaving the rest of the flow real."""
     return patch.object(
-        GenerateRecommendationsExecutor,
+        GenerationExecutor,
         "run_llm_args_parse",
         AsyncMock(
             return_value=GenerationResult(
@@ -120,8 +120,8 @@ def _cards(sent: list[tuple[str, str]]) -> list[str]:
 
 
 @pytest.fixture
-def node(request_context) -> GenerateRecommendationsExecutor:
-    return GenerateRecommendationsExecutor(request_context)
+def node(request_context) -> GenerationExecutor:
+    return GenerationExecutor(request_context)
 
 
 class TestWhatReachesTheBrowser:
@@ -192,7 +192,7 @@ class TestTheClaim:
         assert node.result.blocks == DEFAULT_REPLY
 
     async def test_a_chain_that_found_nothing_still_finalizes_ok(self, node):
-        """"I don't have Dune, so I couldn't look for anything like it" is a
+        """ "I don't have Dune, so I couldn't look for anything like it" is a
         correct reply. Marking it failed would surface the generic error
         message and tell the user nothing."""
         with _reply([_text("I don't have that one.")]):
@@ -296,16 +296,12 @@ class TestWhatTheWriterSees:
         rendered = llm.await_args.args[0].messages[0].content
         assert "- technology stack: FastAPI and React" in rendered
 
-    async def test_an_output_that_is_neither_books_nor_a_failure_is_dropped(
-        self, node
-    ):
+    async def test_an_output_that_is_neither_books_nor_a_failure_is_dropped(self, node):
         """The generic list can hold anything a future node returns. Rendering
         one it cannot read would be a guess, so it is noted and skipped — the
         book-shaped sources beside it still get their reply."""
         with _reply() as llm:
-            record = await node(
-                _input([_source("Find Dune"), _result(_PlainOutput())])
-            )
+            record = await node(_input([_source("Find Dune"), _result(_PlainOutput())]))
 
         assert record.ok
         assert "Find Dune" in llm.await_args.args[0].messages[0].content

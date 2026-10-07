@@ -53,7 +53,7 @@ from .render import books_by_handle, build_recommendations_request, render_repor
 CARD_DELAY = 0.03
 
 
-class GenerateRecommendationsExecutor(BookReaderWorkflow[RecommendationsOutput]):
+class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
     ui_loading_message = "writing a reply..."
     # the reply is the point of the turn — never folded away
     ui_section_collapsible = False
@@ -140,6 +140,7 @@ class GenerateRecommendationsExecutor(BookReaderWorkflow[RecommendationsOutput])
 
         # TODO: add the assistant message into here
         from clients.messages import AssistantMessage
+
         self.messages.append(AssistantMessage(content=rendered))
 
         return await self.run_llm_args_parse(req)

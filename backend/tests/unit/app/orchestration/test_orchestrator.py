@@ -245,7 +245,7 @@ class TestWritingTheReply:
             # return_value explicit: the default MagicMock is not awaitable,
             # and the orchestrator awaits the workflow it constructs
             patch(
-                "app.orchestration.orchestrator.GenerateRecommendationsExecutor",
+                "app.orchestration.orchestrator.GenerationExecutor",
                 return_value=AsyncMock(),
             ),
             patch(
@@ -468,9 +468,7 @@ class TestBestEffortCleanup:
     terminate at all — and two of the three never touch a database.
     """
 
-    async def test_a_step_that_runs_out_of_time_names_itself_and_the_turn(
-        self, caplog
-    ):
+    async def test_a_step_that_runs_out_of_time_names_itself_and_the_turn(self, caplog):
         """The old single `except Exception` logged neither which step it was
         nor why, so a timeout and a crash read identically in the console."""
 
@@ -549,9 +547,7 @@ class TestRefusingAnExhaustedSession:
             await Orchestrator().run(ctx)
         return triage_cls, record
 
-    async def test_a_spent_session_gets_no_turn(
-        self, make_request_context, start_turn
-    ):
+    async def test_a_spent_session_gets_no_turn(self, make_request_context, start_turn):
         """Nothing is even planned — the refusal is ahead of triage, which is
         the first thing that costs money."""
         ctx = self._context(make_request_context, start_turn)

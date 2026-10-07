@@ -3,7 +3,7 @@
 `render_report` turns what the plan produced into the one block of text the
 writer reads, and `build_recommendations_request` wraps it. Nothing here runs —
 the step that executes the request is
-`GenerateRecommendationsExecutor.write_recommendations`, next door.
+`GenerationExecutor.write_recommendations`, next door.
 
 The rendering is where the writer's whole world is decided. Each section is one
 goal's `TaskResult` in three parts: a header (the goal's instruction), an
@@ -239,9 +239,7 @@ def render_report(results: list[TaskResult]) -> str:
     exception (see the module docstring).
     """
     blocks = [FINDINGS_HEADER]
-    blocks += [
-        render_section(i, result) for i, result in enumerate(results, start=1)
-    ]
+    blocks += [render_section(i, result) for i, result in enumerate(results, start=1)]
     return "\n\n".join(blocks)
 
 
