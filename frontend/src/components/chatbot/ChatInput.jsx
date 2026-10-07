@@ -22,6 +22,9 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
         if (!el) return
         el.style.height = 'auto'
         el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`
+        // scrollHeight is rounded to a whole pixel, so below the cap the box can
+        // come out a fraction short — scroll only once the cap is actually hit
+        el.style.overflowY = el.scrollHeight > TEXTAREA_MAX_HEIGHT_PX ? 'auto' : 'hidden'
     }, [newMessage])
 
     // Suggestions panel spans the full width of the input box, not just the
@@ -79,7 +82,7 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
 
                 <textarea
                     ref={textareaRef}
-                    className="w-full max-h-32 text-lg px-4 py-3 bg-transparent border resize-none border-none outline-none overflow-y-auto"
+                    className="w-full max-h-32 text-lg px-4 py-3 bg-transparent border resize-none border-none outline-none overflow-y-hidden"
                     value={newMessage}
                     onChange={e => {
                         if (e.target.value.length <= 500) {
