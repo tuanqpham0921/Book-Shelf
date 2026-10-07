@@ -15,6 +15,7 @@
     "eventsource-parser": "^3.0.6",
     "firebase": "^12.19.0",
     "github-markdown-css": "^5.9.0",
+    "highlight.js": "^11.12.0",
     "lucide-react": "^0.542.0",
     "mermaid": "^11.14.0",
     "react": "^19.1.1",

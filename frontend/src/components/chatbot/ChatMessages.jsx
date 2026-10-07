@@ -6,6 +6,10 @@ import { Copy, Check } from 'lucide-react';
 import { BookGridStack } from '@/components/book/BooksGrid';
 import TaskSection from '@/components/chatbot/TaskSection';
 import ChatFeedback from '@/components/chatbot/ChatFeedback';
+import { MarkdownPre } from '@/design-system/CodeBlock';
+
+// Fenced code in a reply gets the same highlighting as the task details
+const MARKDOWN_COMPONENTS = { pre: MarkdownPre };
 
 // Dynamic import for MermaidDiagram (large library)
 const MermaidDiagram = lazy(() => import('@/components/MermaidDiagram'));
@@ -43,7 +47,7 @@ function renderSection(section, responseId, sectionIndex) {
     if (section.type === 'text' && section.content) {
         return (
             <div key={key} className="message-bubble response markdown-container">
-                <Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{section.content}</Markdown>
+                <Markdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>{section.content}</Markdown>
             </div>
         );
     }

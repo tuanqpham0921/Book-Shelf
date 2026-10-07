@@ -130,6 +130,14 @@
      book cover art and emoji glyphs — desaturated by default to match the
      monochrome UI. */
   --mono-filter: grayscale(1);
+
+  /* Syntax highlighting (CodeBlock). Monochrome by default: tokens differ by
+     shade, and keywords are bold in both modes. */
+  --code-keyword: var(--text-active);
+  --code-string: var(--text-hover);
+  --code-number: var(--text-hover);
+  --code-name: var(--text-active);
+  --code-comment: var(--text-muted);
 }
 
 :root[data-color="on"] {
@@ -161,4 +169,11 @@
   /* indigo-200 */
 
   --mono-filter: none;
+
+  /* GitHub's light theme */
+  --code-keyword: rgb(207, 34, 46);
+  --code-string: rgb(10, 48, 105);
+  --code-number: rgb(5, 80, 174);
+  --code-name: rgb(130, 80, 223);
+  --code-comment: rgb(110, 119, 129);
 }
