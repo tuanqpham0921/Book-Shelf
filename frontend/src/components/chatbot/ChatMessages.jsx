@@ -120,7 +120,7 @@ function ChatMessages({ messages, sessionId }) {
                     key={id}
                     data-turn-id={id}
                     ref={(el) => turnRefs.current[id] = el}
-                    className={`turn-container ${index === messages.length - 1 ? 'min-h-[95%]' : 'min-h-0'} `}
+                    className={`turn-container ${index === messages.length - 1 ? 'newest' : ''}`}
                 >
                     {/* User message */}
                     <div data-user-id={user.id}

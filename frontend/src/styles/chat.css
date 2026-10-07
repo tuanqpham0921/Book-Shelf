@@ -35,6 +35,13 @@
   scroll-margin-top: 16px;
   min-width: 0;
   max-width: 100%;
+
+  /* The newest turn fills the list so it can scroll to the top. Minus its
+     own margin-bottom, so on a single turn it fits exactly instead of
+     overflowing (and showing a scrollbar) on short screens. */
+  &.newest {
+    min-height: calc(100% - 20px);
+  }
 }
 
 @utility message-wrapper {
