@@ -49,9 +49,10 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
                 {showSuggestions && (
                     <div
                         ref={suggestionsRef} // Attach ref to suggestions container
-                        className="absolute bottom-full left-0 right-0 mb-2 bg-[var(--bg-primary)] border border-[var(--border-light)] rounded-lg shadow-lg max-h-48 overflow-y-auto z-50"
+                        className="absolute bottom-full left-0 right-0 mb-2 bg-[var(--bg-primary)] border border-[var(--border-light)] rounded-lg shadow-lg max-h-48 flex flex-col overflow-hidden z-50"
                     >
-                        <div className="sticky top-0 bg-white z-20 border-b border-[var(--border-light)] flex gap-4 px-5 pt-2">
+                        {/* Only the list scrolls, so the scrollbar starts below the tabs */}
+                        <div className="shrink-0 bg-white border-b border-[var(--border-light)] flex gap-4 px-5 pt-2">
                             {Object.keys(userInputSuggestions).map((name) => (
                                 <button
                                     key={name}
@@ -62,7 +63,7 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
                                 </button>
                             ))}
                         </div>
-                        <div className="p-2 pt-0">
+                        <div className="p-2 pt-0 overflow-y-auto">
                             {userInputSuggestions[suggestionGroup].map((text) => (
                                 <DropdownItem
                                     key={text}
