@@ -97,28 +97,48 @@ function ChatMessages({ messages, sessionId }) {
         setTimeout(() => setCopiedId(current => current === id ? null : current), 1500)
     }
 
-    const scrollToNewestTurn = () => {
-        if (messages.length > 0) {
-            const newestTurn = messages[messages.length - 1]
-            const turnRef = turnRefs.current[newestTurn.id]
-            if (turnRef) {
-                turnRef.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }
+    // Follow the reply as it streams, unless the reader scrolled up. A new
+    // turn starts pinned to the top instead — and since the newest turn is at
+    // least the list's height (`.newest`), "the bottom" is that same spot
+    // until the reply outgrows the view, so following only starts then.
+    const following = useRef(true)
+    const lastScrollTop = useRef(0)
+    const lastScrollHeight = useRef(0)
+
+    const handleScroll = () => {
+        const el = containerRef.current
+        if (el.scrollHeight - el.scrollTop - el.clientHeight < 40) {
+            following.current = true
+        } else if (el.scrollTop < lastScrollTop.current) {
+            // only the reader scrolls up — every scroll made here goes down
+            following.current = false
         }
+        lastScrollTop.current = el.scrollTop
     }
 
     useEffect(() => {
-        if (messages.length > 0) {
-            const newestTurn = messages[messages.length - 1]
-            if (newestTurn.user && newestTurn.user.id !== lastUserMessageId.current) {
-                lastUserMessageId.current = newestTurn.user.id
-                scrollToNewestTurn()
-            }
+        const el = containerRef.current
+        const newestTurn = messages.at(-1)
+        if (!el || !newestTurn) return
+
+        if (newestTurn.user && newestTurn.user.id !== lastUserMessageId.current) {
+            lastUserMessageId.current = newestTurn.user.id
+            following.current = true
+            turnRefs.current[newestTurn.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        } else if (
+            following.current &&
+            newestTurn.response.isStreaming &&
+            // grown past the view; scrolling sooner would cut the smooth
+            // scroll to the new turn short
+            el.scrollHeight > lastScrollHeight.current
+        ) {
+            el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
         }
+        lastScrollHeight.current = el.scrollHeight
     }, [messages])
 
     return (
-        <div ref={containerRef} className="chat-messages-container">
+        <div ref={containerRef} onScroll={handleScroll} className="chat-messages-container">
             {messages.map(({ id, user, response }, index) => (
                 <div
                     key={id}

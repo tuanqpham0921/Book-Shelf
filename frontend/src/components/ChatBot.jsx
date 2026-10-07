@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { useImmer } from 'use-immer';
 import ChatInput from '@/components/chatbot/ChatInput'
 import ChatMessages from '@/components/chatbot/ChatMessages'
@@ -23,7 +23,6 @@ function openContainer(response) {
 }
 
 function ChatBot() {
-    const messagesEndRef = useRef(null)
     const activeAbortControllerRef = useRef(null)
 
     const [turn, setTurn] = useImmer([])
@@ -32,14 +31,6 @@ function ChatBot() {
     const [newMessage, setNewMessage] = useState('');
 
     const isStreaming = turn.length && turn[turn.length - 1].response.isStreaming;
-
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-
-    useEffect(() => {
-        scrollToBottom()
-    }, [turn, !isStreaming])
 
     async function handleSendMessage() {
         const trimmedMessage = newMessage.trim();
