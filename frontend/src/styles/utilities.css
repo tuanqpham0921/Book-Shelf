@@ -29,6 +29,26 @@
   }
 }
 
+/* Drops in from just above while fading in — for things that stream into a
+   reply (a task section, a book card) or unfold (a task's body). */
+@keyframes slide-down {
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-down {
+    animation: none;
+  }
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

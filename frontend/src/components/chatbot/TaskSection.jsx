@@ -80,7 +80,7 @@ function TaskSection({ section, children }) {
     };
 
     return (
-        <div className="task-section">
+        <div className="task-section animate-slide-down">
             <button
                 type="button"
                 onClick={toggle}
@@ -110,7 +110,7 @@ function TaskSection({ section, children }) {
             </button>
 
             {isOpen && (
-                <div className="task-section-body">
+                <div className="task-section-body animate-slide-down">
                     {/* a cancelled step closes with nothing to show */}
                     {section.details && Object.keys(section.details).length > 0 && (
                         <TaskDetails details={section.details} />
