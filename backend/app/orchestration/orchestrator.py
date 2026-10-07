@@ -17,7 +17,7 @@ from app.orchestration.task_runner import (
     TaskRunnerInput,
     TaskRunnerWorkflow,
 )
-from app.orchestration.run_recorder import record_chat_run
+from app.orchestration.run_recorder import flat_record, record_chat_run
 from app.orchestration.token_budget import (
     OUT_OF_TOKENS_MESSAGE,
     SITE_BUDGET_ENFORCED_IN,
@@ -264,11 +264,32 @@ class Orchestrator:
                 # a plan whose every goal was unreachable: nothing to write
                 # from, so the stage would only invent evidence
                 logger.warning("No task results to write a reply from")
+                
+            # Here rather than after each await, so the timeout/cancel paths
+            # record their partial work too. isinstance-guarded rather than
+            # letting add_step raise: a raise in this finally would replace the
+            # exception in flight and skip the recording and stream close below.
+            for workflow in (triage_workflow, task_runner, writer):
+                step = getattr(workflow, "record", None)
+                if isinstance(step, OperationResult):
+                    record.add_step(step)
+            record.ok = (
+                record.runtime_error is None
+                and bool(record.steps)
+                and all(step.ok for step in record.steps)
+            )
+            record.timing.duration = round(time.perf_counter() - time_start, 2)
 
-            # chat_id lets the client attach feedback to the chat_runs row
+            # chat_id lets the client attach feedback to the chat_runs row;
+            # log_record is the turn's trace so far, for the reply's log
+            # button (ok and duration are stamped later, in the finally)
             await sse_stream.send(
                 "complete",
-                {"status": "completed", "chat_id": request_context.user_message.id},
+                {
+                    "status": "completed",
+                    "chat_id": request_context.user_message.id,
+                    "log_record": flat_record(record),
+                },
             )
             await sse_stream.close()
             logger.info("✅ Orchestration completed successfully")
@@ -294,21 +315,6 @@ class Orchestrator:
                 "Hmm... something went wrong while processing your query."
             )
         finally:
-            # Here rather than after each await, so the timeout/cancel paths
-            # record their partial work too. isinstance-guarded rather than
-            # letting add_step raise: a raise in this finally would replace the
-            # exception in flight and skip the recording and stream close below.
-            for workflow in (triage_workflow, task_runner, writer):
-                step = getattr(workflow, "record", None)
-                if isinstance(step, OperationResult):
-                    record.add_step(step)
-            record.ok = (
-                record.runtime_error is None
-                and bool(record.steps)
-                and all(step.ok for step in record.steps)
-            )
-            record.timing.duration = round(time.perf_counter() - time_start, 2)
-
             # One shielded unit, not two. A second cancellation landing on this
             # task (EventSourceResponse re-cancels every checkpoint on
             # disconnect) is a BaseException, so it would fly past

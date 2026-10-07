@@ -165,7 +165,7 @@ function ChatMessages({ messages, sessionId }) {
                         {/* Feedback — once the reply is done and the backend
                             has named its run (the chat.id event) */}
                         {response.chatId && !response.isStreaming && (
-                            <ChatFeedback key={response.chatId} chatId={response.chatId} sessionId={sessionId} />
+                            <ChatFeedback key={response.chatId} chatId={response.chatId} sessionId={sessionId} logRecord={response.logRecord} />
                         )}
 
                         {/* AI disclaimer - show on last message */}

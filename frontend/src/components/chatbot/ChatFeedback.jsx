@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import api from '@/api'
-import { ThumbsUp, ThumbsDown, MessageCircle, Flag, Sparkles, ChevronDown } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, MessageCircle, Flag, Sparkles, ChevronDown, ScrollText } from 'lucide-react';
 import Button from '@/design-system/Button'
 import IconButton from '@/design-system/IconButton'
 import Badge from '@/design-system/Badge'
 import Modal from '@/design-system/Modal'
+import CodeBlock from '@/design-system/CodeBlock'
 import Dropdown from '@/design-system/Dropdown'
 import DropdownItem from '@/design-system/DropdownItem'
 import { FEEDBACK_CATEGORIES } from '@/data/feedbackCategories'
@@ -146,9 +147,10 @@ function FeedbackModal({ comments, isSaving, error, onAddComment, isOpen, onClos
 // and the comments together. A change shows straight away and is put back
 // if the save fails, including the 404 for a turn the backend hasn't
 // finished recording yet, so trying again works.
-function ChatFeedback({ chatId, sessionId }) {
+function ChatFeedback({ chatId, sessionId, logRecord }) {
     const [feedback, setFeedback] = useState({ liked: null, comments: [] })
     const [showModal, setShowModal] = useState(false)
+    const [showLog, setShowLog] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
     const [error, setError] = useState(null)
 
@@ -205,6 +207,11 @@ function ChatFeedback({ chatId, sessionId }) {
                 >
                     <MessageCircle size={16}/>
                 </IconButton>
+                {logRecord && (
+                    <IconButton onClick={() => setShowLog(true)} title="AirGlider Log">
+                        <ScrollText size={16}/>
+                    </IconButton>
+                )}
                 {error && !showModal && (
                     <span className="text-xs text-[var(--accent-negative)] italic">{error}</span>
                 )}
@@ -218,6 +225,18 @@ function ChatFeedback({ chatId, sessionId }) {
                 isOpen={showModal}
                 onClose={() => setShowModal(false)}
             />
+
+            {/* the turn's flattened trace, as the backend sent it */}
+            {logRecord && (
+                <Modal isOpen={showLog} onClose={() => setShowLog(false)} title="AirGlider Log">
+                    <CodeBlock
+                        language="json"
+                        className="max-h-[70vh] overflow-auto p-2 pb-3 text-xs rounded-md border border-[var(--border-light)] bg-[var(--bg-secondary)]"
+                    >
+                        {JSON.stringify(logRecord, null, 2)}
+                    </CodeBlock>
+                </Modal>
+            )}
         </div>
     )
 }

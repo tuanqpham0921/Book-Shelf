@@ -46,6 +46,20 @@ from clients.messages import (
 logger = logging.getLogger(__name__)
 
 
+def flat_record(record: OperationResult) -> list[dict[str, Any]]:
+    """The turn's trace as a flat span list — `record.json` in development,
+    and the `complete` event's `log_record` for the reply's log button.
+
+    strip_zero_token_usage only touches this view — the chat_runs row keeps
+    every token_usage as recorded, so a genuinely free step still serializes
+    cost_usd: 0.0. The JSON round trip is `_to_jsonb`'s guard: a live object
+    on a `result` (a `DeferredBookQuery`) would make the SSE `json.dumps` raise.
+    """
+    flat = to_serializable(record.flatten())
+    flat = strip_zero_token_usage(remove_empty_values(flat))
+    return json.loads(json.dumps(flat, default=str))
+
+
 def build_chat_run_row(
     session_id: str,
     user_chat_id: str,
@@ -151,12 +165,7 @@ def _save_turn_files(
     """
     user_dir = FilesLocationConstants.EXPORT_DIR / request_context.user_message.id
 
-    # a flat view; strip_zero_token_usage only touches this local
-    # eyeballing copy — the chat_runs row keeps every token_usage as
-    # recorded, so a genuinely free step still serializes cost_usd: 0.0
-    flat = to_serializable(record.flatten())
-    flat = strip_zero_token_usage(remove_empty_values(flat))
-    save_file(flat, file_name="record", path=user_dir)
+    save_file(flat_record(record), file_name="record", path=user_dir)
 
     # saving the convo history
     save_file(messages, file_name="convo_history", path=user_dir)

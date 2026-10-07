@@ -129,6 +129,8 @@ function ChatBot() {
                     setTurn(draft => {
                         const last = draft[draft.length - 1];
                         last.response.chatId = event.data?.chat_id || null;
+                        // the turn's flattened trace, for the log button
+                        last.response.logRecord = event.data?.log_record || null;
                         last.response.isLoading = false;
                         last.response.loadingText = null;
                         last.response.isStreaming = false;
