@@ -51,12 +51,13 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
                         ref={suggestionsRef} // Attach ref to suggestions container
                         className="absolute bottom-full left-0 right-0 mb-2 bg-[var(--bg-primary)] border border-[var(--border-light)] rounded-lg shadow-lg max-h-48 overflow-y-auto z-50"
                     >
-                        <div className="sticky top-0 bg-white z-20 border-b border-[var(--border-light)] flex gap-4 p-2 px-5">
+                        <div className="sticky top-0 bg-white z-20 border-b border-[var(--border-light)] flex gap-4 px-5 pt-2">
                             {Object.keys(userInputSuggestions).map((name) => (
                                 <button
                                     key={name}
                                     onClick={() => setSuggestionGroup(name)}
-                                    className={`text-xs underline-animated underline-button ${suggestionGroup === name ? 'active' : ''}`}
+                                    // pb-2 replaces the bar's bottom padding so the 1px underline lands on its border
+                                    className={`text-xs pb-2 mb-0! after:h-px! after:bottom-[-1px]! underline-animated underline-button ${suggestionGroup === name ? 'active' : ''}`}
                                 >
                                     {name}
                                 </button>
