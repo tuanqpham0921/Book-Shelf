@@ -123,13 +123,17 @@
   padding-left: 10px;
 }
 
+/* Top-aligned, so a title that wraps keeps the chevron, count and status on
+   its first line. The fixed line-height is what the icons' margins center
+   on: (20px - icon size) / 2. */
 @utility task-section-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
   padding: 4px 0;
   font-size: 14px;
+  line-height: 20px;
   color: var(--text-hover);
   text-align: left;
   cursor: pointer;
@@ -148,6 +152,7 @@
 
 @utility task-section-chevron {
   flex-shrink: 0;
+  margin-top: 2px;
   color: var(--text-muted);
   transition: transform 0.15s ease;
 
@@ -168,6 +173,7 @@
 
 @utility task-section-status {
   flex-shrink: 0;
+  margin-top: 3px;
 
   &.ok {
     color: var(--accent-positive);
