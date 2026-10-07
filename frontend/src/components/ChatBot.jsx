@@ -68,7 +68,7 @@ function ChatBot() {
                 // { id: ..., type: 'books', books: [...] }
                 // { id: ..., type: 'diagram', mermaid: 'graph TD; ...' }
                 // { id: ..., type: 'task', title: 'Find books by Stephen King',
-                //   count: 4, open: true, closed: false, sections: [...] }
+                //   count: 4, open: false, closed: false, sections: [...] }
                 //   ^ the one nesting section: text/books streamed between a
                 //     task.start and its task.end land in its own list
             ],
@@ -224,9 +224,8 @@ function ChatBot() {
                     continue;
                 }
 
-                // 🗂️ TASK SECTIONS — one per executed node. Opens expanded so
-                // the user watches the step happen, then folds itself away on
-                // task.end, leaving the final answer as what's still visible.
+                // 🗂️ TASK SECTIONS — one per executed node. Folded from the
+                // start, so the reply is what's visible; a click opens one.
                 if (event.type === 'task.start') {
                     setTurn(draft => {
                         const last = draft[draft.length - 1];
@@ -239,7 +238,7 @@ function ChatBot() {
                             collapsible: event.data.collapsible !== false,
                             count: null,
                             details: null,
-                            open: true,
+                            open: false,
                             closed: false,
                             ok: true,
                             sections: []
@@ -260,9 +259,6 @@ function ChatBot() {
                             // parsed args, SQL, cost — rendered above the
                             // task's preview
                             task.details = event.data.details ?? null;
-                            // stay open when there's nothing to fold away, or
-                            // when this node owns the answer
-                            task.open = !task.collapsible || task.sections.length === 0;
                         }
                     });
                     continue;

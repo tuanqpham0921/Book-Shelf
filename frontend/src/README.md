@@ -54,9 +54,10 @@ renders them before the task's own sections (`args` as JSON and `sql`
 highlighted by `design-system/CodeBlock`, which also highlights fenced code in
 replies), which sit under a `Preview · N of
 M books` label when there are cards — so a step reads: how it was done, then
-the sample of what it matched. Sections open expanded and fold
-themselves on `task.end`, so the finished turn shows the answer rather than the
-work; `collapsible: false` stays open, and a user click pins the state.
+the sample of what it matched. Task sections start folded, so
+the turn shows the answer rather than the work, and the plan diagram starts
+expanded; after that a click toggles either one. `collapsible: false` stays
+open.
 
 **One section per turn sets `collapsible: false`: the generation node's.** Every
 other node's cards are working material, and the prose written from them is what
