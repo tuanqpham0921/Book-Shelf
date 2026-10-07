@@ -169,7 +169,7 @@ function ChatMessages({ messages, sessionId }) {
                             (response.sections?.length > 0 || response.text) && (
                                 // The reply bubble's box at full width, so this ends where reply text does
                                 <div className="message-bubble response w-full text-left">
-                                    <details className="text-xs text-[var(--text-muted)]">
+                                    <details className="text-sm text-[var(--text-muted)]">
                                         <summary className="list-none [&::-webkit-details-marker]:hidden italic cursor-pointer hover:text-[var(--text-hover)]">
                                             This assistant can make mistakes. Learn more
                                         </summary>
