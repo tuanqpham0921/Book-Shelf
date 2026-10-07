@@ -44,7 +44,9 @@ class TestGoalsDiagram:
         # boxes are headed by the capability the goal targets, not "system_goal"
         diagram = get_goals_mermaid_diagram([_make_goal("1", "Retrieve_by_Title")])
 
-        assert "Retrieve_by_Title" in diagram
+        # and read as words: no underscores, each word capitalized
+        assert "Retrieve By Title" in diagram
+        assert "Retrieve_by_Title" not in diagram
         assert "system_goal" not in diagram
 
     def test_box_carries_the_goal_instruction_and_reasoning(self):

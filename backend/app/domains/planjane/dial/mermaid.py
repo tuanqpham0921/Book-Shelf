@@ -49,10 +49,11 @@ def _to_boxes(nodes: Mapping[str, Any], label_for) -> list[MermaidBox]:
 
 
 def _goal_label(node_id: str, goal: Any) -> tuple[str, dict[str, Any]]:
-    """A goal box: the capability it targets as the header, then its id,
-    instruction and reasoning."""
+    """A goal box: the capability it targets as the header (`Retrieve_by_Title`
+    reads "Retrieve By Title"), then its id, instruction and reasoning."""
     data = remove_empty_values(to_serializable(goal))
     title = str(data.get("target_node_type") or data.get("node_type") or "Goal")
+    title = title.replace("_", " ").title()
     return title, {
         "Goal": node_id,
         "Instruction": data.get("instruction"),
