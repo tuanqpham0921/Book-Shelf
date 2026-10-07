@@ -15,7 +15,7 @@ mounted once visited.
 | `components/book/` | `BookCard`, `BookCover`, `BookDetailModal`, `BooksGrid` |
 | `pages/ChatReviewPage.jsx` | Review queue over recorded chat runs: expand a run → goals, goal diagram, raw envelopes; file one review per run (`PUT /feedback/review`). The diagram is read out of the `planner` JSONB envelope (`output.diagram`), not the promoted `mermaid` column. The second "parsed arguments" diagram was dropped on 2026-08-10 when PlanJane became the only backend renderer — it had also been reading the wrong envelope, so it never displayed |
 | `pages/BookShelfPage.jsx` | Shell: header, view switching |
-| `design-system/` | Button, Badge, Modal, Dropdown, IconButton, ColorModeToggle, … |
+| `design-system/` | Button, Badge, Modal, Dropdown, IconButton, ColorModeToggle, CodeBlock (highlight.js, only the languages it registers; colors are the `--code-*` tokens), … |
 | `hooks/`, `utils/`, `styles/`, `data/` | Support code; split CSS lives in `styles/` |
 
 ## SSE events the chat handles
@@ -50,7 +50,9 @@ since a section opens before the node knows how many books it matched, and
 `details` — the `args` its node parsed, its `sql`, `error_message`,
 `duration` and token counts (`task_details()` in
 `backend/app/orchestration/task_runner.py`, empty keys dropped). `TaskSection`
-renders them before the task's own sections, which sit under a `Preview · N of
+renders them before the task's own sections (`args` as JSON and `sql`
+highlighted by `design-system/CodeBlock`, which also highlights fenced code in
+replies), which sit under a `Preview · N of
 M books` label when there are cards — so a step reads: how it was done, then
 the sample of what it matched. Sections open expanded and fold
 themselves on `task.end`, so the finished turn shows the answer rather than the

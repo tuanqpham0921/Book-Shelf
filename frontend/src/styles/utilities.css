@@ -180,6 +180,44 @@
   }
 }
 
+/* Syntax colors for CodeBlock (highlight.js token spans). Only the colors —
+   the box comes from wherever the block sits (.task-details pre, the reply's
+   markdown pre). */
+.code-block {
+  & .hljs-keyword,
+  & .hljs-type,
+  & .hljs-literal {
+    color: var(--code-keyword);
+    font-weight: 500;
+  }
+
+  & .hljs-built_in {
+    color: var(--code-function);
+  }
+
+  & .hljs-string,
+  & .hljs-regexp {
+    color: var(--code-string);
+  }
+
+  & .hljs-number {
+    color: var(--code-number);
+  }
+
+  & .hljs-attr,
+  & .hljs-title,
+  & .hljs-variable,
+  & .hljs-params {
+    color: var(--code-name);
+  }
+
+  & .hljs-comment,
+  & .hljs-meta {
+    color: var(--code-comment);
+    font-style: italic;
+  }
+}
+
 /* Generic loading indicator (spinner + label) */
 .loading-wrapper {
   max-width: 90%;

@@ -238,11 +238,6 @@
   }
 }
 
-@utility task-details-key {
-  font-family: 'Monaco', 'Menlo', monospace;
-  color: var(--text-muted);
-}
-
 @utility task-details-error {
   color: var(--accent-negative);
 }

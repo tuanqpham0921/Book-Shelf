@@ -1,11 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ChevronRight, Check, X } from 'lucide-react';
-
-function formatArg(value) {
-    if (Array.isArray(value)) return value.join(', ');
-    if (typeof value === 'object') return JSON.stringify(value);
-    return String(value);
-}
+import CodeBlock from '@/design-system/CodeBlock';
 
 function DetailRow({ label, className = '', children }) {
     return (
@@ -38,14 +33,10 @@ function TaskDetails({ details }) {
         <dl className="task-details">
             {args && (
                 <DetailRow label="Arguments">
-                    {Object.entries(args).map(([key, value]) => (
-                        <div key={key}>
-                            <span className="task-details-key">{key}:</span> {formatArg(value)}
-                        </div>
-                    ))}
+                    <CodeBlock language="json">{JSON.stringify(args, null, 2)}</CodeBlock>
                 </DetailRow>
             )}
-            {sql && <DetailRow label="SQL"><pre>{sql}</pre></DetailRow>}
+            {sql && <DetailRow label="SQL"><CodeBlock language="sql">{sql}</CodeBlock></DetailRow>}
             {error_message && (
                 <DetailRow label="Error" className="task-details-error">{error_message}</DetailRow>
             )}
