@@ -18,6 +18,10 @@ const DisplayPanel = ({ activeView }) => {
     // unmounting it — switching tabs used to unmount ChatBot entirely,
     // losing the conversation and (since sessions are created on mount)
     // spawning a brand new session every time you switched back.
+    //
+    // The chat's own slide-up plays on each view as it is shown: an animation
+    // restarts whenever its element comes back from display: none (`hidden`),
+    // so switching to an already-loaded view replays it too.
     const [visited, setVisited] = useState(() => new Set([activeView]));
 
     useEffect(() => {
@@ -27,21 +31,21 @@ const DisplayPanel = ({ activeView }) => {
     return (
         <div className="relative h-full w-full overflow-hidden">
             {visited.has('chat') && (
-                <div className={`absolute inset-0 h-full w-full min-h-0 ${activeView === 'chat' ? '' : 'hidden'}`}>
+                <div className={`absolute inset-0 h-full w-full min-h-0 animate-slide-up-smooth ${activeView === 'chat' ? '' : 'hidden'}`}>
                     <Suspense fallback={<LoadingSpinner />}>
                         <ChatBot />
                     </Suspense>
                 </div>
             )}
             {['bookshelf', 'airglider', 'planjane'].map(page => visited.has(page) && (
-                <div key={page} className={`absolute inset-0 h-full w-full min-h-0 overflow-y-auto ${activeView === page ? '' : 'hidden'}`}>
+                <div key={page} className={`absolute inset-0 h-full w-full min-h-0 animate-slide-up-smooth overflow-y-auto ${activeView === page ? '' : 'hidden'}`}>
                     <Suspense fallback={<LoadingSpinner />}>
                         <BlogPost page={page} />
                     </Suspense>
                 </div>
             ))}
             {visited.has('review') && (
-                <div className={`absolute inset-0 h-full w-full min-h-0 overflow-y-auto ${activeView === 'review' ? '' : 'hidden'}`}>
+                <div className={`absolute inset-0 h-full w-full min-h-0 animate-slide-up-smooth overflow-y-auto ${activeView === 'review' ? '' : 'hidden'}`}>
                     <Suspense fallback={<LoadingSpinner />}>
                         <ChatReviewPage />
                     </Suspense>
