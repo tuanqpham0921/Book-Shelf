@@ -185,11 +185,14 @@
    markdown pre). */
 .code-block {
   & .hljs-keyword,
-  & .hljs-built_in,
   & .hljs-type,
   & .hljs-literal {
     color: var(--code-keyword);
-    font-weight: 600;
+    font-weight: 500;
+  }
+
+  & .hljs-built_in {
+    color: var(--code-function);
   }
 
   & .hljs-string,

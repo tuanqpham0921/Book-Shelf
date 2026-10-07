@@ -132,8 +132,9 @@
   --mono-filter: grayscale(1);
 
   /* Syntax highlighting (CodeBlock). Monochrome by default: tokens differ by
-     shade, and keywords are bold in both modes. */
+     shade, and keywords are slightly heavier in both modes. */
   --code-keyword: var(--text-active);
+  --code-function: var(--text-active);
   --code-string: var(--text-hover);
   --code-number: var(--text-hover);
   --code-name: var(--text-active);
@@ -170,10 +171,11 @@
 
   --mono-filter: none;
 
-  /* GitHub's light theme */
-  --code-keyword: rgb(207, 34, 46);
-  --code-string: rgb(10, 48, 105);
-  --code-number: rgb(5, 80, 174);
-  --code-name: rgb(130, 80, 223);
-  --code-comment: rgb(110, 119, 129);
+  /* VS Code's Light+ theme: blue keywords, red strings, green comments */
+  --code-keyword: rgb(0, 0, 255);
+  --code-function: rgb(121, 94, 38);
+  --code-string: rgb(163, 21, 21);
+  --code-number: rgb(9, 134, 88);
+  --code-name: rgb(0, 16, 128);
+  --code-comment: rgb(0, 128, 0);
 }
