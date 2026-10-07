@@ -56,8 +56,7 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
                                 <button
                                     key={name}
                                     onClick={() => setSuggestionGroup(name)}
-                                    // pb-2 replaces the bar's bottom padding so the 1px underline lands on its border
-                                    className={`text-xs pb-2 mb-0! after:h-px! after:bottom-[-1px]! underline-animated underline-button ${suggestionGroup === name ? 'active' : ''}`}
+                                    className={`text-xs pb-2 underline-animated underline-button flush ${suggestionGroup === name ? 'active' : ''}`}
                                 >
                                     {name}
                                 </button>
