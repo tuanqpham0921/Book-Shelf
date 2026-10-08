@@ -1,28 +1,21 @@
 from typing import Any, Literal
 
-from pydantic import Field
-
 from app.domains.base_request import BaseRequest
 from app.domains.base_workflow import NodeWorkflowOutput
 from app.domains.node_input import NodeInput
 
 from .labels import ProjectInfoNodeTypeEnum
-from .tools import ProjectInfoArgs
 
 
 class ProjectInfoRequest(BaseRequest):
-    """Purpose: Retrieve information about the app, capability, tech stack, architecture, or project metadata.
+    """Purpose: Answer a question about the app, capability, tech stack, architecture, or project metadata, from BookShelf's own documentation.
 
-    Args:
-        fields: One or more ProjectInfoField values to retrieve (name,
-            description, technology_stack, planjane, airglider, limitations,
-            project_url,
-            project_github_url,
-            project_github_repo_name, project_github_repo_url, all).
+    Args: None — the instruction is the question, sent as written, so it must
+        stand alone: name what is asked about rather than "it" or "this".
 
-    Returns: ProjectInfoOutput — the requested project facts, not a book list.
+    Returns: ProjectInfoOutput — an answer about the project, not a book list.
 
-    depends_on: None — this node reads fixed project facts, not the catalog.
+    depends_on: None — this node reads the project's docs, not the catalog.
 
     Use when: the user asks about the project itself — "what tech stack does
     this use", "what is this app", "where's the GitHub repo", "tell me about
@@ -31,9 +24,8 @@ class ProjectInfoRequest(BaseRequest):
     Do not use: when the user is commenting on or critiquing the app rather
     than asking about it.
 
-    Constraints: fields must come from ProjectInfoField; use "all" for a
-    general "tell me about this project" ask. One node covers every field
-    asked for — never one node per field.
+    Constraints: One node covers every project question in the message —
+    never one node per question.
 
     Example queries:
         - "what tech stack does this use"
@@ -54,18 +46,17 @@ class ProjectInfoInput(NodeInput):
 
 
 class ProjectInfoOutput(NodeWorkflowOutput):
-    """The facts asked for, keyed by `ProjectInfoField` value, in
-    `PROJECT_INFO`'s order — what the reply stage answers from.
+    """The question sent to the project docs and the answer they gave — what
+    the reply stage answers from.
 
     Not book-shaped, so it subclasses `NodeWorkflowOutput` directly: no
     `num_books`, no `query`, and no book node can depend on it.
 
-    `args` is None when the parse never happened, which is what
+    `answer` is empty when the docs were never asked, which is what
     `finalize_result` reads."""
 
-    args: ProjectInfoArgs | None = None
-    info: dict[str, str] = Field(default_factory=dict)
+    question: str = ""
+    answer: str = ""
 
     def to_summary(self) -> dict[str, Any]:
-        # the field names, not the text: the text is fixed in the code
-        return {"fields": list(self.info)}
+        return {"question": self.question, "answer": self.answer}

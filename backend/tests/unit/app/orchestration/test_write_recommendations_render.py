@@ -246,15 +246,13 @@ class TestRenderSection:
         # without its own block a project lookup reads as "found nothing"
         output = ProjectInfoOutput(
             goal_instruction="Find the tech stack",
-            info={"technology_stack": "FastAPI and React"},
+            answer="FastAPI and React",
         )
         rendered = render_section(1, _result(output))
 
         assert "found facts about BookShelf" in rendered
         assert "found nothing" not in rendered
-        assert rendered.endswith(
-            "<project>\n- technology stack: FastAPI and React\n</project>"
-        )
+        assert rendered.endswith("<project>\nFastAPI and React\n</project>")
         assert "<books>" not in rendered
 
 

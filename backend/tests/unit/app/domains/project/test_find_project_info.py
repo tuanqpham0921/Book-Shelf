@@ -1,58 +1,38 @@
-"""The project-info node: which facts a parse selects, and the flow with the
-one LLM call faked.
+"""The project-info node: how the docs service's stream is read, and the flow
+with the one outside call faked.
 
-Nothing else is faked — there is no store to fake — so the executor, its
-`@task` envelope and `finalize_result` are all real.
+Only `ask_project_docs` is faked — there is no store and no LLM call — so the
+executor, its `@task` envelope and `finalize_result` are all real.
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from airglider import OperationResult, Response
 from app.domains.node_spec import NodeTier
 from app.domains.project.find_project_info import (
     ProjectInfoExecutor,
     ProjectInfoInput,
 )
-from app.domains.project.find_project_info.executor import (
-    PROJECT_INFO,
-    build_arg_parser_request,
-    select_project_info,
-)
-from app.domains.project.find_project_info.tools import (
-    ProjectInfoArgs,
-    ProjectInfoField,
-)
+from app.domains.project.find_project_info.executor import join_sse_data
 from app.registry import REGISTRY
 
 
-class TestSelectProjectInfo:
-    def test_every_field_but_all_has_a_fact(self):
-        # a field the parse can pick with no entry would be silently dropped
-        assert set(PROJECT_INFO) == set(ProjectInfoField) - {ProjectInfoField.ALL}
+class TestJoinSseData:
+    def test_deltas_are_joined_in_order(self):
+        lines = ["data: ", "", "data: Book", "", "data: Shelf", "", "data:  uses", ""]
 
-    def test_it_returns_only_the_fields_asked_for(self):
-        info = select_project_info([ProjectInfoField.TECHNOLOGY_STACK])
+        assert join_sse_data(lines) == "BookShelf uses"
 
-        assert list(info) == ["technology_stack"]
+    def test_a_multi_line_event_is_a_newline(self):
+        # how the service sends "\n\n" inside one delta
+        lines = ["data: :", "data: ", "data: ", "", "data: -", ""]
 
-    @pytest.mark.parametrize(
-        "fields", [[ProjectInfoField.ALL], [ProjectInfoField.NAME, ProjectInfoField.ALL], []]
-    )
-    def test_all_or_nothing_parsed_is_every_fact(self, fields):
-        assert list(select_project_info(fields)) == [f.value for f in PROJECT_INFO]
+        assert join_sse_data(lines) == ":\n\n-"
 
-    def test_order_follows_the_facts_not_the_parse(self):
-        info = select_project_info(
-            [ProjectInfoField.PROJECT_URL, ProjectInfoField.NAME, ProjectInfoField.NAME]
-        )
-
-        assert list(info) == ["name", "project_url"]
-
-
-def test_an_empty_instruction_is_refused():
-    with pytest.raises(ValueError):
-        build_arg_parser_request("")
+    def test_a_last_event_with_no_blank_line_is_kept(self):
+        assert join_sse_data(["data: a", "", "data: b"]) == "ab"
 
 
 def test_it_is_registered_as_a_retrieval():
@@ -65,16 +45,29 @@ def test_it_is_registered_as_a_retrieval():
 
 class TestTheFlow:
     @pytest.mark.asyncio
-    async def test_it_looks_up_the_parsed_fields(self, request_context):
+    async def test_it_asks_the_docs_the_instruction(self, request_context):
         node = ProjectInfoExecutor(request_context)
-        args = ProjectInfoArgs(fields=[ProjectInfoField.PROJECT_GITHUB_REPO_URL])
-        node.run_llm_args_parse = AsyncMock(return_value=args)
+        docs = AsyncMock(return_value=OperationResult(ok=True, response=Response(result="It's on GitHub.")))
 
-        result = await node(ProjectInfoInput(instruction="Find the GitHub repo"))
+        with patch(
+            "app.domains.project.find_project_info.executor.ask_project_docs", docs
+        ):
+            result = await node(ProjectInfoInput(instruction="Find the GitHub repo"))
 
         assert result.ok, result.runtime_error
+        docs.assert_awaited_once_with("Find the GitHub repo")
         out = result.unwrap()
-        assert out.args == args
-        assert out.info == {
-            "project_github_repo_url": PROJECT_INFO[ProjectInfoField.PROJECT_GITHUB_REPO_URL]
-        }
+        assert out.question == "Find the GitHub repo"
+        assert out.answer == "It's on GitHub."
+
+    @pytest.mark.asyncio
+    async def test_a_failed_lookup_fails_the_node(self, request_context):
+        node = ProjectInfoExecutor(request_context)
+        docs = AsyncMock(return_value=OperationResult(ok=False))
+
+        with patch(
+            "app.domains.project.find_project_info.executor.ask_project_docs", docs
+        ):
+            result = await node(ProjectInfoInput(instruction="Find the GitHub repo"))
+
+        assert not result.ok

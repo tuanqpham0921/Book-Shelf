@@ -791,6 +791,19 @@ also calls `PlanJane` with the rest of the message in `message`, and that remain
 all the planner reads. The node stays registered, since it is the planner's way to
 the same facts when routing fails and the whole message goes through.
 
+### `Retrieve_Project_Info` answers from the project docs (2026-10-08)
+
+`PROJECT_INFO`, `ProjectInfoField` and `select_project_info` are gone. Questions about
+BookShelf now go to a RAG service over the project's own markdown docs
+(`ask_project_docs`, a `@task` in the slice's `executor.py`, at
+`settings.app.PROJECT_DOCS_URL`), which answers in prose. `ProjectInfoArgs` is now one
+`question` the router fills in, and the node sends its instruction as the question with
+no parse call. `ProjectInfoOutput` carries `question` and `answer`, and the `<project>`
+block is that answer. If the lookup fails in triage, the whole message goes to the
+planner, the same way a failed routing pick does. The service runs locally only, so in
+production every lookup fails and project questions go to the planner, whose node fails
+too.
+
 ## V1 conversation contract: clarify-only, single-turn
 
 - Every query stands alone. No history is loaded

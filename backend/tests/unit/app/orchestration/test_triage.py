@@ -13,7 +13,6 @@ from app.common.tools import ClarificationType, ClarifyingQuestion, SecurityRevi
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.domains.node_input import NodeInput
 from app.domains.project.find_project_info import ProjectInfoArgs
-from app.domains.project.find_project_info.tools import ProjectInfoField
 from app.orchestration.triage import TriageOutput, TriageWorkflow
 from app.orchestration.triage import cache
 from app.orchestration.triage.cache import load_cached_parse_output
@@ -187,7 +186,7 @@ CLARIFY = ClarifyingQuestion(
     type=ClarificationType.NO_CONTEXT,
     reasoning="no earlier turn to point at",
 )
-STACK = ProjectInfoArgs(fields=[ProjectInfoField.TECHNOLOGY_STACK])
+STACK = ProjectInfoArgs(question="What is BookShelf's tech stack?")
 PLAN = PlanJane(message="")
 
 
@@ -452,9 +451,16 @@ class TestRouting:
 
 
 class TestProjectFacts:
-    """`ProjectInfoArgs` is looked up here rather than planned. The facts ride
-    on the output for the orchestrator's reply stage; the planner gets only
-    what the message asks besides."""
+    """`ProjectInfoArgs` is answered here by the project docs rather than
+    planned. The answer rides on the output for the orchestrator's reply
+    stage; the planner gets only what the message asks besides."""
+
+    @pytest.fixture(autouse=True)
+    def docs(self):
+        # the docs service is the one outside call; faked at triage's import
+        lookup = AsyncMock(return_value=OperationResult(ok=True, response=Response(result="FastAPI")))
+        with patch("app.orchestration.triage.executor.ask_project_docs", lookup):
+            yield lookup
 
     async def test_a_project_question_alone_is_answered_without_planning(
         self, orchestrator
@@ -471,7 +477,25 @@ class TestProjectFacts:
         send_chars.assert_not_awaited()
         assert record.ok
         assert orchestrator.result.parse_result is None
-        assert list(orchestrator.result.project_info.info) == ["technology_stack"]
+        assert orchestrator.result.project_info.question == STACK.question
+        assert orchestrator.result.project_info.answer == "FastAPI"
+
+    async def test_a_failed_lookup_sends_the_whole_message_on(self, orchestrator, docs):
+        docs.return_value = OperationResult(ok=False)
+        planner = _planner_with_a_plan()
+        with _routes_to(STACK, PlanJane(message="books like Dune")), patch(
+            "app.orchestration.triage.executor.PlanJaneExecutor",
+            return_value=planner,
+        ):
+            record = await orchestrator(
+                NodeInput(instruction="what's your stack, and books like Dune?")
+            )
+
+        planner.assert_awaited_once_with(
+            NodeInput(instruction="what's your stack, and books like Dune?")
+        )
+        assert record.ok
+        assert orchestrator.result.project_info is None
 
     async def test_the_planner_gets_only_what_is_left(self, orchestrator):
         planner = _planner_with_a_plan()

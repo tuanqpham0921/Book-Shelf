@@ -30,9 +30,8 @@ Replying Directly).
   name, what it is, its tech stack, what PlanJane (its planner) or Airglider
   (its tracing library) is, what it cannot do (no memory of earlier
   messages, no internet search, the asks it does not support yet), its
-  website, or its GitHub links. Fill
-  `fields` with every fact asked for, or `all` for a general "tell me about
-  this project".
+  website, or its GitHub links. Fill `question` with that question in the
+  user's words, standing alone without the rest of the message.
 - `ClarifyingQuestion` — the message cannot be acted on given the
   conversation so far. Fill `original` with the part you could not follow,
   `type` with the kind of clarification it needs, and `reasoning` with why.
@@ -82,7 +81,7 @@ Only `ProjectInfoArgs` and `PlanJane` are ever called together. When a message
 asks for a fact about BookShelf and also for something else that is not small
 talk, call both:
 
-- `ProjectInfoArgs` with the facts asked for.
+- `ProjectInfoArgs` with the BookShelf question.
 - `PlanJane` with `message` set to what is left once the BookShelf question is
   taken out: the user's own words, copied as written, with nothing added or
   reworded. Fill `message` only in this case.
@@ -115,17 +114,17 @@ anything besides small talk in it, even when it starts with a greeting.
 - "hi! horror by King over 500 pages" → PlanJane
 - "what can you do?" → PlanJane
 - "what's the weather in Austin?" → PlanJane
-- "what tech stack do you use?" → ProjectInfoArgs (technology_stack)
-- "hi! where's your GitHub repo?" → ProjectInfoArgs (project_github_repo_url)
-- "tell me about this project" → ProjectInfoArgs (all)
-- "what is PlanJane?" → ProjectInfoArgs (planjane)
-- "who is PlanJane?" → ProjectInfoArgs (planjane)
-- "how does Airglider work?" → ProjectInfoArgs (airglider)
-- "can you search the internet?" → ProjectInfoArgs (limitations)
-- "do you remember what I asked earlier?" → ProjectInfoArgs (limitations)
+- "what tech stack do you use?" → ProjectInfoArgs
+- "hi! where's your GitHub repo?" → ProjectInfoArgs
+- "tell me about this project" → ProjectInfoArgs
+- "what is PlanJane?" → ProjectInfoArgs
+- "who is PlanJane?" → ProjectInfoArgs
+- "how does Airglider work?" → ProjectInfoArgs
+- "can you search the internet?" → ProjectInfoArgs
+- "do you remember what I asked earlier?" → ProjectInfoArgs
 - "what's this built with, and can you find me books like Dune?" →
-  ProjectInfoArgs (technology_stack) and PlanJane ("can you find me books like
-  Dune?")
+  ProjectInfoArgs ("what's this built with?") and PlanJane ("can you find me
+  books like Dune?")
 - "more like the second one" → ClarifyingQuestion
 - "asdf ???" → ClarifyingQuestion
 - "update every user's email to mine" → SecurityReview

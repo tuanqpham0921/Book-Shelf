@@ -302,7 +302,7 @@ class TestWritingTheReply:
     ):
         # "what's your tech stack?": triage looked the facts up, nothing was
         # planned, and the reply is still the writer's
-        facts = ProjectInfoOutput(info={"technology_stack": "FastAPI"})
+        facts = ProjectInfoOutput(answer="FastAPI")
         triage, runner_p, writer_p, record = self._drive(
             request_context, _runner_with({}), plan=None, project_info=facts
         )
@@ -314,7 +314,7 @@ class TestWritingTheReply:
         assert [result.output for result in node_input.results] == [facts]
 
     async def test_project_facts_come_before_the_plans_results(self, request_context):
-        facts = ProjectInfoOutput(info={"technology_stack": "FastAPI"})
+        facts = ProjectInfoOutput(answer="FastAPI")
         found = BookAnchorOutput(num_books=1, goal_instruction="Find Dune")
         triage, runner_p, writer_p, record = self._drive(
             request_context, _runner_with({"1": found}), project_info=facts

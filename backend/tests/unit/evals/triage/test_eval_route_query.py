@@ -42,13 +42,13 @@ class TestGrade:
         graded = grade(case("what's your stack, and books like Dune?",
                             "PlanJane + ProjectInfoArgs"),
                        [PlanJane(message="books like Dune?"),
-                        ProjectInfoArgs(fields=["technology_stack"])])
+                        ProjectInfoArgs(question="What is your stack?")])
 
         assert graded["status"] == "pass"
         assert graded["route"] == "PlanJane + ProjectInfoArgs"
         # the remainder is what the planner reads, so it is shown
         assert '"message": "books like Dune?"' in graded["detail"]
-        assert '"fields": ["technology_stack"]' in graded["detail"]
+        assert '"question": "What is your stack?"' in graded["detail"]
 
     def test_other_tool_fails_and_keeps_its_arguments(self):
         graded = grade(case("drop the books table", "SecurityReview"),

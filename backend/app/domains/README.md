@@ -5,9 +5,10 @@ itself. The V1 node set and its rationale live in
 [docs/design/node-taxonomy-v1.md](../../../docs/design/node-taxonomy-v1.md).
 
 Two domains: `books/`, and `project/`, whose one node
-(`find_project_info/`, `Retrieve_Project_Info`) looks up fixed facts about
-BookShelf. It is `find_by_title/`'s shape minus the store — parse → look up →
-finalize — so its executor subclasses `AppWorkflow` rather than a domain base,
+(`find_project_info/`, `Retrieve_Project_Info`) answers questions about
+BookShelf from a RAG service over its own docs (`ask_project_docs`). It is
+`find_by_title/`'s shape minus the store and the parse — the instruction is
+the question — so its executor subclasses `AppWorkflow` rather than a domain base,
 and there is no `project/base_workflow.py` or `schemas.py` until a second node
 needs one.
 

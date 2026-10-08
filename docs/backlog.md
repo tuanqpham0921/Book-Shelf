@@ -91,7 +91,8 @@ Shape-level planner questions live in
   planner returns no goals and the turn ends with triage's "I couldn't understand your
   request". Needs either a fixed reply per question, an FAQ node, or the writer answering
   from a project blurb. **Partly fixed 2026-09-26:** `Retrieve_Project_Info` answers what
-  the app is, its tech stack and its links from fixed facts. Still open: how it works in
+  the app is, its tech stack and its links (from the project-docs RAG service since
+  2026-10-08). Still open: how it works in
   more depth ("how do you pick similar books?") and the user's own session.
 - **The prompt-injection / preflight parse is not well designed or tested.** It needs its
   own tests *before* more nodes are added, and it matters more inside nodes than in the

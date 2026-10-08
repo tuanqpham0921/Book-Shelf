@@ -48,7 +48,7 @@ A numbered report with one entry per part of the work, then the user's message.
       <description>
     </books>
     <project>                                               (when facts about BookShelf were looked up)
-    - <fact>: <text>
+    <an answer from BookShelf's own documentation>
     </project>
 
 The entries cover the *whole* turn, not one thread of it. If the user asked two

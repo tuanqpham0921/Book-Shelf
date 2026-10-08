@@ -286,7 +286,7 @@ class TestWhatTheWriterSees:
         # stack" turn with nothing to write from, and the stage raised
         facts = ProjectInfoOutput(
             goal_instruction="Find the tech stack",
-            info={"technology_stack": "FastAPI and React"},
+            answer="FastAPI and React",
         )
 
         with _reply([_text("It runs on FastAPI and React.")]) as llm:
@@ -294,7 +294,7 @@ class TestWhatTheWriterSees:
 
         assert record.ok
         rendered = llm.await_args.args[0].messages[0].content
-        assert "- technology stack: FastAPI and React" in rendered
+        assert "<project>\nFastAPI and React\n</project>" in rendered
 
     async def test_an_output_that_is_neither_books_nor_a_failure_is_dropped(self, node):
         """The generic list can hold anything a future node returns. Rendering

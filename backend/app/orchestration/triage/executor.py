@@ -31,7 +31,7 @@ from app.domains.planjane import PlanJaneExecutor
 from app.domains.project.find_project_info import (
     ProjectInfoArgs,
     ProjectInfoOutput,
-    select_project_info,
+    ask_project_docs,
 )
 from airglider import task
 from clients import OpenAIParserRequest
@@ -143,19 +143,23 @@ class TriageWorkflow(AppWorkflow[TriageOutput]):
                 self.finalize_result(ok=True)
                 return
 
-        # 4. project facts are fixed text, so the router's pick is the whole
-        # lookup — no plan, no node. The orchestrator writes the reply from
-        # them together with whatever the plan finds
+        # 4. a project question is answered by the project docs here — no
+        # plan, no node. The orchestrator writes the reply from the answer
+        # together with whatever the plan finds. A lookup that fails sends the
+        # whole message on, like a failed pick
         facts = _first(picks, ProjectInfoArgs)
         if facts is not None:
-            self.add_details(
-                f"looked up project facts: {[field.value for field in facts.fields]}"
-            )
-            self.result.project_info = ProjectInfoOutput(
-                goal_instruction=PROJECT_INFO_INSTRUCTION,
-                args=facts,
-                info=select_project_info(facts.fields),
-            )
+            lookup = await ask_project_docs(facts.question)
+            if lookup.ok:
+                self.result.project_info = ProjectInfoOutput(
+                    goal_instruction=PROJECT_INFO_INSTRUCTION,
+                    question=facts.question,
+                    answer=lookup.result,
+                )
+            else:
+                self.add_details("project docs failed; passing the message to the planner")
+                facts = None
+                picks = [PlanJane(message="")]
 
         planjane = _first(picks, PlanJane)
         if planjane is None:
