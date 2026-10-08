@@ -220,3 +220,8 @@ class DeferredBookQuery:
 
     def __repr__(self) -> str:
         return f"<DeferredBookQuery {self.label}>"
+
+    def to_summary(self) -> dict[str, str]:
+        """What a step's `record.input` shows for a query it was handed —
+        airglider's fallback for a value with no serializable form."""
+        return {"label": self.label, "sql": compile_sql(self.stmt)}

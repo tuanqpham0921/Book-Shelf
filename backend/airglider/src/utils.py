@@ -100,22 +100,15 @@ def bind_call_args(
 
 
 def to_record_input(value: Any) -> Any:
-    """`to_serializable` for `OperationResult.input`, with two differences:
+    """`to_serializable` for `OperationResult.input`, with one difference: the
+    result is always JSON-encodable. Many `@task` call sites take a live handle
+    (a DB session, a client), and one reaching the envelope breaks the JSONB
+    insert.
 
-    1. `to_summary()` wins — a node's input carries the previous node's output,
-       already held in full by its own envelope; re-dumping would grow the trace
-       with the square of the plan's depth.
-    2. The result is always JSON-encodable; anything left over becomes
-       `<TypeName>`. Many `@task` call sites take a live handle (a DB session, a
-       client), and one reaching the envelope breaks the JSONB insert.
+    A value is recorded whole whenever it can be. `to_summary()` is only the
+    fallback for one that cannot — a built query, say — and past that it
+    becomes `<TypeName>`.
     """
-    # TODO: this should be use for summary record only
-    # don't always put it to summary when first added
-    
-    # to_summary = getattr(value, "to_summary", None)
-    # if callable(to_summary):
-    #     return to_summary()
-
     if isinstance(value, BaseModel):
         return {
             name: to_record_input(getattr(value, name))
@@ -135,7 +128,10 @@ def to_record_input(value: Any) -> Any:
     if isinstance(serialized, (dict, list)):
         return serialized
 
-    # a live handle, or anything with no serializable form
+    # no serializable form: its summary if it offers one, its type name if not
+    to_summary = getattr(value, "to_summary", None)
+    if callable(to_summary):
+        return to_summary()
     return f"<{type(value).__name__}>"
 
 

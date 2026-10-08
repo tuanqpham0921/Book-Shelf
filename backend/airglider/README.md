@@ -231,19 +231,18 @@ or cancelled step still records its arguments. Keyed by parameter name, so
 since the receiver of a decorated method is not an argument.
 
 Values go through `to_record_input`, which differs from `to_serializable` in
-the two ways a *call record* needs:
+the one way a *call record* needs: **the result is always JSON-encodable.**
+Arguments are not payloads a caller chose to record — they are whatever the
+function happens to take, and a live DB session or client reaching the
+envelope would break the host's insert far from where it came from.
 
-- **A value's own `to_summary()` wins.** One step's input is usually the step
-  before it's output, and that output is already recorded in full on its own
-  envelope — dumping it again grows the trace with the square of a pipeline's
-  depth rather than its size. Give a big payload a `to_summary()` and it
-  collapses everywhere at once (the host's `BaseLLMRequest` does this, so a
-  prompt never lands in a record).
-- **The result is always JSON-encodable.** Anything left over becomes
-  `<TypeName>`. Arguments are not payloads a caller chose to record — they are
-  whatever the function happens to take, and a live DB session or client
-  reaching the envelope would break the host's insert far from where it came
-  from.
+A value is **recorded whole** whenever it serializes. Only one that does not
+falls back, first to its own `to_summary()` (the host's built queries offer
+one, so a step that took a query shows its SQL rather than a type name), and
+past that to `<TypeName>`. The cost of whole values: a step's input is often
+the step before it's output, already recorded on its own envelope, so the full
+record repeats it once per dependent. Compact reading is `to_summary()` on the
+envelope, not here.
 
 Neither path raises: `to_summary` is host code this library does not control,
 and bookkeeping that can take down the run it describes is a worse trade than

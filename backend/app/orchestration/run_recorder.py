@@ -185,8 +185,7 @@ def _save_turn_files(
             # exactly what the writer was fed: RecommendationsInput
             # takes list(task_results.values())
             "task_results": task_runner.result,
-            # thin for the other reason: `record.input` is built by
-            # to_record_input, where each result's to_summary() wins
+            # `record.input` as to_record_input built it: each result whole
             "writer_input_as_recorded": writer.record.input if writer else None,
         }
         save_file(dev_gen, file_name="dev_gen", path=user_dir)
