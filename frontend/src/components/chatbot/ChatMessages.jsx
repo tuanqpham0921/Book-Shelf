@@ -105,6 +105,11 @@ function ChatMessages({ messages, sessionId }) {
     const lastScrollTop = useRef(0)
     const lastScrollHeight = useRef(0)
 
+    const scrollToBottom = () => {
+        const el = containerRef.current
+        el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    }
+
     const handleScroll = () => {
         const el = containerRef.current
         if (el.scrollHeight - el.scrollTop - el.clientHeight < 40) {
@@ -127,12 +132,12 @@ function ChatMessages({ messages, sessionId }) {
             turnRefs.current[newestTurn.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
         } else if (
             following.current &&
-            newestTurn.response.isStreaming &&
             // grown past the view; scrolling sooner would cut the smooth
-            // scroll to the new turn short
+            // scroll to the new turn short. Not only while streaming: the
+            // feedback row and the disclaimer land as the reply ends
             el.scrollHeight > lastScrollHeight.current
         ) {
-            el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+            scrollToBottom()
         }
         lastScrollHeight.current = el.scrollHeight
     }, [messages])
@@ -193,7 +198,11 @@ function ChatMessages({ messages, sessionId }) {
                             (response.sections?.length > 0 || response.text) && (
                                 // The reply bubble's box at full width, so this ends where reply text does
                                 <div className="message-bubble response w-full text-left">
-                                    <details className="text-sm text-[var(--text-muted)]">
+                                    {/* opening it adds the list below the fold, so follow it down */}
+                                    <details
+                                        className="text-sm text-[var(--text-muted)]"
+                                        onToggle={(e) => e.currentTarget.open && scrollToBottom()}
+                                    >
                                         <summary className="list-none [&::-webkit-details-marker]:hidden italic cursor-pointer hover:text-[var(--text-hover)]">
                                             This assistant can make mistakes. Learn more
                                         </summary>
