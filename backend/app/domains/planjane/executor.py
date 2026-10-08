@@ -56,6 +56,8 @@ def build_goal_parse_request(query: str) -> OpenAIParserRequest:
 
     return OpenAIParserRequest(
         prompt=system_prompt,
+        # the template's path: the catalog it was filled with is not recorded
+        prompt_path=GOAL_GENERATOR_PROMPT_PATH,
         model="gpt-6-sol",
         reasoning_effort="none",
         # NOTE: this should be a list of previous messages as well

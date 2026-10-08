@@ -49,6 +49,7 @@ def build_validation_request(content: str) -> OpenAIParserRequest:
     """
     return OpenAIParserRequest(
         prompt=load_prompt(prompt_path=VALIDATE_PROMPT_PATH),
+        prompt_path=VALIDATE_PROMPT_PATH,
         model="gpt-6-luna",
         reasoning_effort="none",
         messages=[UserMessage(content=content)],

@@ -14,7 +14,10 @@ logger = logging.getLogger(__name__)
 class BaseLLMRequest(BaseModel, ABC):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    prompt: str
+    prompt: str = Field(..., exclude=True)
+    # Where the prompt came from, relative to the prompts directory — what a
+    # trace shows in its place. None for a prompt that has no file.
+    prompt_path: str | None = None
     messages: list[APIMessage]
     model: str
     
@@ -47,6 +50,7 @@ class BaseLLMRequest(BaseModel, ABC):
         """
         return {
             "model": self.model,
+            "prompt_path": self.prompt_path,
             "prompt_chars": len(self.prompt),
             "num_messages": len(self.messages),
             "streaming": self.sse_stream is not None,

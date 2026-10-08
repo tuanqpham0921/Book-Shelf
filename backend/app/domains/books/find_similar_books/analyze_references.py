@@ -102,6 +102,7 @@ def build_analysis_request(document_text: str) -> OpenAIParserRequest:
 
     return OpenAIParserRequest(
         prompt=load_prompt(prompt_path=ANALYZE_REFERENCES_PROMPT_PATH),
+        prompt_path=ANALYZE_REFERENCES_PROMPT_PATH,
         model="gpt-5-mini",
         reasoning_effort="low",
         # matches build_arg_parser_request in executor.py: the documents are

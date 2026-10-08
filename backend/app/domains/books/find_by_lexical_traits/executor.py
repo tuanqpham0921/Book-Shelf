@@ -43,6 +43,7 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
 
     return OpenAIParserRequest(
         prompt=load_prompt(prompt_path=ARGS_PARSER_PROMPT_PATH),
+        prompt_path=ARGS_PARSER_PROMPT_PATH,
         model="gpt-5-nano",
         reasoning_effort="low",
         messages=[AssistantMessage(content=instruction)],

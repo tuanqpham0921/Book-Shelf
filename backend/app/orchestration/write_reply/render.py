@@ -284,6 +284,7 @@ def build_recommendations_request(
 
     return OpenAIParserRequest(
         prompt=load_prompt(prompt_path=PROMPT_PATH),
+        prompt_path=PROMPT_PATH,
         model="gpt-5-mini",
         reasoning_effort="low",
         messages=[

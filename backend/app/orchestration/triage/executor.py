@@ -79,6 +79,7 @@ def build_route_request(query: str) -> OpenAIParserRequest:
     """
     return OpenAIParserRequest(
         prompt=load_prompt(prompt_path=ROUTE_PROMPT_PATH),
+        prompt_path=ROUTE_PROMPT_PATH,
         model="gpt-5-mini",
         reasoning_effort="low",
         messages=[UserMessage(content=query)],
