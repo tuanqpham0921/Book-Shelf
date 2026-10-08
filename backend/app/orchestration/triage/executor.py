@@ -94,6 +94,8 @@ def _first(picks: list[Pick], tool: type[ToolT]) -> ToolT | None:
 
 
 class TriageWorkflow(AppWorkflow[TriageOutput]):
+    description = "Decides how to handle your message"
+
     planner_failure_message = "I couldn't understand your request. Please try again."
     ui_loading_message = "starting conversation..."
 
@@ -198,7 +200,7 @@ class TriageWorkflow(AppWorkflow[TriageOutput]):
         # a plan came out of this turn, or there is something to reply from
         self.finalize_result(ok=True)
 
-    @task
+    @task(description="Picks a route for your message")
     async def route_query(self, query: str) -> list[Pick] | str:
         """The pick as its own step, so its spend and duration read apart from
         the planner's, and a failure is an envelope `run` can inspect rather

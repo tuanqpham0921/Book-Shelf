@@ -121,6 +121,7 @@ class Orchestrator:
                 "raw": request_context.user_message.content,
                 "pass_validation": request_context.user_message.pass_validation,
             },
+            description="Main orchestrator for handling requests"
         )
         # empty until the message passes validation — an unvalidated one is not
         # an APIMessage, and a refused turn has nothing to record here

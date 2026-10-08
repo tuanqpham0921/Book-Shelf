@@ -70,7 +70,7 @@ class BookReaderWorkflow(AppWorkflow[ReaderOutputT], ABC):
     prose.
     """
 
-    @task
+    @task(description="Fetches books to show")
     async def fetch_books(
         self, query: DeferredBookQuery, limit: int = BookConstraints.default_limit
     ) -> List[Book]:
@@ -127,7 +127,7 @@ class BookWorkflow(BookReaderWorkflow[BookOutputT], ABC):
     subclass this — it subclasses `BookReaderWorkflow` and does not count.
     """
 
-    @task
+    @task(description="Counts matching books")
     async def count_books(self, query: DeferredBookQuery) -> int:
         """Stamp the built-but-unrun query on the output and size it.
 

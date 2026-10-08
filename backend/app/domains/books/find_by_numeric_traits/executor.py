@@ -152,6 +152,8 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
 
 
 class FindByNumericTraitsExecutor(BookWorkflow[FindByNumericTraitsOutput]):
+    description = "Finds books by numbers like pages or rating"
+
     ui_loading_message = "getting books by traits..."
 
     async def run(self, node_input: FindByNumericTraitsInput) -> None:

@@ -54,6 +54,8 @@ CARD_DELAY = 0.03
 
 
 class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
+    description = "Writes the reply"
+
     ui_loading_message = "writing a reply..."
     # the reply is the point of the turn — never folded away
     ui_section_collapsible = False
@@ -122,7 +124,7 @@ class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
 
         return sources, failures
 
-    @task
+    @task(description="Drafts the reply text")
     async def write_recommendations(
         self, results: list[TaskResult]
     ) -> GenerationResult:

@@ -39,7 +39,7 @@ SITE_OUT_OF_TOKENS_MESSAGE = (
 # chose, and would trip it against the dev database.
 SITE_BUDGET_ENFORCED_IN = "production"
 
-@task
+@task(description="Checks your session's token budget")
 async def start_session_turn(request_context: RequestContext) -> int:
     """Open the turn, and report what its session has left to spend.
 
@@ -62,7 +62,7 @@ async def start_session_turn(request_context: RequestContext) -> int:
         return await store.start_turn(request_context.session_id)
 
 
-@task
+@task(description="Checks the site's daily spend")
 async def read_site_spend(request_context: RequestContext) -> int:
     """What the whole site has spent in the last 24 hours.
 

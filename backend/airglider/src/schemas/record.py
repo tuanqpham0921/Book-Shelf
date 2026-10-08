@@ -55,6 +55,8 @@ class OperationResult(BaseModel, Generic[OutputT]):
     id: str = Field(default_factory=lambda: f"op_{uuid_8()}")
     parent_id: str | None = None
     name: str | None = None
+    
+    description: str | None = None
 
     ok: bool = False
     timing: Time = Field(default_factory=Time)
@@ -207,6 +209,8 @@ class OperationResult(BaseModel, Generic[OutputT]):
         payload_summary = getattr(payload, "to_summary", None)
         summary = {
             "id": self.id,
+            "parent_id": self.parent_id,
+            "description": self.description,
             # leaf of the dotted ref only; the full path is in the whole tree
             "name": self.name.split(".")[-1] if self.name else None,
             "ok": self.ok,

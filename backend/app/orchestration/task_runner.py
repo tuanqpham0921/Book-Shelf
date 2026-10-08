@@ -158,6 +158,8 @@ class TaskRunnerOutput(NodeWorkflowOutput):
 
 
 class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
+    description = "Runs each planned step"
+
     ui_loading_message = "running tasks..."
 
     async def run(self, node_input: TaskRunnerInput) -> None:

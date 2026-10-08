@@ -97,6 +97,8 @@ def select_project_info(fields: list[ProjectInfoField]) -> dict[str, str]:
 
 
 class ProjectInfoExecutor(AppWorkflow[ProjectInfoOutput]):
+    description = "Looks up facts about BookShelf"
+
     ui_loading_message = "getting project info..."
 
     async def run(self, node_input: ProjectInfoInput) -> None:

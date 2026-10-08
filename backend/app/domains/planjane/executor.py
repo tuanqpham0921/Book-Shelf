@@ -71,6 +71,8 @@ def build_goal_parse_request(query: str) -> OpenAIParserRequest:
 
 
 class PlanJaneExecutor(AppWorkflow[PlanJaneOutput]):
+    description = "Plans the steps to answer you"
+
     ui_loading_message = "thinking..."
     continuation_reject_message = "I don't have memory of earlier messages yet — please restate your full request in one message."
 

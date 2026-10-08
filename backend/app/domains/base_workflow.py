@@ -178,7 +178,7 @@ class AppWorkflow(Workflow[OutputT], ABC):
     # them one line of body each; anything more belongs in the client (I/O) or
     # in the caller (policy).
 
-    @task
+    @task(description="Calls the language model")
     async def llm_execute(
         self, req: BaseLLMRequest, save_payload: bool = False
     ) -> AssistantMessage:
@@ -186,13 +186,13 @@ class AppWorkflow(Workflow[OutputT], ABC):
         the promotion hook onto this envelope."""
         return await self.llm_client.execute(req, save_payload=save_payload)
 
-    @task
+    @task(description="Turns text into a search vector")
     async def get_embeddings(self, texts: list[str]) -> EmbeddingsResult:
         """One embeddings call as a step; `EmbeddingsResult.token_usage` is
         promoted the same way, so embedding spend lands in the trace."""
         return await self.llm_client.get_embeddings(texts)
 
-    @task
+    @task(description="Runs a tool the model picked")
     async def execute_tool_call(
         self, tool_call: ParsedFunctionToolCall, **kwargs
     ) -> ToolMessage:

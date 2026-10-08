@@ -19,7 +19,7 @@ to move. A symbol that is not re-exported in `__init__.py` is not API.
 | `Workflow` | base class for a multi-step async process — subclass, override `run()` |
 | `task` | decorator for a single async function |
 | `StepFailure` | control-flow signal raised by `OperationResult.unwrap` when a step fails |
-| `OperationResult` | the one envelope: `ok`, `input`, `details`, `runtime_error`, `timing`, `token_usage`, `parent_id`, `steps` — plus `add_step` / `unwrap` / `flatten` / `to_span` |
+| `OperationResult` | the one envelope: `ok`, `description`, `input`, `details`, `runtime_error`, `timing`, `token_usage`, `parent_id`, `steps` — plus `add_step` / `unwrap` / `flatten` / `to_span` |
 | `parent_scope`, `current_parent`, `add_details` | the nesting ContextVar, and writing to the envelope currently running (see below) |
 | `Response`, `Time` | the envelope's payload and timing sub-models |
 | `TokenUsage`, `ModelUsage` | token counts, per-model split, and USD cost |
@@ -118,6 +118,12 @@ behind one or another of these.
     enters the tree without the client knowing about envelopes — the host's
     `AssistantMessage` and `EmbeddingsResult` both ride it. Type the field
     `TokenUsage | None`, since the decorator will null it.
+17. **`description` is the envelope's one reader-facing line** — what the step
+    does, for a UI rather than a developer. A `Workflow` subclass sets the
+    class attribute (`description = "Finds books by title"`), a task passes it
+    to the decorator (`@task(description="Counts matching books")`); left
+    unset, they read `"Workflow class"` and `"@task function"`. Not taken from
+    the docstring: those are written for whoever edits the code.
 
 ### Known gap
 

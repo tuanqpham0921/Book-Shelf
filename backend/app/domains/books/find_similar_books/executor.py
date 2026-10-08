@@ -55,6 +55,8 @@ CANDIDATE_POOL_SIZE = 250
 
 
 class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
+    description = "Finds books similar to ones you named"
+
     ui_loading_message = "finding similar books..."
 
     async def run(self, node_input: SimilarBooksInput) -> None:
@@ -153,7 +155,7 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
                 f"node folds into one description"
             )
 
-    @task
+    @task(description="Reads the books you named")
     async def analyze_references(self, books: list[Book]) -> str | None:
         """Fold the anchor books into one description to embed.
 
@@ -185,7 +187,7 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
         )
         return analysis.semantic_input
 
-    @task
+    @task(description="Searches for nearby books")
     async def build_pool(
         self,
         search_text: str,
@@ -226,7 +228,7 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
             embedding, limit=limit, exclude_isbns=exclude_isbns
         )
 
-    @task
+    @task(description="Sizes the search results")
     async def pool_stats(self, query: DeferredBookQuery) -> int:
         """Stamp the pool on the output and size it, in one round trip.
 

@@ -14,6 +14,8 @@ from .utils import record_call_input
 OutputT = TypeVar("OutputT")
 P = ParamSpec("P")
 
+DEFAULT_TASK_DESCRIPTION = "@task function"
+
 
 @overload
 def task(
@@ -26,6 +28,7 @@ def task(
     func: None = None,
     *,
     log_info: bool = True,
+    description: str = DEFAULT_TASK_DESCRIPTION,
 ) -> Callable[
     [Callable[P, Coroutine[Any, Any, Any]]],
     Callable[P, Coroutine[Any, Any, OperationResult[Any]]],
@@ -36,6 +39,7 @@ def task(
     func: Callable[..., Coroutine[Any, Any, Any]] | None = None,
     *,
     log_info: bool = True,
+    description: str = DEFAULT_TASK_DESCRIPTION,
 ) -> Any:
     """Wrap an async function so it returns a record instead of a bare value.
 
@@ -44,6 +48,10 @@ def task(
     own envelope while it runs, so it may call other tasks and workflows freely,
     and `(await step).unwrap()` aborts it on a failed step exactly as it would a
     workflow.
+
+    `description` is a short, reader-facing line for the envelope —
+    `@task(description="Count matching books")`; a bare `@task` gets the
+    generic one.
     """
 
     def decorator(
@@ -58,7 +66,9 @@ def task(
             # publish, which also lets its error and cancel paths report without
             # constructing a second envelope.
             result: OperationResult[Any] = OperationResult(
-                name=func_ref, input=record_call_input(func, args, kwargs, logger)
+                name=func_ref,
+                description=description,
+                input=record_call_input(func, args, kwargs, logger),
             )
 
             # Timing, `parent_scope`, and the cancel/error paths — see span.py.
@@ -90,7 +100,6 @@ def task(
                     result=raw_output, output_type=type(raw_output).__name__
                 )
                 result.ok = True
-                result.add_details("wrapped a bare return value")
                 # `+=` not assignment, so usage rolled up from nested steps
                 # is not thrown away
                 if hasattr(raw_output, "token_usage") and isinstance(

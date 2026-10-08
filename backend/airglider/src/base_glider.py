@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import logging
-from typing import Any, Generic, TypeVar
+from typing import Any, ClassVar, Generic, TypeVar
 
 from .schemas import (
     OperationResult,
@@ -21,6 +21,11 @@ class Workflow(ABC, Generic[OutputT]):
     retries — the constructor sets up no expensive resources.
     """
 
+    # A short, reader-facing line for the envelope. A class attribute rather
+    # than a constructor argument, so a subclass sets it in one line without
+    # threading it through every `__init__` in between.
+    description: ClassVar[str] = "Workflow class"
+
     def __init__(self, output_type: type[OutputT] | None = None):
         self.name = self.workflow_ref
         self.output_type = output_type
@@ -28,6 +33,7 @@ class Workflow(ABC, Generic[OutputT]):
 
         self.record: OperationResult[OutputT] = OperationResult(
             name=self.workflow_ref,
+            description=self.description,
             response=Response(
                 output_type=output_type.__name__ if output_type is not None else None
             ),

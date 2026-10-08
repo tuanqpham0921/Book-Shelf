@@ -86,6 +86,8 @@ def describe_lexical_traits(args: FindByLexicalTraitsArgs) -> str:
 
 
 class FindByLexicalTraitsExecutor(BookWorkflow[FindByLexicalTraitsOutput]):
+    description = "Finds books by subject"
+
     ui_loading_message = "searching the catalog's text..."
 
     async def run(self, node_input: FindByLexicalTraitsInput) -> None:

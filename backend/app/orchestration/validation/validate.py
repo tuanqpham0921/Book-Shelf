@@ -68,7 +68,7 @@ def refusal_for(validation: UserMsgValidation) -> str | None:
     return None
 
 
-@task
+@task(description="Checks your message is safe")
 async def validate_user_message(request_context: RequestContext) -> UserMsgValidation:
     """Check the turn's message. Raises when the model returns no verdict, so
     `run`'s unwrap stops the turn: nothing unchecked goes further."""

@@ -32,6 +32,8 @@ def anchor_queries(anchors: list[BookRetrievalOutput]) -> list[DeferredBookQuery
 
 
 class CombineIntersectExecutor(BookWorkflow[CombineIntersectOutput]):
+    description = "Keeps only books every step found"
+
     ui_loading_message = "narrowing the results..."
 
     async def run(self, node_input: CombineIntersectInput) -> None:
