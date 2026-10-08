@@ -1,30 +1,33 @@
 # docs/
 
 The durable planning layer for this repo. The `TODO.md` files in `backend/` and
-`frontend/` are short-lived scratchpads — anything worth keeping graduates into a file
-here. Eval campaign outputs (reports, notes per run) stay in `backend/evals/results/`.
+`frontend/` are short-lived scratchpads; anything worth keeping graduates into a file
+here. Eval campaign outputs stay under `backend/evals/` (see
+[eval-strategy.md](eval-strategy.md)).
 
 ## Doc map
 
 | Doc | Purpose |
 |---|---|
-| [roadmap.md](roadmap.md) | V1 phases, release checklist, deferred features |
-| [backlog.md](backlog.md) | Tiered work items (P1/P2/P3) with code references |
-| [eval-strategy.md](eval-strategy.md) | The golden-test mechanism, suite inventory, latest findings, relabel plan |
-| [deployment.md](deployment.md) | Runbook: the staged path to Cloud Run, with an as-built status block at the top. Stage 4 (security) is the open one |
-| [deployment-neon.md](deployment-neon.md) | Runbook: the Neon database — project, bootstrap order, pool sizing, why indexes are built last |
-| [design/node-taxonomy-v1.md](design/node-taxonomy-v1.md) | Decision record: the V1 node set and conversation contract |
-| [design/planner-shape.md](design/planner-shape.md) | Decision record: capability nodes vs. entity + intent (accepted for V1), plus the open planner experiments |
-| [design/execution-pipeline-v1.md](design/execution-pipeline-v1.md) | Design record (proposed): retrieve → filter → analyze → generate, and the three nodes it needs |
-| [design/human-in-the-loop.md](design/human-in-the-loop.md) | Design record (proposed): pause / persist / resume — candidate pause points and known blockers |
-| [design/node-refusal-v1.md](design/node-refusal-v1.md) | Design record (proposed, deferred): what a node does when it's handed work it can't do — refusal instead of a raise, and empty results reaching consumers |
+| [roadmap.md](roadmap.md) | Where V1 stands, what's next, the release checklist, deferred features |
+| [backlog.md](backlog.md) | Open work items (P1/P2/P3) with code references, plus settled decisions |
+| [eval-strategy.md](eval-strategy.md) | The golden test, the single-call evals, what nothing grades yet, suite inventory |
+| [deployment.md](deployment.md) | Runbook: Cloud Run and Firebase — live config, deploying, the image, security and spend controls |
+| [deployment-neon.md](deployment-neon.md) | Runbook: the Neon database — connecting, bootstrap order, migrations, pool sizing |
+| [design/node-taxonomy-v1.md](design/node-taxonomy-v1.md) | Decision record: the node set, the rules every node follows, per-node notes, the conversation contract |
+| [design/execution-pipeline-v1.md](design/execution-pipeline-v1.md) | Design record (built): counts-first retrieval, composition, the task runner and the reply stage |
+| [design/planner-shape.md](design/planner-shape.md) | Decision record: capability nodes vs. entity + intent, the instruction contract, open planner experiments |
+| [design/human-in-the-loop.md](design/human-in-the-loop.md) | Design record (proposed): pause / persist / resume — pause points, blockers, recommendation |
+| [design/node-refusal-v1.md](design/node-refusal-v1.md) | Design record (proposed): a node that can say "wrong node for this", and empty results reaching consumers |
 
 ## Conventions
 
-- **Read the nearest README first.** Most backend/frontend folders have a `README.md`
+- **Read the nearest README first.** Most backend and frontend folders have a `README.md`
   with the local context; read it before changing that folder.
 - **Docs update with the code.** A change to routes, the node registry, enums, or the
   request flow updates the nearest README, `CLAUDE.md`'s architecture section, and the
-  relevant doc here — in the same change.
-- **Decision records** go in `design/`, one file per decision, dated, with the evidence
-  that drove them.
+  relevant doc here, in the same change.
+- **Docs describe the present.** When a decision is reversed, rewrite the section; don't
+  append a dated amendment. Git keeps the history.
+- **Decision records** go in `design/`, one file per decision, with the evidence that
+  drove it.

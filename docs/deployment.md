@@ -1,685 +1,203 @@
-# Deploying BookShelf to GCP — staged runbook
+# Deploying BookShelf
 
-## Status — as built, 2026-09-19
+**Updated:** 2026-10-08 · The database half is in [deployment-neon.md](deployment-neon.md).
 
-**The demo is live.** Anyone can open
-[tuanqpham0921.web.app](https://tuanqpham0921.web.app) and chat.
+## 1. Status
 
-| Piece | Live value |
+**Live.** Anyone can open [tuanqpham0921.web.app](https://tuanqpham0921.web.app) and chat.
+
+| Piece | Value |
 |---|---|
-| Cloud Run service | `book-shelf-api`, region `us-east5`, project `tuanqpham0921` |
-| URL | `https://book-shelf-api-imqv7vxzdq-ul.a.run.app` (public: `allUsers` → `roles/run.invoker`) |
+| Cloud Run service | `book-shelf-api`, region `us-east5`, project `tuanqpham0921` (number 286869228046) |
+| URL | `https://book-shelf-api-imqv7vxzdq-ul.a.run.app` — public (`allUsers` → `roles/run.invoker`) |
 | Shape | cpu 1, memory 1Gi, cpu-boost, timeout 300s, min 0 / max 3 instances, concurrency 5 |
-| Identity | `book-shelf-api@tuanqpham0921.iam.gserviceaccount.com` — not the compute default |
+| Identity | `book-shelf-api@tuanqpham0921.iam.gserviceaccount.com`, not the compute default (which carries project Editor) |
 | Secrets | `POSTGRES_PASSWORD` ← `postgres-password:latest`, `OPENAI_API_KEY` ← `openai-api-key:latest` |
-| OpenAI key | Production has its **own key**, not the one in `config/.env` that `make dev` / `dev-neon` use. `openai-api-key` v2 is the prod key; v1 (the dev key) was disabled 2026-09-22. To rotate: `printf '%s' "$K" \| gcloud secrets versions add openai-api-key --data-file=-`, then `make deploy` — `latest` is resolved when an instance starts |
-| Startup probe | `GET /ready`, 5s delay / 5s period / 6 failures — a revision that can't reach Neon never takes traffic |
-| Database | Neon, not Cloud SQL — see [deployment-neon.md](deployment-neon.md) |
-| Frontend | Firebase Hosting, target `book-rec`; `VITE_API_URL` baked in from `frontend/.env.production` |
+| OpenAI key | Production has its **own key**, separate from the one in `config/.env` that `make dev` and `dev-neon` use |
+| Startup probe | `GET /ready` (a real `SELECT 1`), 5s delay / 5s period / 6 failures — a revision that can't reach the database never takes traffic |
+| Database | Neon — [deployment-neon.md](deployment-neon.md) |
+| Frontend | Firebase Hosting, target `book-rec`; `VITE_API_URL` from the committed `frontend/.env.production` |
 
-**The deploy is one command:** `make -C backend deploy` (Stage 4.6, done — the
-recipe in `backend/Makefile` carries every flag above, so nothing lives only in
-the console), and `make -C frontend deploy` for the site.
+**Not in production:** the project-docs RAG service (`PROJECT_DOCS_URL`) runs locally only,
+so project lookups fail there and fall through to the planner
+([backlog.md](backlog.md), Project info).
 
-| Stage | State |
-|---|---|
-| 1 — container builds | ✅ |
-| 2 — on Cloud Run | ✅ (deployed private, opened in Stage 5) |
-| 3 — database | ✅ **via Neon**, not Cloud SQL; the Cloud SQL stage below is superseded |
-| 4 — security | ⏳ **open.** CORS (4.3) and recording (4.2) are done; the admin gate (4.1) and message bounds (4.4) are not. Secrets + service account (4.5) are done |
-| 5 — public | ✅ |
-| 6 — docs | ✅ |
+## 2. Deploying
 
-**What being public means while Stage 4 is open:** `GET /chat_runs`,
-`PUT /feedback/review` and `GET /feedback` take no credential, and
-`POST /session/{id}/message` spends OpenAI budget for anyone who calls it. The
-standing mitigations are a hard monthly spend cap on the OpenAI account plus
-`--concurrency=5 × --max-instances=3` as a throughput ceiling. **Recording was
-turned on in 4.2 (2026-09-23) while 4.1 is still open**, so `/chat_runs` now
-serves real turns — user messages included — to anyone who asks. That makes the
-admin gate the one blocking item in this stage.
+```bash
+make -C backend deploy        # build with Cloud Build, deploy, then deploy-check
+make -C backend deploy-check  # curl /ready on the live revision — 200 means image, env, secrets and DB are wired
+make -C frontend deploy       # build + publish to Firebase Hosting
+```
 
-## Context (the starting state, 2026-09-17)
+**The `deploy` recipe in `backend/Makefile` is the whole description of the service.**
+Change a setting there, not in the console. There is no `cloudbuild.yaml` and there
+shouldn't be: `gcloud run deploy --source` already runs Cloud Build and pushes to
+Artifact Registry, so the file would only restate the Dockerfile and the flags.
 
-The goal was a public demo: anyone opens `tuanqpham0921.web.app` and chats. At
-the time only the frontend was deployed and the backend was reached through an
-ngrok tunnel — which is why `frontend/src/api.js` sent an
-`ngrok-skip-browser-warning` header on every request. Both the tunnel and that
-header are gone (2026-09-19).
+Details worth knowing:
 
-**The Cloud Run path the docs described did not exist.** `README.md` and
-`CLAUDE.md`'s Infrastructure section both claimed `gcloud builds submit --config
-cloudbuild.yaml` worked. There was no `cloudbuild.yaml` in the repo, and
-`backend/Dockerfile` **could not build**: `COPY ../pyproject.toml` and
-`COPY ../app` reached outside the build context, which Docker rejects. Even
-fixed, it copied only `app/` while `app/main.py` needs `config`, `common`,
-`db`, `clients` and `airglider`. Stage 1 replaced that Dockerfile.
+- The database host, user and pool values come from git-ignored `config/.env.neon` — the
+  same file `make dev-neon` reads — so the deployed database and local Neon runs cannot
+  drift, and the endpoint stays out of the public repo.
+- **`^@^` in `--set-env-vars` is load-bearing.** It switches gcloud's list delimiter from
+  `,` to `@`, so the comma inside `APP_ALLOW_ORIGINS` doesn't split it into two malformed
+  variables.
 
-Stages run in your order — Dockerfile, Cloud Run, Cloud SQL, then security —
-with one adjustment that makes that order safe: **Stage 2 deploys the service
-private** (`--no-allow-unauthenticated`). It only becomes public in Stage 5,
-after the security work. So you can go one stage at a time without ever having
-an unprotected endpoint live.
+**Kill switch:**
 
-### Verified state (checked directly, 2026-09-17)
+```bash
+make -C backend deploy-off    # revoke public access (403s); nothing is deleted
+make -C backend deploy-on     # restore it without a rebuild, then deploy-check
+```
 
-| Thing | State |
-|---|---|
-| Working tree | Clean. No merge in progress |
-| `gcloud config project` | **`tuanqpham-508821` — the wrong project.** Stage 2 sets `tuanqpham0921` (number 286869228046, which matches the old Cloud Run URL commented at `api.js:2`) |
-| `cloud-sql-proxy` | **Not installed.** Stage 3 installs it |
-| Local tooling | docker 28.3.0, psql 16.14, firebase 15.30.1, gcloud 532.0.0 — all fine |
-| Books data | **Live in the local `book-rec-postgres` container: 5,197 rows, all 5,197 embedded.** `data/backup/` is **empty** — the dump referenced in `Makefile:75` is gone. Stage 3 regenerates it with `pg_dump` |
-| `chat_runs` locally | 3 rows |
+**Rotating the OpenAI key:**
 
-### Two things worth knowing before you start
+```bash
+printf '%s' "$K" | gcloud secrets versions add openai-api-key --data-file=-
+make -C backend deploy        # `latest` is resolved when an instance starts
+```
 
-**Nothing is recorded in production today.** *(Starting state, 2026-09-17.
-Superseded by 4.2 on 2026-09-23 — production now inserts a `chat_runs` row.)*
-`record_chat_run`
-(`app/orchestration/run_recorder.py`) returns immediately for any environment
-but `development`, and the `chat_runs` insert — the commented block at the end
-of that function — is off in *every* environment. So a deployed instance writes
-**no file and no row**: no evals, no review page, no debugging. Files are never
-the production sink: Cloud Run's filesystem is in-memory, so each one would cost
-instance RAM and vanish with the instance. Stage 4 turns the insert back on —
-deliberately in the same stage as the auth gate, because that write is also what
-makes `/chat_runs` worth protecting. (The same switch is why local evals — whose
-`test_runs` rows have an FK to `chat_runs` — and the local review page currently
-get nothing either.)
+Use `printf '%s'`, never `echo`: a trailing newline breaks auth in a way that looks
+exactly like a wrong credential.
 
-**`config/settings/sqlalchemy.py:21` interpolates user and password into the URL
-unescaped.** A password containing `@ : / # ?` silently corrupts the connection
-string. Stage 3 generates an alphanumeric-only password to sidestep it, and logs
-the `quote_plus` fix in the backlog rather than building around it now.
+## 3. The image
 
----
+`backend/Dockerfile`, build context `backend/`:
 
-# Stage 1 — Make the container build ✅
+- **Multi-stage, `python:3.12-slim`;** `poetry install --only main --no-root`. The app runs
+  from source with `WORKDIR` on `sys.path`, like `make dev`.
+- **An explicit copy list:** `airglider app clients common config db`. A whole-directory
+  copy is what carries the prompt `.txt` files; a `**/*.py` pattern would drop them and
+  fail on the first request, not at boot.
+- **The tiktoken encodings are baked in** (`TIKTOKEN_CACHE_DIR=/app/.tiktoken`), so a cold
+  start doesn't download them on a user's first request.
+- **`$PORT` is honoured** through `sh -c` with `exec`, so uvicorn is PID 1 and receives
+  Cloud Run's SIGTERM. One worker; Cloud Run scales by instance.
+- **Non-root, without `chown`.** `/app` stays root-owned and read-only, so a stray write
+  fails loudly. The consequence: the image only boots as `APP_ENVIRONMENT=production`,
+  because development writes a log file. Local dev is `make dev`.
 
-Nothing here touches GCP. Ends with the image serving real traffic locally.
+**Two ignore files, with different matching rules.** `.dockerignore` uses Docker's
+matcher (bare `*` plus `!name` negations work); `.gcloudignore` uses gitignore semantics,
+so **every line is anchored with a leading `/`**, and it keeps `Dockerfile` because Cloud
+Build needs it in the uploaded tarball. Both exclude `config/.env*`, `logs/`, `data/`,
+`evals/`, `playground/`, `tests/`, `.venv` and the SQL under `db/`. Without a
+`.gcloudignore`, gcloud writes one into the repo for you.
 
-### 1.1 Replace `backend/Dockerfile`
-
-Build context is `backend/`. Each point fixes a specific current defect:
-
-- **Multi-stage**, `python:3.12-slim`. Your poetry venv is already
-  `book-rec-i6cZOUnN-py3.12`; CI and pyright say 3.11. Bump
-  `.github/actions/setup/action.yml` to `python-version: "3.12"` and
-  `pyproject.toml`'s `pythonVersion = "3.12"` so tested == shipped. **Leave
-  `python = "^3.11"` alone** — 3.12 satisfies that range, so `poetry.lock`'s
-  content-hash stays valid and you avoid a 357KB lock diff.
-- **`poetry install --only main --no-root`.** `--no-root` skips installing the
-  project as a package, which sidesteps `pyproject.toml:6-12` omitting `clients`
-  from `packages` even though `common/context.py:6` imports it. The app runs
-  from source with `WORKDIR` on `sys.path`, exactly like `make dev`.
-- **Copy an explicit whitelist**, not `COPY . .`: `airglider app clients common
-  config db`. A directory copy carries the five prompt `.txt` templates that
-  `app/common/prompt_loader.py:12` reads at runtime — a `COPY **/*.py` pattern
-  would silently drop them and fail on first request rather than at boot.
-- **Pre-warm the tiktoken cache.** `clients/openai_client.py:55` calls
-  `token_count()` on the embeddings path; tiktoken lazily downloads a BPE file
-  from `openaipublic.blob.core.windows.net` on first use. With min-instances=0
-  that fetch lands on a user-facing cold start. Set
-  `ENV TIKTOKEN_CACHE_DIR=/app/.tiktoken` and bake both encodings at build:
-  `RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"`
-  (`cl100k_base` backs `text-embedding-3-large`; `o200k_base` is
-  `OPENAI_TOKENIZER_ENCODING`).
-- **Honor `$PORT`** — Cloud Run injects it; the current CMD hardcodes 8000. Run
-  it through `sh -c` so it expands, with `exec` so uvicorn is PID 1 and Cloud
-  Run's SIGTERM reaches it (in-flight SSE streams then close cleanly):
-  `CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]`.
-  One worker, no `--workers` — Cloud Run is one process per container and scales
-  by instance.
-- Run as a non-root user, **without** `chown -R /app`. The app only reads
-  `/app`, and a `chown` rewrites every file — the whole `.venv` — into a new
-  ~190MB layer. Leaving `/app` root-owned also makes it read-only at runtime, so
-  a stray write fails loudly instead of eating Cloud Run's in-memory disk. The
-  consequence: the image only boots as `APP_ENVIRONMENT=production`, because
-  development's log file needs `/app/logs`. Local dev is `make dev`.
-- No `apt-get` layer: `asyncpg`, `pandas`, `tiktoken` all ship manylinux wheels
-  and `pgvector` is pure Python.
-
-### 1.2 Add `backend/.dockerignore` **and** `backend/.gcloudignore`
-
-Two files, because **they use different matching rules** and getting this wrong
-is the most common way to leak a secret or upload 220MB.
-
-- `.dockerignore` — Docker's matcher does not cross `/`, so bare `*` plus
-  `!name` negations work.
-- `.gcloudignore` — gitignore semantics, where an unanchored `*` re-matches
-  nested paths and kills your negations. **Anchor every line with a leading
-  `/`.** Keep `Dockerfile` in this one: Cloud Build needs it inside the uploaded
-  tarball, whereas local `docker build` reads it out of band.
-
-Both must exclude `config/.env` — otherwise your real secrets get baked into the
-image. Both exclude `logs/`, `data/`, `evals/` (145MB), `playground/`, `tests/`,
-`.venv`, `__pycache__`, and the SQL under `db/` the app never reads —
-`db/init/` (the schema) and `db/commands/` (ad-hoc queries, migrations). Without `.gcloudignore`, `gcloud` uploads ~3,900 files
-per deploy, and if the file is absent while `.gitignore` exists, gcloud *writes*
-a generated `.gcloudignore` into your repo.
-
-### 1.3 Delete the dead entrypoints
-
-Rule 5 (removal is part of the change):
-
-- `app/main.py:74-91` — the `if __name__ == "__main__"` block labelled "Cloud Run
-  entry point" is unreachable from both `make dev` and the container. Delete it
-  and the now-unused `import os` on line 1. The new `CMD` replaces it.
-- `pyproject.toml:63-65` — `[tool.poetry.scripts]` declares
-  `ingestion = "db.ingestion.main:main"` (**verified: the module does not
-  exist**) and `app = "app.main:main"` (`app/main.py` has no `main()`). Both
-  dead; delete the block and the `ingestion` target at `Makefile:24`.
-- Add `{ include = "clients" }` to `packages` while you are in the file.
-
-**Leave `make dev` alone.** It has no `--port`, so it defaults to 8000, which is
-what `frontend/.env` and the README expect. One mechanism (uvicorn), two
-invocations.
-
-### ✅ Stage 1 checkpoint
+**Testing the image locally:**
 
 ```bash
 cd backend
 docker build -t book-shelf-api .
-# -e after --env-file wins: config/.env says development, the image is production
-docker run --rm --name book-shelf-api --network host -e PORT=8080 \
+docker run --rm --network host -e PORT=8080 \
   --env-file config/.env -e APP_ENVIRONMENT=production book-shelf-api
-curl localhost:8080/ping     # -> {"status":"ok",...}
-curl localhost:8080/ready    # -> 200, proves it reached the local postgres
-```
-The boot log should say `App environment set to: PRODUCTION` and
-`Handlers: ['StreamHandler']` (no log file). Then send one real chat message and
-confirm SSE streams. Also `make tests-all && make typecheck` after the
-pyproject/CI edits.
-
-### Test the message endpoint
-
-```bash
-# -N: don't buffer, so SSE events print as they arrive
-curl -N -X POST "http://localhost:8080/session/abc123/message" \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Recommend me a science fiction book"}'
-docker exec book-shelf-api ls -la /app   # no logs/ — production writes nothing
+curl localhost:8080/ready
 ```
 
----
-
-# Stage 2 — Get it onto Cloud Run (private) ✅
-
-No database yet, so `/ready` will fail — that is expected and fine. This stage
-proves build, push, boot and `$PORT` only.
-
-### 2.1 Point gcloud at the right project
-
-Currently set to `tuanqpham-508821`. The Firebase project — and the old Cloud Run
-service — live in `tuanqpham0921`.
-
-```bash
-export PROJECT=tuanqpham0921 REGION=us-central1
-gcloud config set project $PROJECT
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
-  artifactregistry.googleapis.com sqladmin.googleapis.com \
-  secretmanager.googleapis.com --project=$PROJECT
-```
-
-### 2.2 Deploy from source — no `cloudbuild.yaml`
-
-**Recommendation: never write that file.** `gcloud run deploy --source` runs
-Cloud Build, pushes to an auto-created **Artifact Registry** repo
-(`cloud-run-source-deploy`, not legacy `gcr.io`), and deploys — in one command.
-A `cloudbuild.yaml` here would exist only to restate what the Dockerfile and the
-deploy flags already say, with no CI trigger calling it. That is exactly the
-"layer that only forwards a call" CLAUDE.md says this repo keeps paying to
-delete. Fix the stale docs by **deleting the claim**, not by writing the file.
-
-```bash
-gcloud run deploy book-shelf-api \
-  --source=backend/ --region=$REGION --no-allow-unauthenticated \
-  --cpu=1 --memory=1Gi --cpu-boost --timeout=300 \
-  --min-instances=0 --max-instances=3 --concurrency=5 \
-  --set-env-vars="^@^APP_NAME=book-recommender-backend@APP_ENVIRONMENT=production@APP_ALLOW_ORIGINS=http://localhost:3000@POSTGRES_HOST=localhost@POSTGRES_PORT=5432@POSTGRES_DB=book_recommender@POSTGRES_USER=postgres@POSTGRES_PASSWORD=placeholder@POSTGRES_MIN_CONNECTIONS=2@POSTGRES_MAX_CONNECTIONS=12@OPENAI_API_KEY=placeholder@OPENAI_BASE_MODEL=gpt-4.1-mini@OPENAI_TOKENIZER_ENCODING=o200k_base@OPENAI_EMBEDDING_MODEL=text-embedding-3-large@OPENAI_EMBEDDING_DIMENSIONS=1024@OPENAI_MAX_CONCURRENCY=10"
-```
-
-- **`^@^` is load-bearing.** It changes gcloud's list delimiter from `,` to `@`.
-  `APP_ALLOW_ORIGINS` will contain a comma in Stage 5; without this, gcloud
-  splits it into two malformed env vars.
-- Placeholders for the secrets are fine here — every `Settings` field is
-  required with no default, so the process would fail at import without them.
-  `config/constants.py:27` points `ENV_FILE` at a path absent from the image;
-  pydantic-settings falls through to real env vars, which is the correct pattern.
-  Stage 4 swaps these for Secret Manager references.
-- No startup probe yet — it would fail with no database.
-
-### ✅ Stage 2 checkpoint
-
-```bash
-URL=$(gcloud run services describe book-shelf-api --region=$REGION --format='value(status.url)')
-curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" $URL/ping
-```
-`{"status":"ok"}` means the image built, `$PORT` was honored and the app booted.
-`/ready` returning 503 here is the correct answer — there is no database yet.
-
-If `--source` fails on permissions (newer projects lack the legacy Cloud Build
-SA), add `--build-service-account=...` with `roles/cloudbuild.builds.builder`
-and `roles/artifactregistry.writer`.
-
----
-
-# Stage 3 — Cloud SQL
-
-> **Superseded by [deployment-neon.md](deployment-neon.md)** — the database is
-> Neon, and it is already live. Kept for the Cloud SQL path only.
-
-### 3.1 Create the instance
-
-```bash
-# URL-safe alphabet on purpose — see the unescaped-interpolation note in Context.
-PGPW=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)
-
-gcloud sql instances create book-rec-db \
-  --database-version=POSTGRES_16 --tier=db-g1-small --region=$REGION \
-  --storage-size=10GB --storage-type=SSD --storage-auto-increase \
-  --backup-start-time=08:00
-gcloud sql users set-password postgres --instance=book-rec-db --password="$PGPW"
-gcloud sql databases create book_recommender --instance=book-rec-db
-```
-
-POSTGRES_16 matches your local `pgvector/pgvector:pg16` and psql 16.14 — no
-version skew. Public IP stays on with no authorized networks: the Auth Proxy
-reaches it over IAM, Cloud Run over the `/cloudsql/` unix socket.
-
-Install the proxy (not currently present):
-one binary from the `GoogleCloudPlatform/cloud-sql-proxy` releases.
-
-### 3.2 Dump books from the live container
-
-`data/backup/` is empty, so regenerate from the running database — which is
-cleaner than a stale file and gives exactly the books-only seed you chose.
-Add this beside the existing `postgres-dump-*` family in `backend/Makefile`,
-**without** `--column-inserts`: 1024-float vectors as individual INSERTs would
-be enormous and slow, and plain `COPY` format is what you want.
-
-```make
-postgres-dump-books:   # pg_dump --table=books --data-only -> data/backup/books.sql
-```
-
-### 3.3 Bootstrap, in this order
-
-There is no schema runner anywhere — `docker-compose.yml` mounts `db/init/`
-into `/docker-entrypoint-initdb.d/`, which only fires on an empty data
-directory. Add `cloudsql-proxy`, `cloudsql-bootstrap` and `cloudsql-cli` targets
-so the proxy path is a first-class sibling of the `docker exec` ones.
-
-1. **`00_extensions.sql`** — `vector` and `pg_trgm`. Cloud SQL PG16 allows both
-   but nothing in the app creates them.
-2. **`01_tables.sql`**
-3. **Load `books.sql`**
-4. **`02_indexes.sql` — last, deliberately.** `books_embedding_idx` is
-   `ivfflat ... WITH (lists = 100)` (`02_indexes.sql:2-4`), and ivfflat builds
-   its centroids from the rows present at creation time. Built on an empty table
-   it is useless and similarity recall degrades *silently*. `books_search_idx`
-   and `feedback_review_idx` also need their tables to exist.
-
-**No migration runner needed.** I verified all seven files in
-`db/commands/migrations/` are already folded into the base schema —
-`writer JSONB` is in `01_tables.sql`, `books_search_idx` is in `02_indexes.sql`.
-A fresh database gets the current schema from `00/01/02`. Building a runner now
-is building for a caller that doesn't exist. The durable rule for the runbook: a
-schema change lands in `db/init/0*.sql` **and** a dated migration file, and
-the migration is applied with `make cloudsql-cli ARGS="-f <file>"`.
-
-### 3.4 Reconnect Cloud Run to the database
-
-```bash
-gcloud run services update book-shelf-api --region=$REGION \
-  --add-cloudsql-instances=$PROJECT:$REGION:book-rec-db \
-  --update-env-vars="POSTGRES_HOST=/cloudsql/$PROJECT:$REGION:book-rec-db" \
-  --startup-probe=httpGet.path=/ready,initialDelaySeconds=5,timeoutSeconds=5,periodSeconds=5,failureThreshold=6
-```
-
-`POSTGRES_HOST=/cloudsql/...` triggers the socket branch at
-`config/settings/sqlalchemy.py:19-21` — already coded and unit-tested at
-`tests/unit/config/test_settings.py:28-46`. No connector dependency.
-
-**Use `/ready` as the startup probe.** Cloud Run's default check is TCP-on-$PORT,
-and since `common/context.py:44-48` has `ping_services()` commented out, a
-container with a wrong `POSTGRES_HOST` binds the port and goes live serving 500s
-on every chat. `/ready` runs a real `SELECT 1`, so it catches exactly that: bad
-socket path, wrong password, missing `--add-cloudsql-instances`. Zero code
-change — `health.py:20-46` already returns 503 on failure, and a failing probe
-means the revision never goes live and the previous one keeps serving.
-
-Do **not** re-enable `ping_services()` instead: it also calls
-`OpenAIClient.ping()`, a **billed API call on every cold start**, and couples
-boot to a third party. Nothing else calls it — delete it with the dead comment.
-
-No liveness probe: a transient DB blip would kill healthy containers mid-stream.
-
-### Pool sizing
-
-The binding constraint is easy to miss. `get_sqlalchemy_session`
-(`app/api/dependencies.py:42-53`) is a **`yield` dependency**, so its connection
-is held for the *entire SSE stream*, not per query — and once Stage 4 uncomments
-the recorder, `record_chat_run` opens a **second, independent** session while
-the first is still open. So peak is **2 connections per in-flight turn**.
-
-| Knob | Value | Why |
-|---|---|---|
-| `--concurrency` | 5 | 5 turns × 2 conns = 10 |
-| `--max-instances` | 3 | ~15 concurrent turns; under the 500 RPM tier in `docs/backlog.md:52-58` |
-| `POSTGRES_MIN_CONNECTIONS` | 2 | `pool_size` |
-| `POSTGRES_MAX_CONNECTIONS` | 12 | pool 2 + overflow 10 (`db/async_engine.py:32-34`) |
-| Worst case | 36 | 3 × 12, inside `db-g1-small`'s ~50 |
-
-The shipped defaults (`.env.example:18-19`, MIN=5/MAX=20) are **per instance** —
-at 3 instances that is 60 and blows the cap. Both are env-driven, so this is
-config, not code. Confirm with
-`make cloudsql-cli ARGS='-c "SHOW max_connections;"'`.
-
-### ✅ Stage 3 checkpoint
-
-Through the proxy: `\dx` lists `vector` + `pg_trgm`; `SELECT count(*) FROM
-books` → **5197**; `\di` shows four indexes. Then
-`curl -H "Authorization: Bearer $(gcloud auth print-identity-token)" $URL/ready`
-→ **200**. That 200 is the real proof the socket path works.
-
----
-
-# Stage 4 — Security, and turn recording back on
-
-Everything here is code, verified with `make tests-all` before redeploying.
-
-### 4.1 Admin gate on the review surface
-
-`GET /chat_runs` (`app/api/routes/chat_run.py:9-20`) returns every session's
-`user_message`, the writer envelope and full planner/task JSONB traces,
-unscoped and unauthenticated. The feedback routes take a caller-supplied
-`chat_id`/`session_id` and upsert whatever is passed.
-
-On the backlog's "real session-ownership verification, not 'the ID is hard to
-guess'" (`docs/backlog.md:21-25`): that **cannot be satisfied as written**.
-`POST /session/new` hands out session ids to anyone with no credential, so there
-is no identity to verify against. `db/init/01_tables.sql` already calls
-`feedback` "Reviews from the internal /review page" — this plan takes it at its
-word and gates the surface, which closes the disclosure *and* the tampering
-item together and dissolves the ownership question: the session id stops being
-the credential, so guessing it buys nothing.
-
-- `config/settings/app.py` — add `ADMIN_TOKEN: str` (picks up `APP_ADMIN_TOKEN`
-  from the existing `env_prefix="APP_"`).
-- `app/api/dependencies.py` — one `require_admin(x_admin_token: str = Header(...))`
-  raising 403, using **`secrets.compare_digest`**, not `==`, which
-  short-circuits on the first differing byte.
-- `app/main.py` — apply router-level, not per-route, so routes added later are
-  covered by default:
-  `app.include_router(chat_run_router, dependencies=[Depends(require_admin)])`.
-- Add `APP_ADMIN_TOKEN=` to `config/.env.example` **and** to
-  `.github/workflows/ci.yml`'s env block — every `Settings` field is required
-  with no default, so CI breaks otherwise.
-
-**Be honest about the limit:** a `VITE_*` value is baked into the Vite bundle in
-plaintext. So **do not ship `/review` publicly.** Keep the token in your *local*
-`frontend/.env` and run the review page locally; the Firebase bundle ships
-without it, serving `/` and the about pages. A genuinely public review page needs real
-auth (Firebase Auth) and is separate work — don't fake it with a bundled token.
-
-### 4.2 Turn recording ✅ (2026-09-23)
-
-`record_chat_run` (`app/orchestration/run_recorder.py`) now picks one sink per
-environment instead of returning early for everything but development:
-**production** inserts one `chat_runs` row through `ctx.store(ChatRunStore)`,
-**development** writes its JSON files, **test** writes nothing. The two sinks
-are `_insert_chat_run` and `_save_turn_files`, chosen in one place and wrapped
-in one `try`, because the rule is the same for both — recording never costs the
-user their reply.
-
-**The sequencing note below was not honoured, and 4.1 is still open.** The
-insert was turned on ahead of the gate at the owner's direction, so from this
-revision on, every production turn's user message and full envelope tree is
-readable over an unauthenticated `GET /chat_runs`. The disclosure risk is now
-retroactive as well as prospective: 4.1 no longer merely prevents a leak, it has
-a growing table behind it. Until it lands, the standing mitigations are the
-`deploy-off` kill switch and the throughput ceiling.
-
-Original note, kept because it is the reason 4.1 is now urgent: because prod
-started with an empty `chat_runs` and the recorder was off, today's disclosure
-risk was prospective, not retroactive — which is why the insert belonged in the
-same stage as the gate.
-
-### 4.6 Firebase App Check (2026-09-24, code done; console setup pending)
-
-Every route but `/health`, `/ping` and `/ready` now requires a Firebase App
-Check token in `X-Firebase-AppCheck`. `require_app_check`
-(`app/api/dependencies.py`) verifies it with PyJWT against Firebase's public
-JWKS (RS256, audience `projects/<number>`, issuer
-`https://firebaseappcheck.googleapis.com/<number>`), applied per router in
-`app/main.py`. It is enforced exactly when `APP_FIREBASE_PROJECT_NUMBER` is
-set, which the `deploy` recipe does (`GCP_PROJECT_NUMBER`). The frontend mints
-tokens with the reCAPTCHA Enterprise provider in `src/api.js`, from the
-`VITE_FIREBASE_*` / `VITE_RECAPTCHA_SITE_KEY` values in `.env.production`.
-
-**What it is not:** authentication. A visitor can copy a live token out of
-devtools and replay it with curl until it expires (1 hour by default). It stops
-scripts that never load the page, not a person who does, so 4.1 stays open.
-
-### 4.7 Spend caps and the review surface (2026-09-24)
-
-- **The review routes are off in production.** `app/main.py` registers
-  `/chat_runs`, `/feedback` and `/feedback/review` only outside production, which
-  closes 4.1's disclosure without the admin gate. Review locally with
-  `make dev-neon` against the same database; `/review` on the live site now
-  fails to load. 4.1 still stands if the review page should ever go public.
-- **The chat's thumbs up/down is served in production** (same day, later).
-  `PUT /session/{session_id}/message/{chat_id}/feedback` writes only, returns
-  nothing another session wrote, and 404s unless `ChatRunStore.belongs_to`
-  finds the run recorded under that session — the ownership check 4.1 said
-  could not exist *for the review page*, where the reviewer is by design not the
-  run's session. Here they are the same, so a made-up session id can rate only
-  runs it paid for, one row each. The row can also carry comments, the review
-  page's shape; `FeedbackIn` bounds it to `AppConfig.FEEDBACK_MAX_COMMENTS`
-  comments of `FEEDBACK_COMMENT_LENGTH` characters, so one row stays small.
-- **Site-wide daily cap.** The per-session budget can't bound the bill on its
-  own: `start_turn` gives a full budget to any session id it hasn't seen, and
-  the id comes from the URL. `Orchestrator.run` now also reads
-  `read_site_spend` (`SessionStore.spent_in_last_day`: every session active in
-  the last 24h, summed as budget minus remaining) and refuses past
-  `AppConfig.SITE_DAILY_TOKEN_BUDGET`. Derived from `sessions`, so there is no
-  migration and no second counter.
-- **Per-IP message limit.** `limit_messages_per_ip` on the chat route, keyed
-  on the last `X-Forwarded-For` entry, in memory per instance, so the real
-  ceiling is up to `max-instances` times `AppConfig.MESSAGES_PER_IP`.
-- Message length was already capped at 2,000 characters in the chat route (4.4).
-
-### 4.3 CORS ✅ (2026-09-19)
-
-`app/main.py` sets `allow_credentials=True`, so `*` was not merely sloppy —
-browsers reject it outright. Exact origins now come from `APP_ALLOW_ORIGINS`
-(set by the `deploy` recipe), `allow_methods` is `["GET","POST","PUT","OPTIONS"]`
-and `allow_headers` is `["Content-Type"]` — the verbs and the one header
-`frontend/src/api.js` actually sends (`X-Firebase-AppCheck` joined them 2026-09-24, see 4.6). `X-Admin-Token` joins the header list when
-4.1 lands, not before.
-
-`ngrok-skip-browser-warning` is gone from `api.js`, along with `make tunnel` and
-the three clients for endpoints that no longer exist.
-
-### 4.4 Message length bounds
-
-`app/api/schemas/external.py` — the backlog names `FeedbackIn.message`; the real
-class is `ReviewCommentIn` (line 14). Add `max_length`. Move the `2000` literal
-out of `app/api/routes/chat_message.py:70-74` onto `ChatIn.message` as a `Field`
-constraint, with the bound in `config/constants.py` per CLAUDE.md's "no literals
-at the call site"; the whitespace check at line 66 becomes `min_length=1` plus a
-strip validator.
-
-### 4.5 Secrets and a real service account
-
-```bash
-SA=book-shelf-api@$PROJECT.iam.gserviceaccount.com
-gcloud iam service-accounts create book-shelf-api --display-name="Book Recommender API"
-gcloud projects add-iam-policy-binding $PROJECT --member=serviceAccount:$SA \
-  --role=roles/cloudsql.client
-
-# printf '%s', never echo: a trailing newline breaks auth in a way that looks
-# exactly like a wrong credential.
-printf '%s' "$PGPW"           | gcloud secrets create postgres-password --data-file=-
-printf '%s' "$OPENAI_API_KEY" | gcloud secrets create openai-api-key   --data-file=-
-printf '%s' "$ADMIN_TOKEN"    | gcloud secrets create admin-token      --data-file=-
-for s in postgres-password openai-api-key admin-token; do
-  gcloud secrets add-iam-policy-binding $s --member=serviceAccount:$SA \
-    --role=roles/secretmanager.secretAccessor
-done
-```
-
-A dedicated SA, not the compute default —
-`286869228046-compute@developer.gserviceaccount.com` carries project Editor, so
-a compromised container would have project-wide write.
-
-Then redeploy with `--service-account=$SA` and
-`--set-secrets=OPENAI_API_KEY=openai-api-key:latest,POSTGRES_PASSWORD=postgres-password:latest,APP_ADMIN_TOKEN=admin-token:latest`,
-dropping the placeholder env vars.
-
-### 4.6 Wrap it in `make deploy` ✅ (2026-09-19)
-
-`backend/Makefile` has it. The recipe is the whole description of the service,
-so nothing lives only in the console, and `make deploy-check` curls `/ready` on
-the live revision afterwards — a 200 there means image, env, secrets and Neon
-are all wired up.
-
-Two details worth keeping: the database host/user/pool values are sourced from
-git-ignored `config/.env.neon` (the same file `dev-neon` reads, so the deployed
-database and local Neon runs cannot drift, and the endpoint stays out of a
-public repo), and `^@^` switches gcloud's list delimiter so the commas inside
-`APP_ALLOW_ORIGINS` don't split into malformed env vars.
-
-GitHub Actions CD comes later; `.github/workflows/ci.yml` already has the env
-matrix it needs, and now also lints and builds the frontend.
-
-### What I'd leave open
-
-**`uuid_8()`'s 32 bits** (`airglider/src/utils.py:24`). ~1% collision odds at
-~9,300 rows, 50% at ~77k. A collision is a PK conflict on the `chat_runs`
-insert — the user still gets their answer, you lose one record. That is a
-data-quality bug, not a security one, and it is a one-line change in airglider
-whenever you next touch it. Leave it on the roadmap with this reasoning rather
-than doing it under a deploy deadline.
-
-**The real financial exposure is not on that list.** There is no rate limit on
-`POST /session/{id}/message`, and each turn is ~15 OpenAI calls. The zero-code
-answer you chose: a **hard monthly spend cap on the OpenAI account** (2 minutes,
-account-level) plus a GCP billing alert, with `--concurrency=5 ×
---max-instances=3` as the crude throughput ceiling. Do the spend cap before
-Stage 5, not after.
-
-### ✅ Stage 4 checkpoint
-
-`make tests-all`. Then against the still-private service: `/chat_runs` → 403
-without `X-Admin-Token`, rows with it. Send a chat turn and confirm a row lands
-in `chat_runs` via `make cloudsql-cli`.
-
----
-
-# Stage 5 — Go public ✅
-
-### 5.1 Open the service and set real origins ✅
-
-```bash
-gcloud run services update book-shelf-api --region=$REGION \
-  --update-env-vars="^@^APP_ALLOW_ORIGINS=https://tuanqpham0921.web.app,https://tuanqpham0921.firebaseapp.com"
-gcloud run services add-iam-policy-binding book-shelf-api --region=$REGION \
-  --member=allUsers --role=roles/run.invoker
-```
-
-Firebase serves both hostnames, so both must be listed.
-
-### 5.2 Point the frontend at it ✅ (2026-09-19)
-
-The footgun this stage worried about was real and got a better fix than the
-`deploy-prod` target planned here. One git-ignored `.env`, mutated in place by
-`make set-api-url`, meant a plain `make deploy` shipped whatever was there — one
-`make dev` session and you publish a localhost bundle — and a fresh clone
-published `VITE_API_URL=undefined`.
-
-Vite already solves this with **mode files**, both now committed:
-
-- `frontend/.env.development` → `http://localhost:8000`, loaded by `npm run dev`
-- `frontend/.env.production` → the Cloud Run URL, loaded by `npm run build`
-
-So `make deploy` cannot ship the wrong backend, and the URL is reviewable in
-git. A public URL for a public service is not a secret; a git-ignored
-`.env.local` still overrides either file locally.
-
-`set-api-url` and `deploy-tunnel` are deleted (both existed only to push a URL
-into that one file), as is the commented-out `BASE_URL` at `api.js:2`.
-
-### 5.3 Consider min-instances=1
-
-You chose cold starts, which is right for now. But before you *share* the link,
-`gcloud run services update book-shelf-api --min-instances=1` costs roughly
-$7/month — noise next to the Cloud SQL instance — and removes the 5-8s
-first-chat penalty that is most visible on exactly this low-traffic demo
-pattern. `--cpu-boost` shortens whatever cold start remains.
-
-### ✅ Stage 5 checkpoint
-
-Load `tuanqpham0921.web.app`, send a message, confirm SSE streams and cards
-render. Check the console for CORS errors — that is where a mis-escaped
-`APP_ALLOW_ORIGINS` surfaces.
-
----
-
-# Stage 6 — Docs ✅
-
-Required by CLAUDE.md's "keep docs in sync" rule. Done 2026-09-19, in the same
-pass that renamed the product to **BookShelf** (user-facing strings, the API
-title, `APP_NAME`, and `BookRecommenderPage` → `BookShelfPage`; the local
-database name `book_recommender`, the repo name and the `Generate_Recommendations`
-node vocabulary were deliberately left alone).
-
-- **`README.md`** — rewritten. It was claiming Redis, a `cloudbuild.yaml` that
-  never existed and an `app/` tree with three folders that aren't there. Now it
-  carries the live URLs, `make deploy` for each half, an accurate structure, and
-  an honest note that the catalog dump is git-ignored so a fresh clone has no
-  rows (use `make dev-neon`).
-- **`CLAUDE.md` Infrastructure section** — names the service, region and the
-  `make deploy` recipe as the source of truth; the Cloud SQL instance and the
-  `/cloudsql/` socket path are *not* named, because the database is Neon. Also
-  dropped `make ingestion` from the command list: there is no such target.
-- **This file** — the status block at the top is the as-built record; the Cloud
-  SQL stage stays for the path not taken.
-- **`docs/deployment-neon.md`** — the database runbook, already written, and
-  listed in `docs/README.md`'s doc-map table.
-- **`docs/backlog.md`** — the dead-`api.js` P3 is closed (those three clients
-  are deleted); the `quote_plus` landmine was fixed in code during the Neon
-  move, not just written down.
-- **`docs/roadmap.md:180-187`** — still to tick when Stage 4 lands; leave
-  `uuid_8` open with the reasoning above.
-
----
-
-## Deferred, with reasons
-
-- **`lists = 100` is wrong for 5,197 rows.** pgvector's guidance is
-  `rows/1000` ≈ 5. At 100, each list holds ~52 rows and the default
-  `ivfflat.probes = 1` scans one — recalling ~1% of the table per query. At this
-  size an exact scan is single-digit milliseconds anyway. **Keep 100 for parity
-  with local** (changing it changes eval results) and log it as a recall
-  question, not a deploy action.
-- **`quote_plus` on the DB URL** — generating a URL-safe password is a smaller
-  change that costs zero code. Write the landmine down; don't build around it
-  now.
-- **pandas is never imported at runtime** (verified by grep across `app/
-  common/ db/ clients/ config/ airglider/`). It pulls ~100MB with numpy for
-  evals and notebooks only. Moving it to the dev group is correct but churns
-  `poetry.lock` — do it after the image is proven, not during.
-
-## Risks
-
-- **`db-g1-small` is shared-core.** If similarity queries feel slow, the tier
-  changes without a rebuild.
-- **The books seed depends on your local container staying populated** — it is
-  now the only copy with embeddings, since `data/backup/` is empty. Consider
-  running `postgres-dump-books` and keeping the artifact somewhere safe before
-  Stage 3, independent of the deploy.
-- **Re-embedding is not a cheap fallback.** If the local data were lost,
-  regenerating 5,197 embeddings costs real OpenAI spend; `data/books.csv` has no
-  vectors.
+## 4. Security and spend
+
+**Standing mitigations:** a hard monthly spend cap on the OpenAI account, and
+`--concurrency=5 × --max-instances=3` as a throughput ceiling.
+
+### 4.1 Admin gate — open
+
+The review surface (`GET /chat_runs`, `GET /feedback`, `PUT /feedback/review`) has no
+credential and no ownership check. **It is not served in production**: `app/main.py`
+registers those routers only outside production, which closes the disclosure. Review
+locally with `make dev-neon` against the same database; `/review` on the live site fails
+to load.
+
+This stays open only if the review page should ever go public. Session ownership cannot
+protect it — `POST /session/new` hands out ids to anyone, and the reviewer is by design
+not the run's session — so it needs an admin gate:
+
+- `config/settings/app.py`: `ADMIN_TOKEN: str` (picked up as `APP_ADMIN_TOKEN`).
+- `app/api/dependencies.py`: `require_admin`, comparing with `secrets.compare_digest`.
+- `app/main.py`: apply it router-level, so routes added later are covered.
+- Add `APP_ADMIN_TOKEN` to `config/.env.example` and the CI env block, and
+  `X-Admin-Token` to the CORS headers.
+
+A `VITE_*` value is baked into the bundle in plain text, so a token cannot protect a
+*public* review page. That needs real auth (Firebase Auth), not a bundled secret.
+
+### 4.2 Recording
+
+`record_chat_run` (`app/orchestration/run_recorder.py`) picks one sink per environment:
+production inserts a `chat_runs` row through `ctx.store(ChatRunStore)`, development writes
+JSON files under `logs/<chat_id>/`, test writes nothing. Both sinks sit in one `try`:
+recording never costs the user their reply. Files are never the production sink, because
+Cloud Run's filesystem is in-memory.
+
+### 4.3 CORS
+
+Exact origins from `APP_ALLOW_ORIGINS` (both Firebase hostnames, set by the recipe).
+`allow_credentials=True`, so `*` would be rejected by browsers anyway.
+`allow_methods` is `GET, POST, PUT, OPTIONS`; `allow_headers` is `Content-Type` and
+`X-Firebase-AppCheck` — exactly what `frontend/src/api.js` sends.
+
+### 4.4 Message bounds
+
+Chat messages are capped at 2,000 characters in the chat route (the literal should move
+onto `ChatIn` — [backlog.md](backlog.md)). Feedback comments are bounded on the schema:
+`AppConfig.FEEDBACK_MAX_COMMENTS` comments of `FEEDBACK_COMMENT_LENGTH` characters.
+
+### 4.5 Secrets and service account
+
+Secrets live in Secret Manager and reach the service through `--set-secrets`, so the
+recipe holds no credential and is safe to commit. The dedicated service account needs only
+`roles/secretmanager.secretAccessor` on the two secrets — the database is reached over
+ordinary TLS, so it needs no database role.
+
+### 4.6 Firebase App Check
+
+Every route but `/health`, `/ping` and `/ready` requires an App Check token in
+`X-Firebase-AppCheck`. `require_app_check` (`app/api/dependencies.py`) verifies it with
+PyJWT against Firebase's JWKS (RS256, audience `projects/<number>`, issuer
+`https://firebaseappcheck.googleapis.com/<number>`). It is enforced exactly when
+`APP_FIREBASE_PROJECT_NUMBER` is set, which the recipe does and local dev doesn't. The
+frontend mints tokens with the reCAPTCHA Enterprise provider, from the `VITE_FIREBASE_*`
+and `VITE_RECAPTCHA_SITE_KEY` values in `.env.production`.
+
+**It is not authentication.** A token copied out of devtools replays with curl until it
+expires (an hour by default). It stops scripts that never load the page, not a person who
+does.
+
+### 4.7 Spend caps
+
+- **Per session:** `AppConfig.SESSION_TOKEN_BUDGET` (200,000), enforced in every
+  environment. A spent session gets an SSE `error` event, and a turn's whole spend is
+  debited at the end, so a session can go one turn into the red.
+- **Site-wide, per day (production only):** the session id comes from the URL, so a
+  made-up one starts with a full budget. `Orchestrator.run` therefore reads
+  `read_site_spend` (every session active in the last 24h, summed as budget minus
+  remaining) and refuses past `AppConfig.SITE_DAILY_TOKEN_BUDGET` (3,000,000). Derived
+  from `sessions`, so there is no second counter.
+- **Per IP (production only):** `limit_messages_per_ip` on the chat route —
+  `AppConfig.MESSAGES_PER_IP` (30) per hour, keyed on the last `X-Forwarded-For` entry,
+  in memory per instance. The real ceiling is up to 3× that.
+- **Chat feedback** (`PUT /session/{session_id}/message/{chat_id}/feedback`) is served in
+  production. It 404s unless `ChatRunStore.belongs_to` finds the run under that session,
+  so a session can rate only runs it paid for, one row each.
+
+## 5. The frontend
+
+`VITE_API_URL` is committed per Vite mode: `frontend/.env.development` (localhost:8000)
+for `npm run dev`, `frontend/.env.production` (the Cloud Run URL) for `npm run build`. So
+`make deploy` cannot ship the wrong backend, and a fresh clone builds the same bundle. A
+git-ignored `.env.local` overrides either.
+
+## 6. Open items and risks
+
+- **§4.1**, if the review page should ever go public.
+- **`uuid_8()`'s 32 bits** — a collision loses one `chat_runs` record, not a reply
+  ([backlog.md](backlog.md)).
+- **`min-instances=1`** would remove the 5–8s first-chat cold start for about $7/month.
+  It warms the container, not the database (see the Neon runbook).
+- **pandas is never imported at runtime** but ships ~100MB with numpy. Moving it to the
+  dev group is correct; it churns `poetry.lock`.
+- **The books data has three copies:** the local container, the 67MB dump in
+  `data/backup/` (git-ignored), and Neon. Re-embedding 5,197 books costs real OpenAI
+  spend, and `data/books.csv` has no vectors. Keep the dump.
+- **GitHub Actions CD** is not set up; `.github/workflows/ci.yml` already has the env
+  block it would need.
