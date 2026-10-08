@@ -7,6 +7,9 @@ logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(FilesLocationConstants.PROMPTS_DIR)
 
+# The generic argument parser, shared by the nodes without a prompt of their own
+FILL_SCHEMA_ARGS_PROMPT_PATH = "common/prompts/fill_schema_args.txt"
+
 
 def load_prompt(prompt_path: str) -> str:
     full_path = PROMPTS_DIR / Path(prompt_path)

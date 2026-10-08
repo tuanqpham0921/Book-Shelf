@@ -16,8 +16,8 @@ class BaseLLMRequest(BaseModel, ABC):
 
     prompt: str = Field(..., exclude=True)
     # Where the prompt came from, relative to the prompts directory — what a
-    # trace shows in its place. None for a prompt that has no file.
-    prompt_path: str | None = None
+    # trace shows in its place
+    prompt_path: str
     messages: list[APIMessage]
     model: str
     

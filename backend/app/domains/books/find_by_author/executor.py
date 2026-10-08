@@ -9,11 +9,11 @@ from clients.messages import AssistantMessage
 from app.domains.books.base_workflow import BookWorkflow
 from db.stores import author_query
 from clients import OpenAIParserRequest
+from app.common.prompt_loader import FILL_SCHEMA_ARGS_PROMPT_PATH, load_prompt
 
 from .tools import FindByAuthorArgs
 from .external import FindByAuthorInput, FindByAuthorOutput
 
-from common.prompts import basic_fill_schema_prompt
 
 # One field to fill; see find_by_title/executor.py for the sizing rule.
 MAX_COMPLETION_TOKENS = 1_000
@@ -25,7 +25,8 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         raise ValueError("No instruction to parse arguments from")
 
     return OpenAIParserRequest(
-        prompt=basic_fill_schema_prompt,
+        prompt=load_prompt(prompt_path=FILL_SCHEMA_ARGS_PROMPT_PATH),
+        prompt_path=FILL_SCHEMA_ARGS_PROMPT_PATH,
         model="gpt-5-nano",
         reasoning_effort="minimal",
         # the instruction is the planner's own work, not something the user typed.
