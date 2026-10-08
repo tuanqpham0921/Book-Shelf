@@ -804,6 +804,20 @@ planner, the same way a failed routing pick does. The service runs locally only,
 production every lookup fails and project questions go to the planner, whose node fails
 too.
 
+Later the same day the node stopped taking the service's own answer. It now POSTs to
+`/query`, which returns the ten closest chunks and calls no LLM, and checks them itself
+with one gpt-6-luna call filling `ProjectDocsAnswer` (`supported`, `sources`,
+`answer`). When the chunks do not state the answer, `supported` is false: the node
+**rejects** (not ok, empty answer) instead of always answering. In triage a rejection
+counts like a failed lookup and sends the whole message to the planner. `ProjectInfoOutput`
+gained `sources`, which the `<project>` block lists. Triage now runs the node as a
+child workflow rather than calling the lookup itself, so the check lives in one place.
+Two choices came from live runs (six questions, three answerable and three not, three
+times each). An empty `answer` was too weak a signal for rejection: the model blanked
+real answers and filled in non-answers, so `supported` is set first. On the model,
+gpt-5-mini was 14/18 at medium effort and 18/18 at high, but took 12–25s a call;
+gpt-6-luna at effort `none` was 18/18 at 2–3s and about a ninth of the cost.
+
 ## V1 conversation contract: clarify-only, single-turn
 
 - Every query stands alone. No history is loaded

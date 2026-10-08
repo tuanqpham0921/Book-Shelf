@@ -255,6 +255,17 @@ class TestRenderSection:
         assert rendered.endswith("<project>\nFastAPI and React\n</project>")
         assert "<books>" not in rendered
 
+    def test_the_docs_an_answer_rests_on_are_listed_under_it(self):
+        output = ProjectInfoOutput(
+            answer="On Cloud Run.",
+            sources=["docs/deployment.md", "README.md"],
+        )
+        rendered = render_section(1, _result(output))
+
+        assert rendered.endswith(
+            "<project>\nOn Cloud Run.\nSources: docs/deployment.md, README.md\n</project>"
+        )
+
 
 class TestRenderReport:
     def test_the_report_is_evidence_only(self):

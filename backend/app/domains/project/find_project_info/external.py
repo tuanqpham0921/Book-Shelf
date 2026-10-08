@@ -41,22 +41,24 @@ class ProjectInfoRequest(BaseRequest):
 
 
 class ProjectInfoInput(NodeInput):
-    """The goal text and nothing else — the facts are fixed, so nothing
+    """The goal text and nothing else — the docs are fixed, so nothing
     upstream could change them."""
 
 
 class ProjectInfoOutput(NodeWorkflowOutput):
-    """The question sent to the project docs and the answer they gave — what
-    the reply stage answers from.
+    """The question sent to the project docs, the answer checked against the
+    closest chunks, and the docs it rests on — what the reply stage answers
+    from.
 
     Not book-shaped, so it subclasses `NodeWorkflowOutput` directly: no
     `num_books`, no `query`, and no book node can depend on it.
 
-    `answer` is empty when the docs were never asked, which is what
-    `finalize_result` reads."""
+    `answer` is empty when the docs were never asked or do not answer the
+    question, which is what `finalize_result` reads."""
 
     question: str = ""
     answer: str = ""
+    sources: list[str] = []
 
     def to_summary(self) -> dict[str, Any]:
-        return {"question": self.question, "answer": self.answer}
+        return {"question": self.question, "answer": self.answer, "sources": self.sources}

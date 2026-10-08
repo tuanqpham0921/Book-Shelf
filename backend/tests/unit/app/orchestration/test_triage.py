@@ -12,7 +12,11 @@ from clients.messages import AssistantMessage, UserMessage
 from app.common.tools import ClarificationType, ClarifyingQuestion, SecurityReview
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.domains.node_input import NodeInput
-from app.domains.project.find_project_info import ProjectInfoArgs
+from app.domains.project.find_project_info import (
+    ProjectInfoArgs,
+    ProjectInfoInput,
+    ProjectInfoOutput,
+)
 from app.orchestration.triage import TriageOutput, TriageWorkflow
 from app.orchestration.triage import cache
 from app.orchestration.triage.cache import load_cached_parse_output
@@ -457,13 +461,19 @@ class TestProjectFacts:
 
     @pytest.fixture(autouse=True)
     def docs(self):
-        # the docs service is the one outside call; faked at triage's import
-        lookup = AsyncMock(return_value=OperationResult(ok=True, response=Response(result="FastAPI")))
-        with patch("app.orchestration.triage.executor.ask_project_docs", lookup):
+        # the project node is a child workflow, faked at triage's import
+        lookup = _mock_child_workflow(
+            OperationResult(ok=True),
+            ProjectInfoOutput(question=STACK.question, answer="FastAPI"),
+        )
+        with patch(
+            "app.orchestration.triage.executor.ProjectInfoExecutor",
+            return_value=lookup,
+        ):
             yield lookup
 
     async def test_a_project_question_alone_is_answered_without_planning(
-        self, orchestrator
+        self, orchestrator, docs
     ):
         with _routes_to(STACK), patch.object(
             orchestrator.sse_stream, "send_chars", new_callable=AsyncMock
@@ -477,10 +487,14 @@ class TestProjectFacts:
         send_chars.assert_not_awaited()
         assert record.ok
         assert orchestrator.result.parse_result is None
+        docs.assert_awaited_once_with(ProjectInfoInput(instruction=STACK.question))
         assert orchestrator.result.project_info.question == STACK.question
         assert orchestrator.result.project_info.answer == "FastAPI"
 
-    async def test_a_failed_lookup_sends_the_whole_message_on(self, orchestrator, docs):
+    async def test_a_lookup_with_no_answer_sends_the_whole_message_on(
+        self, orchestrator, docs
+    ):
+        # failed or rejected: the node is not ok either way
         docs.return_value = OperationResult(ok=False)
         planner = _planner_with_a_plan()
         with _routes_to(STACK, PlanJane(message="books like Dune")), patch(

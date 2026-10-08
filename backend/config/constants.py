@@ -51,9 +51,6 @@ class AppConfig:
     DATABASE_TIMEOUT = 10.0
     OPENAI_TIMEOUT   = 10.0
     DEFAULT_TIMEOUT  = 10.0
-    # One whole answer from the project-docs service: a retrieval and two
-    # LLM calls on its side, so well above OPENAI_TIMEOUT.
-    PROJECT_DOCS_TIMEOUT = 60.0
 
 
 class OpenAIConstants:

@@ -219,7 +219,8 @@ def render_section(index: int, result: TaskResult) -> str:
         parts.append(f"<books>\n{rendered}\n</books>")
 
     if isinstance(output, ProjectInfoOutput) and output.answer:
-        parts.append(f"<project>\n{output.answer}\n</project>")
+        cited = f"\nSources: {', '.join(output.sources)}" if output.sources else ""
+        parts.append(f"<project>\n{output.answer}{cited}\n</project>")
 
     return "\n".join(parts)
 

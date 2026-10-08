@@ -1,6 +1,6 @@
 from app.domains.node_spec import NodeSpec, NodeTier
 
-from .executor import ProjectInfoExecutor, ask_project_docs
+from .executor import ProjectInfoExecutor
 from .external import ProjectInfoInput, ProjectInfoOutput, ProjectInfoRequest
 from .labels import ProjectInfoNodeTypeEnum
 from .tools import ProjectInfoArgs
@@ -16,7 +16,6 @@ SPEC = NodeSpec(
 
 __all__ = [
     "SPEC",
-    "ask_project_docs",
     "ProjectInfoArgs",
     "ProjectInfoExecutor",
     "ProjectInfoInput",

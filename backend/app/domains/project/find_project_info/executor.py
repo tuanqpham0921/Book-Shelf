@@ -1,57 +1,72 @@
-"""The project-info node's flow: ask the project-docs service the planner's
-instruction, finalize.
+"""The project-info node's flow: search BookShelf's docs for the planner's
+instruction, check the closest chunks answer it, finalize.
 
-The answer comes from a RAG service over BookShelf's own markdown docs
+The chunks come from a RAG service over BookShelf's own markdown docs
 (`settings.app.PROJECT_DOCS_URL`), so there is no parse and no store: the
-instruction is already a self-contained question.
+instruction is already a self-contained question. The check is the node's one
+LLM call — a question the chunks do not answer is rejected rather than
+answered anyway.
 """
-
-from collections.abc import Iterable
 
 import httpx
 
 from airglider import task
+from app.common.prompt_loader import load_prompt
 from app.domains.base_workflow import AppWorkflow
+from clients import OpenAIParserRequest
+from clients.messages import AssistantMessage
 from config import AppConfig, settings
 
 from .external import ProjectInfoInput, ProjectInfoOutput
+from .tools import ProjectDocsAnswer
+
+ANSWER_PROMPT_PATH = "domains/project/find_project_info/prompts/answer_from_docs.txt"
+
+# A few sentences of answer and a few doc names, plus the reasoning tokens
+# that count against this cap.
+MAX_COMPLETION_TOKENS = 4_000
 
 
-def join_sse_data(lines: Iterable[str]) -> str:
-    """The text a server-sent-event stream of text deltas adds up to. A blank
-    line ends an event, and a multi-line event's data is joined with
-    newlines — that is how the service sends a newline inside a delta."""
-    deltas: list[str] = []
-    data: list[str] = []
-    for line in [*lines, ""]:
-        if line.startswith("data:"):
-            data.append(line[5:].removeprefix(" "))
-        elif line == "" and data:
-            deltas.append("\n".join(data))
-            data = []
-    return "".join(deltas)
-
-
-@task(description="Asks BookShelf's docs")
-async def ask_project_docs(question: str) -> str:
-    """One question, one answer. A new chat per question: the service keeps
-    history per chat, and each BookShelf turn stands alone."""
+@task(description="Searches BookShelf's docs")
+async def search_project_docs(question: str) -> str:
+    """The closest chunks of the docs to `question`, as the service formats
+    them: `SOURCE: <doc> (score: ...)` and the chunk text, `---` between."""
     async with httpx.AsyncClient(
-        base_url=settings.app.PROJECT_DOCS_URL, timeout=AppConfig.PROJECT_DOCS_TIMEOUT
+        base_url=settings.app.PROJECT_DOCS_URL, timeout=AppConfig.DEFAULT_TIMEOUT
     ) as client:
-        res = await client.post("/chats")
+        res = await client.post("/query", json={"message": question})
         res.raise_for_status()
-        chat_id = res.json()["id"]
+        sources = res.json()["sources"]
 
-        async with client.stream(
-            "POST", f"/chats/{chat_id}", json={"message": question}
-        ) as res:
-            res.raise_for_status()
-            answer = join_sse_data([line async for line in res.aiter_lines()])
+    if not sources.strip():
+        raise ValueError("The project docs returned no sources")
+    return sources
 
-    if not answer.strip():
-        raise ValueError("The project docs returned an empty answer")
-    return answer.strip()
+
+def build_answer_request(question: str, sources: str) -> OpenAIParserRequest:
+    """Ask the LLM to fill `ProjectDocsAnswer` from the chunks alone."""
+    if not question:
+        raise ValueError("No question to answer")
+
+    return OpenAIParserRequest(
+        prompt=load_prompt(prompt_path=ANSWER_PROMPT_PATH),
+        prompt_path=ANSWER_PROMPT_PATH,
+        # Measured live on six questions x3 (2026-10-08): gpt-5-mini was 14/18 at
+        # medium and 18/18 at high but 12-25s a call; this was 18/18 at 2-3s
+        # and a ninth of the cost. gpt-6-luna takes function tools only at "none".
+        model="gpt-6-luna",
+        reasoning_effort="none",
+        # the question is the planner's (or router's) work and the chunks are
+        # retrieved, so neither is something the user typed
+        messages=[
+            AssistantMessage(
+                content=f"<question>\n{question}\n</question>\n\n"
+                f"<sources>\n{sources}\n</sources>"
+            )
+        ],
+        tool_models=[ProjectDocsAnswer],
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
+    )
 
 
 class ProjectInfoExecutor(AppWorkflow[ProjectInfoOutput]):
@@ -62,11 +77,23 @@ class ProjectInfoExecutor(AppWorkflow[ProjectInfoOutput]):
     async def run(self, node_input: ProjectInfoInput) -> None:
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
 
-        # 1. ask the docs — the reply stage writes the answer into prose
-        self.result.question = node_input.instruction
-        self.result.answer = (await ask_project_docs(node_input.instruction)).unwrap()
+        # 1. the closest chunks of the docs
+        question = node_input.instruction
+        self.result.question = question
+        sources = (await search_project_docs(question)).unwrap()
 
-        # 2. last: ok is read off the output
+        # 2. answer from them, or reject — the reply stage writes the answer
+        # into prose
+        checked: ProjectDocsAnswer = await self.run_llm_args_parse(
+            build_answer_request(question, sources)
+        )
+        if checked.supported:
+            self.result.answer = checked.answer.strip()
+            self.result.sources = checked.sources
+        if not self.result.answer:
+            self.add_details("the docs do not answer this; rejected")
+
+        # 3. last: ok is read off the output
         self.finalize_result()
 
     def finalize_result(self):
