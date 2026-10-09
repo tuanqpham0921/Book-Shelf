@@ -114,6 +114,10 @@ class SSEStream:
         """Send mermaid diagram."""
         await self.send(event_type="mermaid.diagram", data=data)
 
+    async def send_sources(self, sources: list[str]):
+        """Send the docs a project answer rests on, shown under the reply."""
+        await self.send(event_type="sources", data={"sources": sources})
+
     async def send_task_start(
         self, task_id: str, title: str, collapsible: bool = True
     ):

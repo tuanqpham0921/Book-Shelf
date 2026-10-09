@@ -217,6 +217,19 @@ function ChatBot() {
                     continue;
                 }
 
+                // 📄 SOURCES — the docs a project answer came from, under the reply
+                if (event.type === 'sources') {
+                    setTurn(draft => {
+                        const container = openContainer(draft[draft.length - 1].response);
+                        container.push({
+                            id: `${draft[draft.length - 1].response.id}-section-${container.length + 1}`,
+                            type: 'sources',
+                            sources: event.data?.sources || []
+                        });
+                    });
+                    continue;
+                }
+
                 // 🗂️ TASK SECTIONS — one per executed node. Folded from the
                 // start, so the reply is what's visible; a click opens one.
                 if (event.type === 'task.start') {

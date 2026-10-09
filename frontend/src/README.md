@@ -21,8 +21,9 @@ mounted once visited.
 ## SSE events the chat handles
 
 `chat.id`, `ui.loading`, `content.delta`, `book_card`, `mermaid.diagram`,
-`task.start`, `task.end`, `step.complete`, `error`, `complete` — handled in
-`ChatBot.jsx` via `parseSSEStream` from `utils/`.
+`task.start`, `task.end`, `sources`, `step.complete`, `error`, `complete` — handled in
+`ChatBot.jsx` via `parseSSEStream` from `utils/`. `sources` (`{sources: [doc names]}`)
+follows the reply when it drew on project facts, and renders as a list under it.
 
 **`book_card.data` is pinned by `BookOut`** (`backend/app/api/schemas/external.py`):
 `isbn13`, `title`, `authors`, `categories`, `published_year`, `num_pages`,

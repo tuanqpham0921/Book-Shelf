@@ -87,7 +87,17 @@ class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
         # 2. each text, then the cards it talks about
         await self._deliver(reply.blocks, books_by_handle(ordered))
 
-        # 3. last: ok is read off the output
+        # 3. the docs any project facts came from, under the reply
+        docs = [
+            doc
+            for result in sources
+            if isinstance(result.output, ProjectInfoOutput)
+            for doc in result.output.sources
+        ]
+        if docs:
+            await self.sse_stream.send_sources(list(dict.fromkeys(docs)))
+
+        # 4. last: ok is read off the output
         self.finalize_result()
 
     def _partition(
