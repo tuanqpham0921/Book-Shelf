@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from clients.openai_client import OpenAIClient
+from clients.openai_client import FileSource, OpenAIClient
 from config.settings import OpenAISettings
 from clients.messages import AssistantMessage
 
@@ -133,6 +133,37 @@ class TestGetEmbeddings:
         )
         with pytest.raises(RuntimeError, match="API down"):
             await self.client.get_embeddings(["hello"])
+
+
+class TestSearchVectorStore:
+    """The SDK's search response is mapped to `FileSource` here, so no caller
+    reads OpenAI's types."""
+
+    @pytest.mark.asyncio
+    async def test_hits_become_file_sources_with_their_chunks_joined(self):
+        with patch("clients.openai_client.AsyncOpenAI"):
+            client = OpenAIClient(make_settings(VECTOR_STORE_ID="vs_1"))
+        hit = MagicMock(
+            file_id="file_1",
+            filename="docs/deployment.md",
+            score=0.56,
+            content=[MagicMock(text="Cloud "), MagicMock(text="Run")],
+        )
+        client.client.vector_stores.search = AsyncMock(return_value=MagicMock(data=[hit]))
+
+        [source] = await client.search_vector_store("How is it deployed?")
+
+        assert source == FileSource(
+            file_id="file_1", file_name="docs/deployment.md", score=0.56, content="Cloud Run"
+        )
+        assert client.client.vector_stores.search.await_args.args == ("vs_1",)
+
+    @pytest.mark.asyncio
+    async def test_no_store_configured_raises(self):
+        client = make_client()
+        client.vector_store_id = None
+        with pytest.raises(RuntimeError, match="No vector store"):
+            await client.search_vector_store("anything")
 
 
 class TestPromptLengthGuard:

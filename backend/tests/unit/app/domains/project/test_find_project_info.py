@@ -9,19 +9,21 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from openai.types import VectorStoreSearchResponse
-from openai.types.vector_store_search_response import Content
-
 from app.domains.node_spec import NodeTier
 from app.domains.project.find_project_info import (
     ProjectInfoExecutor,
     ProjectInfoInput,
 )
 from app.domains.project.find_project_info.executor import build_answer_request
+from clients import FileSource
 from app.domains.project.find_project_info.tools import ProjectDocsAnswer
 from app.registry import REGISTRY
 
-CHUNKS = "SOURCE: docs/deployment.md (score: 0.564)\nCloud Run"
+def _hit(file_name: str, score: float, content: str) -> FileSource:
+    return FileSource(file_id="file_1", file_name=file_name, score=score, content=content)
+
+
+CHUNKS = [_hit("docs/deployment.md", 0.5642, "Cloud Run")]
 
 
 def test_it_is_registered_as_a_retrieval():
@@ -38,22 +40,20 @@ class TestBuildAnswerRequest:
 
         [message] = req.messages
         assert "How is it deployed?" in message.content
-        assert CHUNKS in message.content
+        assert "SOURCE: docs/deployment.md (score: 0.564)\nCloud Run" in message.content
         assert req.tool_models == [ProjectDocsAnswer]
+
+    def test_chunks_are_sent_as_source_lines_between_rules(self):
+        req = build_answer_request("Anything?", [_hit("a.md", 0.9, "first"), _hit("b.md", 0.25, "second")])
+
+        assert (
+            "SOURCE: a.md (score: 0.900)\nfirst\n\n---\n\n"
+            "SOURCE: b.md (score: 0.250)\nsecond"
+        ) in req.messages[0].content
 
     def test_no_question_is_refused(self):
         with pytest.raises(ValueError):
             build_answer_request("", CHUNKS)
-
-
-def _hit(filename: str, score: float, *texts: str) -> VectorStoreSearchResponse:
-    return VectorStoreSearchResponse(
-        file_id="file_1",
-        filename=filename,
-        score=score,
-        attributes=None,
-        content=[Content(type="text", text=t) for t in texts],
-    )
 
 
 def _run(request_context, hits, checked):
@@ -68,7 +68,7 @@ class TestTheFlow:
     async def test_a_supported_answer_is_kept_with_its_sources(self, request_context):
         node = _run(
             request_context,
-            [_hit("docs/deployment.md", 0.5642, "Cloud ", "Run")],
+            CHUNKS,
             ProjectDocsAnswer(
                 supported=True, answer="On Cloud Run.", sources=["docs/deployment.md"]
             ),
@@ -86,26 +86,10 @@ class TestTheFlow:
         assert out.sources == ["docs/deployment.md"]
 
     @pytest.mark.asyncio
-    async def test_hits_are_sent_as_source_lines_between_rules(self, request_context):
-        node = _run(
-            request_context,
-            [_hit("a.md", 0.9, "first"), _hit("b.md", 0.25, "second")],
-            ProjectDocsAnswer(supported=True, answer="Yes.", sources=["a.md"]),
-        )
-
-        await node(ProjectInfoInput(instruction="Anything?"))
-
-        [req] = node.run_llm_args_parse.await_args.args
-        assert (
-            "SOURCE: a.md (score: 0.900)\nfirst\n\n---\n\n"
-            "SOURCE: b.md (score: 0.250)\nsecond"
-        ) in req.messages[0].content
-
-    @pytest.mark.asyncio
     async def test_chunks_that_do_not_answer_are_rejected(self, request_context):
         node = _run(
             request_context,
-            [_hit("docs/deployment.md", 0.56, "Cloud Run")],
+            CHUNKS,
             ProjectDocsAnswer(
                 supported=False, answer="Not stated.", sources=["docs/deployment.md"]
             ),

@@ -11,7 +11,7 @@ answered anyway.
 from airglider import task
 from app.common.prompt_loader import load_prompt
 from app.domains.base_workflow import AppWorkflow
-from clients import OpenAIParserRequest
+from clients import FileSource, OpenAIParserRequest
 from clients.messages import AssistantMessage
 
 from .external import ProjectInfoInput, ProjectInfoOutput
@@ -24,7 +24,16 @@ ANSWER_PROMPT_PATH = "domains/project/find_project_info/prompts/answer_from_docs
 MAX_COMPLETION_TOKENS = 6_000
 MAX_OUTPUT_TOKENS     = 1_000
 
-def build_answer_request(question: str, sources: str) -> OpenAIParserRequest:
+def format_sources(sources: list[FileSource]) -> str:
+    """The chunks in the shape the answer prompt reads: `SOURCE: <doc>
+    (score: ...)` and the chunk text, `---` between."""
+    return "\n\n---\n\n".join(
+        f"SOURCE: {s.file_name} (score: {s.score:.3f})\n{s.content}"
+        for s in sources
+    )
+
+
+def build_answer_request(question: str, sources: list[FileSource]) -> OpenAIParserRequest:
     """Ask the LLM to fill `ProjectDocsAnswer` from the chunks alone."""
     if not question:
         raise ValueError("No question to answer")
@@ -42,7 +51,7 @@ def build_answer_request(question: str, sources: str) -> OpenAIParserRequest:
         messages=[
             AssistantMessage(
                 content=f"<question>\n{question}\n</question>\n\n"
-                f"<sources>\n{sources}\n</sources>"
+                f"<sources>\n{format_sources(sources)}\n</sources>"
             )
         ],
         tool_models=[ProjectDocsAnswer],
@@ -79,19 +88,12 @@ class ProjectInfoExecutor(AppWorkflow[ProjectInfoOutput]):
         self.finalize_result()
 
     @task(description="Searches BookShelf's docs")
-    async def search_project_docs(self, question: str) -> str:
-        """The closest chunks of the docs to `question`, in the shape the
-        answer prompt reads: `SOURCE: <doc> (score: ...)` and the chunk text,
-        `---` between."""
-        results = await self.llm_client.search_vector_store(question)
-        if not results:
+    async def search_project_docs(self, question: str) -> list[FileSource]:
+        """The closest chunks of the docs to `question`, closest first."""
+        sources = await self.llm_client.search_vector_store(question)
+        if not sources:
             raise ValueError("The project docs returned no sources")
-
-        return "\n\n---\n\n".join(
-            f"SOURCE: {r.filename} (score: {r.score:.3f})\n"
-            + "".join(c.text for c in r.content)
-            for r in results
-        )
+        return sources
 
     def finalize_result(self):
         return super().finalize_result(ok=bool(self.result.answer))

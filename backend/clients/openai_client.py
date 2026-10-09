@@ -4,7 +4,6 @@ import logging
 from typing import Any, Optional
 
 from openai import AsyncOpenAI
-from openai.types import VectorStoreSearchResponse
 from pydantic import BaseModel, Field
 
 from .base import BaseLLMClient, BaseLLMRequest
@@ -34,6 +33,18 @@ class EmbeddingsResult(BaseModel):
 
     def to_summary(self) -> dict[str, Any]:
         return {"num_texts": len(self.embeddings)}
+
+
+class FileSource(BaseModel):
+    """One chunk a vector store search returned, with the file it came from.
+
+    The client's own shape rather than the SDK's `VectorStoreSearchResponse`,
+    so callers get the chunk as one string and never import from `openai`."""
+
+    file_id: str
+    file_name: str
+    score: float
+    content: str
 
 
 class OpenAIClient(BaseLLMClient):
@@ -81,9 +92,9 @@ class OpenAIClient(BaseLLMClient):
         self,
         query: str,
         max_num_results: int = OpenAIConstants.VECTOR_STORE_MAX_RESULTS,
-    ) -> list[VectorStoreSearchResponse]:
-        """The chunks of the vector store closest to `query`. Raises through
-        the caller on failure, like `get_embeddings`."""
+    ) -> list[FileSource]:
+        """The chunks of the vector store closest to `query`, closest first.
+        Raises through the caller on failure, like `get_embeddings`."""
         if not self.vector_store_id:
             raise RuntimeError("No vector store is configured")
 
@@ -93,7 +104,15 @@ class OpenAIClient(BaseLLMClient):
                 query=query,
                 max_num_results=max_num_results,
             )
-        return page.data
+        return [
+            FileSource(
+                file_id=r.file_id,
+                file_name=r.filename,
+                score=r.score,
+                content="".join(c.text for c in r.content),
+            )
+            for r in page.data
+        ]
 
 
     async def execute(self, req: BaseLLMRequest, save_payload: bool = False) -> AssistantMessage:
