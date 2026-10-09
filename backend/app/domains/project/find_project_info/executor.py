@@ -55,7 +55,7 @@ def build_answer_request(question: str, sources: str) -> OpenAIParserRequest:
         # medium and 18/18 at high but 12-25s a call; gpt-6-luna was 18/18 at
         # 2-3s and a ninth of the cost (it takes function tools only at "none").
         model="gpt-5-mini",
-        reasoning_effort="none",
+        reasoning_effort='low',
         # the question is the planner's (or router's) work and the chunks are
         # retrieved, so neither is something the user typed
         messages=[
