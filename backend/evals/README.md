@@ -17,7 +17,7 @@ A node's own `*Args` parse would get the same treatment as triage, under `nodes/
 
 | Suite | Cases | Targets |
 |---|---|---|
-| `query_suite.json` | 70 | Core node set, easy→hard |
+| `query_suite.json` | 80 | Core node set, easy→hard |
 | `query_suite_adversarial.json` | 54 | Rejection behavior (17 cases intentionally expect no nodes) |
 | `query_suite_extended.json` | 48 | Catalog scaling — dormant: needs the playground schemas given `NodeSpec`s and passed to `Registry` (see `backend/playground/README.md`) |
 | `query_suite_stress.json` | 9 | Buffer/overflow, confusing chains |

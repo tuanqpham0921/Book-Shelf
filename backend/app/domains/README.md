@@ -75,7 +75,7 @@ that is the point.
   to no output field, so its bound is `NodeWorkflowOutput`) and `BookWorkflow`,
   which is that plus `count_books` and is bound to `BookRetrievalOutput`. Every
   book-*producing* node subclasses the second; the reply stage
-  (`app/orchestration/write_recommendations/` — not a node, and no longer in
+  (`app/orchestration/write_reply/` — not a node, and no longer in
   this package) is the one subclass of the reader alone, because it needs rows
   and cards while producing prose. `BookWorkflow` exposes `self.store`
   (a property off the request context), and adds two `@task`s —
@@ -400,8 +400,8 @@ branches on `runtime_error.type`.
    upstream output. A node that consumes books adds
    `anchors: list[BookRetrievalOutput] = Field(default_factory=list)`; default
    it unless the node truly cannot run without one.
-2. Write the request schema's docstring for the LLM (include example queries;
-   that's roadmap Phase 2 style). `make tools-catalog` audits every docstring for
+2. Write the request schema's docstring for the LLM, with example queries.
+   `make tools-catalog` audits every docstring for
    `Purpose: / Args: / Returns: / depends_on: / Use when: / Do not use: /
    Constraints:` plus an examples section (`Example queries:`, or example values
    like `Example genres:`). `Returns:` and `depends_on:` must name **output

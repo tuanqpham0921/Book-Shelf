@@ -27,7 +27,7 @@ from app.domains.node_spec import NodeSpec
 # and DEREGISTERED 2026-09-08 — not parked. It is not a capability the planner
 # picks any more but one stage the orchestrator runs after every plan, so its
 # request schema, node type and spec are gone rather than commented out here.
-# It lives at `app/orchestration/write_recommendations/`; see
+# It lives at `app/orchestration/write_reply/`; see
 # docs/design/execution-pipeline-v1.md.
 BOOK_SPECS: tuple[NodeSpec, ...] = (
     find_by_title.SPEC,

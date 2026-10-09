@@ -32,7 +32,7 @@ class NodeTier(str, Enum):
     # GENERATE removed 2026-09-08 with its one member. Writing the reply is no
     # longer a capability the planner picks, so a tier for it would be a
     # heading over an empty section — the stage runs after every plan instead
-    # (app/orchestration/write_recommendations/).
+    # (app/orchestration/write_reply/).
 
 
 @dataclass(frozen=True)

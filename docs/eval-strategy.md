@@ -85,9 +85,11 @@ test. `make query-suite-smoke` runs the first three with no sleep, for debugging
 `run_suites.py` reuses one session per run, so a long suite needs
 `--new-session-per-query` or a larger `SESSION_TOKEN_BUDGET`.
 
-**Where results live:** planner campaigns under `backend/evals/app_docs/results/`
-(one folder per campaign, e.g. `v1_baseline/`); triage and validation runs under their
-own `results/` folders.
+**Where results live:** new planner runs write to `backend/evals/results/`
+(`DEFAULT_OUTPUT_DIR` in `evals/common.py`; `CAMPAIGN=<name>` files them under
+`results/<name>/`). Past campaigns are kept in `backend/evals/app_docs/results/`, one
+folder each (e.g. `v1_baseline/`). Triage and validation runs write under their own
+`results/` folders.
 
 ## Still to do
 

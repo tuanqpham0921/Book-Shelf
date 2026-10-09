@@ -41,7 +41,7 @@ There is no auth yet — a known pre-deploy blocker (docs/backlog.md, Security P
    A session with nothing left is told so over the stream and the turn ends
    there, before triage, which is the first thing that costs money. **Enforced
    in every environment since 2026-09-23** — the old production-only gate is
-   gone, so a `make dev` session or an eval suite now stops when its 50,000
+   gone, so a `make dev` session or an eval suite now stops when its 200,000
    tokens do. Otherwise the turn goes to `TriageWorkflow`
    (`orchestration/triage/`), which decides whether to plan at all — replay a
    cached plan, or let a gpt-5-mini router pick: the planner, a clarifying

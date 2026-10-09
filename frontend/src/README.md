@@ -59,12 +59,10 @@ the turn shows the answer rather than the work, and the plan diagram starts
 expanded; after that a click toggles either one. `collapsible: false` stays
 open.
 
-**One section per turn sets `collapsible: false`: the generation node's.** Every
-other node's cards are working material, and the prose written from them is what
-the turn is for — so the recommendation section folds like the rest now that
-something downstream writes a reply about it. A turn whose plan has no
-generation goal (a plain lookup) folds everything, which is a real gap rather
-than a styling choice: see `backend/app/domains/books/write_recommendations/`.
+**One section per turn sets `collapsible: false`: the reply's**
+(`backend/app/orchestration/write_reply/`). Every node's cards are working
+material, and the prose written from them is what the turn is for, so every task
+section folds and the reply stays open. Every planned turn gets a reply.
 
 ## Conventions
 
