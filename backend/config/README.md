@@ -4,7 +4,7 @@ Configuration via pydantic-settings. Everything loads from **`config/.env`** (pa
 defined by `FilesLocationConstants.ENV_FILE` in `constants.py`).
 
 Production's values live in git-ignored **`config/.env.deployment`**, which the app never
-reads: `make deploy` turns it into the Cloud Run revision's env and secrets, and
+reads: `make deploy` turns it into the Cloud Run service and its env (secrets excepted), and
 `make dev-neon` layers its `POSTGRES_*` lines over `config/.env`. A new variable that
 production needs goes in both files.
 

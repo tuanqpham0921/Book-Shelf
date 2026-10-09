@@ -228,55 +228,43 @@ dev-neon:
 # Deploy (Cloud Run)
 # -------------------
 
-# The recipe below plus config/.env.deployment is the whole description of the
-# service: the flags that shape the revision are here and every env var is in
-# that file, so nothing lives only in the console and a redeploy can't quietly
-# drop a setting someone clicked in once.
-CLOUD_RUN_SERVICE := book-shelf-api
-CLOUD_RUN_REGION  := us-east5
-GCP_PROJECT       := tuanqpham0921
-# A dedicated service account, not the compute default (which carries project
-# Editor): this one may only read the two secrets below.
-CLOUD_RUN_SA      := $(CLOUD_RUN_SERVICE)@$(GCP_PROJECT).iam.gserviceaccount.com
-# Production settings, git-ignored so the endpoint host and the keys stay out
-# of version control. `dev-neon` and `local-prod-neon` read its POSTGRES_*
-# lines, so the deployed database and your local Neon runs cannot drift.
-DEPLOY_ENV        := $(MAKEFILE_DIR)config/.env.deployment
+# config/.env.deployment is the one place production is adjusted: the
+# DEPLOY_* lines say where the service runs and how big it is, and the APP_ /
+# POSTGRES_ / OPENAI_ lines are its env. It is git-ignored, so the endpoint host
+# and the keys stay out of version control. `dev-neon` and `local-prod-neon`
+# read its POSTGRES_* lines, so the deployed database and your local Neon runs
+# cannot drift.
+DEPLOY_ENV := $(MAKEFILE_DIR)config/.env.deployment
+# One value off DEPLOY_ENV. Recursive (`=`), so only deploy targets read it.
+deploy_var = $(shell sed -n 's/^$(1)=//p' $(DEPLOY_ENV))
+
+CLOUD_RUN_SERVICE = $(call deploy_var,DEPLOY_SERVICE)
+CLOUD_RUN_REGION  = $(call deploy_var,DEPLOY_REGION)
+GCP_PROJECT       = $(call deploy_var,DEPLOY_PROJECT)
 
 # Deploy the backend. Builds from source via Cloud Build (no cloudbuild.yaml:
 # the Dockerfile and these flags already say everything one would contain),
 # pushes to Artifact Registry, and rolls out a new revision.
 #
-# Every KEY=value line of DEPLOY_ENV becomes an env var except the two secrets,
-# POSTGRES_PASSWORD and OPENAI_API_KEY: those reach the service only through
-# Secret Manager, which keeps them out of the revision's env (revisions are
-# immutable and readable forever). Each is pushed as a new version when it
-# differs from `latest` — with `printf '%s'`, never `echo`, since a trailing
-# newline breaks auth like a wrong credential. A file whose APP_ENVIRONMENT is
-# not production is refused: that is what a copy of config/.env would deploy.
+# The env is every APP_ / POSTGRES_ / OPENAI_ line except the two secrets:
+# POSTGRES_PASSWORD and OPENAI_API_KEY reach the service only through Secret
+# Manager, which keeps them out of the revision's env (revisions are immutable
+# and readable forever). Rotating one is a new secret version — see
+# docs/deployment.md — not an edit here.
 .PHONY: deploy
 deploy:
-	. $(DEPLOY_ENV) && \
-	if [ "$$APP_ENVIRONMENT" != production ] || [ -z "$$POSTGRES_PASSWORD" ] || [ -z "$$OPENAI_API_KEY" ]; then \
-		echo "$(DEPLOY_ENV) needs APP_ENVIRONMENT=production, POSTGRES_PASSWORD and OPENAI_API_KEY"; exit 1; \
-	fi && \
-	sync_secret() { \
-		if [ "$$(gcloud secrets versions access latest --secret=$$1 --project=$(GCP_PROJECT))" != "$$2" ]; then \
-			printf '%s' "$$2" | gcloud secrets versions add $$1 --data-file=- --project=$(GCP_PROJECT); \
-		fi; \
-	} && \
-	sync_secret postgres-password "$$POSTGRES_PASSWORD" && \
-	sync_secret openai-api-key "$$OPENAI_API_KEY" && \
-	ENV_VARS=$$(grep -E '^[A-Z_]+=' $(DEPLOY_ENV) | grep -vE '^(POSTGRES_PASSWORD|OPENAI_API_KEY)=' | paste -sd@ -) && \
+	ENV_VARS=$$(grep -E '^(APP|POSTGRES|OPENAI)_[A-Z_]*=' $(DEPLOY_ENV) | grep -vE '^(POSTGRES_PASSWORD|OPENAI_API_KEY)=' | paste -sd@ -) && \
 	gcloud run deploy $(CLOUD_RUN_SERVICE) \
 		--source=$(MAKEFILE_DIR) \
 		--project=$(GCP_PROJECT) \
 		--region=$(CLOUD_RUN_REGION) \
-		--service-account=$(CLOUD_RUN_SA) \
+		--service-account=$(call deploy_var,DEPLOY_SERVICE_ACCOUNT) \
 		--allow-unauthenticated \
-		--cpu=1 --memory=1Gi --cpu-boost \
-		--timeout=300 \
-		--min-instances=0 --max-instances=3 --concurrency=5 \
+		--cpu=$(call deploy_var,DEPLOY_CPU) --memory=$(call deploy_var,DEPLOY_MEMORY) --cpu-boost \
+		--timeout=$(call deploy_var,DEPLOY_TIMEOUT) \
+		--min-instances=$(call deploy_var,DEPLOY_MIN_INSTANCES) \
+		--max-instances=$(call deploy_var,DEPLOY_MAX_INSTANCES) \
+		--concurrency=$(call deploy_var,DEPLOY_CONCURRENCY) \
 		--startup-probe=httpGet.path=/ready,initialDelaySeconds=5,periodSeconds=5,timeoutSeconds=5,failureThreshold=6 \
 		--set-env-vars="^@^$$ENV_VARS" \
 		--set-secrets=POSTGRES_PASSWORD=postgres-password:latest,OPENAI_API_KEY=openai-api-key:latest
