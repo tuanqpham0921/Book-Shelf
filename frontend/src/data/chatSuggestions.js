@@ -13,13 +13,21 @@ export const userInputSuggestions = {
     ],
 
     // Asks the planner has no node for yet (compare, ISBN, co-authors, random, preferences)
-    "Not currently supported": [
+    "Unsupported": [
         "compare Dune and The Iliad",
         "Surprise me with a random book",
         "give me information on Stephen King",
         "Find the book with ISBN 9780441172719",
         "that one book we talked about but longer",
         "Set my preference: I love mystery novels with strong female protagonists",
+    ],
+
+    // Example questions for the project
+    "Project Info": [
+        "what tools do you have?",
+        "Can you get me the developer information?",
+        "How do you find book similar to another?",
+        "What caching techinques does the system use?",
     ],
 
     // Messages triage should turn away (SecurityReview)
@@ -32,7 +40,7 @@ export const userInputSuggestions = {
     ],
 
     // Every query in backend/evals/*/suites (deduped, under the 500-char input cap)
-    "Evaluation Queries": [
+    "Evaluation": [
         "What is the book Dune?",
         "books like Dune",
         "horror by King over 500 pages",
