@@ -13,15 +13,11 @@
 | Shape | cpu 1, memory 1Gi, cpu-boost, timeout 300s, min 0 / max 3 instances, concurrency 5 |
 | Identity | `book-shelf-api@tuanqpham0921.iam.gserviceaccount.com`, not the compute default (which carries project Editor) |
 | Secrets | `POSTGRES_PASSWORD` ← `postgres-password:latest`, `OPENAI_API_KEY` ← `openai-api-key:latest` |
-| OpenAI key | Production has its **own key**, separate from the one in `config/.env` that `make dev` and `dev-neon` use |
+| OpenAI key | Production has its **own key**, separate from the one in `config/.env` that `make dev` and `dev-neon` use. It lives in git-ignored `config/.env.deployment`; `make deploy` pushes it as a new `openai-api-key` version when it differs from `latest` |
+| Vector store | `OPENAI_VECTOR_STORE_ID` (the project docs `Retrieve_Project_Info` searches), read from `config/.env.deployment` into `--set-env-vars` — an id, not a secret |
 | Startup probe | `GET /ready` (a real `SELECT 1`), 5s delay / 5s period / 6 failures — a revision that can't reach the database never takes traffic |
 | Database | Neon — [deployment-neon.md](deployment-neon.md) |
 | Frontend | Firebase Hosting, target `book-rec`; `VITE_API_URL` from the committed `frontend/.env.production` |
-
-**Not in production yet:** the recipe does not set `OPENAI_VECTOR_STORE_ID` (the OpenAI
-vector store over the project docs), so project lookups fail there and fall through to the
-planner
-([backlog.md](backlog.md), Project info).
 
 ## 2. Deploying
 
@@ -54,13 +50,14 @@ make -C backend deploy-on     # restore it without a rebuild, then deploy-check
 
 **Rotating the OpenAI key:**
 
+Put the new key in `OPENAI_API_KEY` in `backend/config/.env.deployment`, then:
+
 ```bash
-printf '%s' "$K" | gcloud secrets versions add openai-api-key --data-file=-
-make -C backend deploy        # `latest` is resolved when an instance starts
+make -C backend deploy        # adds the secret version, then deploys; `latest` is resolved when an instance starts
 ```
 
-Use `printf '%s'`, never `echo`: a trailing newline breaks auth in a way that looks
-exactly like a wrong credential.
+The recipe pipes the key with `printf '%s'`, never `echo`: a trailing newline breaks auth
+in a way that looks exactly like a wrong credential.
 
 ## 3. The image
 

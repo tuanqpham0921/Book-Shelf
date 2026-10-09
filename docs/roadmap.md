@@ -35,10 +35,10 @@ frontend, **reduce** features rather than add them.
 
 In rough priority order:
 
-1. **Project questions in production.** The lookup now searches an OpenAI vector store
-   from the app (2026-10-09) rather than a local RAG service, so production only needs
-   `OPENAI_VECTOR_STORE_ID` in the deploy recipe, and a production key that can read the
-   store. Then fix the lookup's token issues in [backlog.md](backlog.md).
+1. **Project questions in production.** The lookup searches an OpenAI vector store from
+   the app (2026-10-09), and `make deploy` now sets the store id and the production key.
+   Confirm one live lookup after the next deploy, then fix the lookup's token issues in
+   [backlog.md](backlog.md).
 2. **Refused goals get no reply.** A turn whose goals are all refused ends in the
    orchestrator's generic error (TODO in `planjane/executor.py`).
 3. **The golden-test gate.** Re-baseline the suites against the current node set, set

@@ -251,9 +251,26 @@ ALLOW_ORIGINS     := https://tuanqpham0921.web.app,https://tuanqpham0921.firebas
 # endpoint host stays out of version control. The password is NOT passed here:
 # it and the OpenAI key come from Secret Manager, which is what keeps them out
 # of the revision's env (revisions are immutable and readable forever).
+#
+# The production OpenAI key and vector store id are read from the git-ignored
+# config/.env.deployment. The key still reaches the service only through
+# Secret Manager: it is pushed as a new `openai-api-key` version when it
+# differs from `latest`, and never put on the command line or the env. The
+# store id is not a secret, so it rides --set-env-vars.
+DEPLOY_ENV := $(MAKEFILE_DIR)config/.env.deployment
+
 .PHONY: deploy
 deploy:
 	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && \
+	OPENAI_API_KEY=$$(sed -n 's/^OPENAI_API_KEY=//p' $(DEPLOY_ENV)) && \
+	OPENAI_VECTOR_STORE_ID=$$(sed -n 's/^OPENAI_VECTOR_STORE_ID=//p' $(DEPLOY_ENV)) && \
+	if [ -z "$$OPENAI_API_KEY" ] || [ -z "$$OPENAI_VECTOR_STORE_ID" ]; then \
+		echo "OPENAI_API_KEY and OPENAI_VECTOR_STORE_ID must be set in $(DEPLOY_ENV)"; exit 1; \
+	fi && \
+	if [ "$$(gcloud secrets versions access latest --secret=openai-api-key --project=$(GCP_PROJECT))" != "$$OPENAI_API_KEY" ]; then \
+		printf '%s' "$$OPENAI_API_KEY" | \
+			gcloud secrets versions add openai-api-key --data-file=- --project=$(GCP_PROJECT); \
+	fi && \
 	gcloud run deploy $(CLOUD_RUN_SERVICE) \
 		--source=$(MAKEFILE_DIR) \
 		--project=$(GCP_PROJECT) \
@@ -264,7 +281,7 @@ deploy:
 		--timeout=300 \
 		--min-instances=0 --max-instances=3 --concurrency=5 \
 		--startup-probe=httpGet.path=/ready,initialDelaySeconds=5,periodSeconds=5,timeoutSeconds=5,failureThreshold=6 \
-		--set-env-vars="^@^APP_NAME=book-shelf-backend@APP_ENVIRONMENT=production@APP_ALLOW_ORIGINS=$(ALLOW_ORIGINS)@APP_FIREBASE_PROJECT_NUMBER=$(GCP_PROJECT_NUMBER)@POSTGRES_HOST=$$POSTGRES_HOST@POSTGRES_PORT=$$POSTGRES_PORT@POSTGRES_DB=$$POSTGRES_DB@POSTGRES_USER=$$POSTGRES_USER@POSTGRES_SSL_MODE=$$POSTGRES_SSL_MODE@POSTGRES_MIN_CONNECTIONS=$$POSTGRES_MIN_CONNECTIONS@POSTGRES_MAX_CONNECTIONS=$$POSTGRES_MAX_CONNECTIONS@OPENAI_BASE_MODEL=gpt-4.1-mini@OPENAI_TOKENIZER_ENCODING=o200k_base@OPENAI_EMBEDDING_MODEL=text-embedding-3-large@OPENAI_EMBEDDING_DIMENSIONS=1024@OPENAI_MAX_CONCURRENCY=10" \
+		--set-env-vars="^@^APP_NAME=book-shelf-backend@APP_ENVIRONMENT=production@APP_ALLOW_ORIGINS=$(ALLOW_ORIGINS)@APP_FIREBASE_PROJECT_NUMBER=$(GCP_PROJECT_NUMBER)@POSTGRES_HOST=$$POSTGRES_HOST@POSTGRES_PORT=$$POSTGRES_PORT@POSTGRES_DB=$$POSTGRES_DB@POSTGRES_USER=$$POSTGRES_USER@POSTGRES_SSL_MODE=$$POSTGRES_SSL_MODE@POSTGRES_MIN_CONNECTIONS=$$POSTGRES_MIN_CONNECTIONS@POSTGRES_MAX_CONNECTIONS=$$POSTGRES_MAX_CONNECTIONS@OPENAI_BASE_MODEL=gpt-4.1-mini@OPENAI_TOKENIZER_ENCODING=o200k_base@OPENAI_EMBEDDING_MODEL=text-embedding-3-large@OPENAI_EMBEDDING_DIMENSIONS=1024@OPENAI_MAX_CONCURRENCY=10@OPENAI_VECTOR_STORE_ID=$$OPENAI_VECTOR_STORE_ID" \
 		--set-secrets=POSTGRES_PASSWORD=postgres-password:latest,OPENAI_API_KEY=openai-api-key:latest
 	@$(MAKE) deploy-check
 

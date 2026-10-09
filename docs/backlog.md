@@ -13,10 +13,6 @@ keeping graduates here.
 From the 2026-10-08 token audit of `Retrieve_Project_Info`. Accounting is correct — no
 double counting, and a rejected lookup is charged once — but:
 
-- **Production has no vector store id.** The lookup searches the OpenAI vector store
-  named by `OPENAI_VECTOR_STORE_ID` (2026-10-09, replacing the local RAG service), and
-  the deploy recipe does not set it yet, so in production every lookup fails and project
-  questions fall through to the planner, whose node fails too.
 - **A rejection pays twice.** A rejected lookup in triage sends the whole message to the
   planner, which usually routes back to `Retrieve_Project_Info`: a second search and a
   second check that rejects again, plus the planner call. Send triage's rejection straight
