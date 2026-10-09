@@ -61,18 +61,6 @@ function renderSection(section, responseId, sectionIndex) {
         );
     }
 
-    // Sources section — the docs a project answer came from
-    if (section.type === 'sources' && section.sources && section.sources.length > 0) {
-        return (
-            <div key={key} className="message-bubble response text-sm text-[var(--text-hover)]">
-                <span className="font-medium">Sources:</span>
-                <ul className="list-disc pl-5 mt-1">
-                    {section.sources.map(source => <li key={source}>{source}</li>)}
-                </ul>
-            </div>
-        );
-    }
-
     // Diagram section — the plan, framed as the first step of the task list
     if (section.type === 'diagram' && section.mermaid) {
         return (
@@ -202,7 +190,7 @@ function ChatMessages({ messages, sessionId }) {
                         {/* Feedback — once the reply is done and the backend
                             has named its run (the chat.id event) */}
                         {response.chatId && !response.isStreaming && (
-                            <ChatFeedback key={response.chatId} chatId={response.chatId} sessionId={sessionId} logRecord={response.logRecord} />
+                            <ChatFeedback key={response.chatId} chatId={response.chatId} sessionId={sessionId} logRecord={response.logRecord} sources={response.sources} />
                         )}
 
                         {/* AI disclaimer - show on last message */}

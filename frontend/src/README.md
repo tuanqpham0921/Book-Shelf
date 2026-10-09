@@ -23,7 +23,8 @@ mounted once visited.
 `chat.id`, `ui.loading`, `content.delta`, `book_card`, `mermaid.diagram`,
 `task.start`, `task.end`, `sources`, `step.complete`, `error`, `complete` — handled in
 `ChatBot.jsx` via `parseSSEStream` from `utils/`. `sources` (`{sources: [doc names]}`)
-follows the reply when it drew on project facts, and renders as a list under it.
+follows the reply when it drew on project facts; it is kept on the response and shown by
+a "Sources" button beside the log button (`ChatFeedback.jsx`) that opens a popup like the log's.
 
 **`book_card.data` is pinned by `BookOut`** (`backend/app/api/schemas/external.py`):
 `isbn13`, `title`, `authors`, `categories`, `published_year`, `num_pages`,

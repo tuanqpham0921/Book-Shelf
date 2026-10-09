@@ -87,7 +87,7 @@ class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
         # 2. each text, then the cards it talks about
         await self._deliver(reply.blocks, books_by_handle(ordered))
 
-        # 3. the docs any project facts came from, under the reply
+        # 3. the docs any project facts came from, for the Sources button
         docs = [
             doc
             for result in sources
