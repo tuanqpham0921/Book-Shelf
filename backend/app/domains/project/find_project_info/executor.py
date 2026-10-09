@@ -21,8 +21,8 @@ ANSWER_PROMPT_PATH = "domains/project/find_project_info/prompts/answer_from_docs
 
 # A few sentences of answer and a few doc names, plus the reasoning tokens
 # that count against this cap.
-MAX_COMPLETION_TOKENS = 4_000
-
+MAX_COMPLETION_TOKENS = 6_000
+MAX_OUTPUT_TOKENS     = 1_000
 
 def build_answer_request(question: str, sources: str) -> OpenAIParserRequest:
     """Ask the LLM to fill `ProjectDocsAnswer` from the chunks alone."""
@@ -47,6 +47,7 @@ def build_answer_request(question: str, sources: str) -> OpenAIParserRequest:
         ],
         tool_models=[ProjectDocsAnswer],
         max_completion_tokens=MAX_COMPLETION_TOKENS,
+        max_output_tokens=MAX_OUTPUT_TOKENS
     )
 
 
