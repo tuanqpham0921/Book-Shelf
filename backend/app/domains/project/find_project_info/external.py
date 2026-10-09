@@ -25,7 +25,7 @@ class ProjectInfoRequest(BaseRequest):
     than asking about it.
 
     Constraints: One node covers every project question in the message —
-    never one node per question.
+    never one node per question. Keep the query concise and only one sentence.
 
     Example queries:
         - "what tech stack does this use"
