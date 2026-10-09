@@ -154,7 +154,7 @@ Neon (managed Postgres, the deployed database) — `neon auth` and `neon link`
 once per machine, see docs/deployment-neon.md:
 
 ```bash
-make dev-neon           # make dev with config/.env.neon's POSTGRES_* over config/.env
+make dev-neon           # make dev with config/.env.deployment's POSTGRES_* over config/.env
 make local-prod-neon    # the same, as APP_ENVIRONMENT=production and no reload
 make neon-cli           # psql shell on Neon
 make neon-bootstrap     # seed an EMPTY Neon database from db/init + data/backup/books.sql

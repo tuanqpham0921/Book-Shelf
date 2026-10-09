@@ -12,9 +12,9 @@
 | URL | `https://book-shelf-api-imqv7vxzdq-ul.a.run.app` — public (`allUsers` → `roles/run.invoker`) |
 | Shape | cpu 1, memory 1Gi, cpu-boost, timeout 300s, min 0 / max 3 instances, concurrency 5 |
 | Identity | `book-shelf-api@tuanqpham0921.iam.gserviceaccount.com`, not the compute default (which carries project Editor) |
+| Settings | git-ignored `backend/config/.env.deployment` — every env var, plus the two secrets the recipe syncs |
 | Secrets | `POSTGRES_PASSWORD` ← `postgres-password:latest`, `OPENAI_API_KEY` ← `openai-api-key:latest` |
-| OpenAI key | Production has its **own key**, separate from the one in `config/.env` that `make dev` and `dev-neon` use. It lives in git-ignored `config/.env.deployment`; `make deploy` pushes it as a new `openai-api-key` version when it differs from `latest` |
-| Vector store | `OPENAI_VECTOR_STORE_ID` (the project docs `Retrieve_Project_Info` searches), read from `config/.env.deployment` into `--set-env-vars` — an id, not a secret |
+| OpenAI key | Production has its **own key**, separate from the one in `config/.env` that `make dev` and `dev-neon` use. |
 | Startup probe | `GET /ready` (a real `SELECT 1`), 5s delay / 5s period / 6 failures — a revision that can't reach the database never takes traffic |
 | Database | Neon — [deployment-neon.md](deployment-neon.md) |
 | Frontend | Firebase Hosting, target `book-rec`; `VITE_API_URL` from the committed `frontend/.env.production` |
@@ -34,9 +34,14 @@ Artifact Registry, so the file would only restate the Dockerfile and the flags.
 
 Details worth knowing:
 
-- The database host, user and pool values come from git-ignored `config/.env.neon` — the
-  same file `make dev-neon` reads — so the deployed database and local Neon runs cannot
-  drift, and the endpoint stays out of the public repo.
+- **Every env var comes from git-ignored `config/.env.deployment`**: each `KEY=value` line
+  becomes an env var on the revision, except `POSTGRES_PASSWORD` and `OPENAI_API_KEY`,
+  which are pushed to Secret Manager as a new version when they differ from `latest`. The
+  recipe refuses a file whose `APP_ENVIRONMENT` is not `production` (a copy of
+  `config/.env`). `make dev-neon` reads the same file's `POSTGRES_*` lines, so the
+  deployed database and local Neon runs cannot drift, and the endpoint stays out of the
+  public repo. The cost: production's non-secret settings (models, origins) are no longer
+  in git, so a fresh clone cannot deploy without that file.
 - **`^@^` in `--set-env-vars` is load-bearing.** It switches gcloud's list delimiter from
   `,` to `@`, so the comma inside `APP_ALLOW_ORIGINS` doesn't split it into two malformed
   variables.
@@ -48,15 +53,15 @@ make -C backend deploy-off    # revoke public access (403s); nothing is deleted
 make -C backend deploy-on     # restore it without a rebuild, then deploy-check
 ```
 
-**Rotating the OpenAI key:**
+**Rotating the OpenAI key or the database password:**
 
-Put the new key in `OPENAI_API_KEY` in `backend/config/.env.deployment`, then:
+Put the new value in `backend/config/.env.deployment`, then:
 
 ```bash
 make -C backend deploy        # adds the secret version, then deploys; `latest` is resolved when an instance starts
 ```
 
-The recipe pipes the key with `printf '%s'`, never `echo`: a trailing newline breaks auth
+The recipe pipes each secret with `printf '%s'`, never `echo`: a trailing newline breaks auth
 in a way that looks exactly like a wrong credential.
 
 ## 3. The image

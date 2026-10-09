@@ -62,7 +62,7 @@ make postgres-start             # start PostgreSQL via Docker Compose
 make postgres-stop              # stop PostgreSQL container
 make postgres-restore           # restore data from data/backup.sql
 make postgres-cli               # open psql shell
-make dev-neon                   # make dev against Neon (config/.env.neon over config/.env)
+make dev-neon                   # make dev against Neon (config/.env.deployment's POSTGRES_* over config/.env)
 make neon-cli                   # psql shell on Neon, via the Neon CLI (neon auth + neon link first)
 make deploy                     # deploy the backend to Cloud Run (the recipe is the whole service config)
 make deploy-check               # curl /ready on the live revision
@@ -194,7 +194,7 @@ The app's own layer on top is `AppWorkflow` (`app/domains/base_workflow.py`), wh
 
 ### Infrastructure
 
-- **Backend**: Google Cloud Run service `book-shelf-api` in `us-east5`, deployed by `make deploy` (`gcloud run deploy --source` → Cloud Build → Artifact Registry). There is no `cloudbuild.yaml` and shouldn't be: the Dockerfile and the deploy flags already say everything it would. The `deploy` recipe in `backend/Makefile` is the whole description of the service — change a setting there, not in the console. `POSTGRES_PASSWORD` and `OPENAI_API_KEY` come from Secret Manager; the database host/user come from git-ignored `config/.env.neon`, the same file `dev-neon` reads; the production OpenAI key and `OPENAI_VECTOR_STORE_ID` come from git-ignored `config/.env.deployment` — the recipe pushes the key into Secret Manager (a new `openai-api-key` version only when it changed) and passes the store id as a plain env var
+- **Backend**: Google Cloud Run service `book-shelf-api` in `us-east5`, deployed by `make deploy` (`gcloud run deploy --source` → Cloud Build → Artifact Registry). There is no `cloudbuild.yaml` and shouldn't be: the Dockerfile and the deploy flags already say everything it would. The `deploy` recipe in `backend/Makefile` is the whole description of the service — change a setting there, not in the console. every env var comes from git-ignored `config/.env.deployment` (the file `dev-neon` reads its `POSTGRES_*` lines from), except `POSTGRES_PASSWORD` and `OPENAI_API_KEY`, which the recipe pushes to Secret Manager (a new version only when one changed) and the service reads from there
 - **Frontend**: Firebase Hosting (target `book-rec` → tuanqpham0921.web.app), deployed by `make -C frontend deploy`
 - **Database**: Neon — managed Postgres 18 in `aws-us-east-2`, project `book-shelf` (see [docs/deployment-neon.md](docs/deployment-neon.md))
 - Local dev uses Docker Compose for PostgreSQL only (see `backend/docker-compose.yml`)

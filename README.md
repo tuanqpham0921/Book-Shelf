@@ -85,7 +85,7 @@ git-ignored. Two ways to get rows:
 
 - `make postgres-restore BACKUP_FILE=path/to/your.sql` — replay a dump you have.
 - `make dev-neon` — skip local data entirely and run the same server against the
-  Neon database, by layering `config/.env.neon` over `config/.env`.
+  Neon database, by layering the `POSTGRES_*` lines of `config/.env.deployment` over `config/.env`.
 
 ### Frontend
 

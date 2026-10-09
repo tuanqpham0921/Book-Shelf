@@ -26,8 +26,8 @@ It is stock Postgres: moving to Cloud SQL later is `pg_dump` plus five env vars.
 
 ## Connecting
 
-**Credentials.** The direct connection string is split into git-ignored
-**`config/.env.neon`**, which holds only the `POSTGRES_*` fields:
+**Credentials.** The direct connection string is split into the `POSTGRES_*` lines of
+git-ignored **`config/.env.deployment`**, the file that describes production:
 
 ```bash
 POSTGRES_HOST=ep-<name>-<id>.us-east-2.aws.neon.tech
@@ -40,9 +40,10 @@ POSTGRES_MIN_CONNECTIONS=2
 POSTGRES_MAX_CONNECTIONS=12
 ```
 
-`config/.env` stays pointed at the local container. `make dev-neon` loads `.env.neon`
-over it (process env beats the env file in pydantic-settings), so switching databases is
-a target, not a file copy. The same file feeds `make deploy`. It is covered by the
+`config/.env` stays pointed at the local container. `make dev-neon` loads only those
+`POSTGRES_*` lines over it (process env beats the env file in pydantic-settings), so
+switching databases is a target, not a file copy, and the OpenAI key stays the dev one.
+The same file feeds `make deploy`. It is covered by the
 `config/.env*` gitignore rule and by both `.dockerignore` and `.gcloudignore`.
 
 **Linking the CLI** (once per machine):
@@ -122,8 +123,8 @@ file in `db/commands/migrations/`, so a fresh database gets the current schema f
 
 **Try it on a branch first.** `neon branches create --name mig-<topic>` is an instant
 copy-on-write clone of production with all the books. Apply the migration there, point
-`config/.env.neon` at the branch host, exercise it with `make dev-neon`, then apply it to
-`production`.
+`POSTGRES_HOST` in `config/.env.deployment` at the branch host, exercise it with `make
+dev-neon`, then apply it to `production` — and point it back before any `make deploy`.
 
 ## Pool sizing
 

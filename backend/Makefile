@@ -29,12 +29,12 @@ dev:
 local-prod:
 	APP_ENVIRONMENT=production LOG_LEVEL=INFO poetry run uvicorn app.main:app
 
-# local-prod against Neon — the same override dev-neon uses: config/.env.neon
-# holds only POSTGRES_* values, and process env beats config/.env in
+# local-prod against Neon — the same override dev-neon uses: the POSTGRES_*
+# lines of config/.env.deployment, and process env beats config/.env in
 # pydantic-settings. As close to the deployed service as this machine gets.
 .PHONY: local-prod-neon
 local-prod-neon:
-	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && $(MAKE) local-prod
+	set -a && eval "$$(grep '^POSTGRES_' $(DEPLOY_ENV))" && set +a && $(MAKE) local-prod
 
 # clear the pycache
 .PHONY: clean
@@ -217,60 +217,57 @@ neon-bootstrap:
 	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/02_indexes.sql
 	@echo "Neon bootstrapped."
 
-# the API against Neon instead of the compose container: config/.env.neon holds
-# only POSTGRES_* values, and process env beats config/.env in pydantic-settings
+# the API against Neon instead of the compose container: only the POSTGRES_*
+# lines of config/.env.deployment, so the OpenAI key stays the dev one, and
+# process env beats config/.env in pydantic-settings
 .PHONY: dev-neon
 dev-neon:
-	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && $(MAKE) dev
+	set -a && eval "$$(grep '^POSTGRES_' $(DEPLOY_ENV))" && set +a && $(MAKE) dev
 
 # -------------------
 # Deploy (Cloud Run)
 # -------------------
 
-# The recipe below is the whole description of the service: every flag that
-# shapes the deployed revision is here, so nothing lives only in the console
-# and a redeploy can't quietly drop a setting someone clicked in once.
+# The recipe below plus config/.env.deployment is the whole description of the
+# service: the flags that shape the revision are here and every env var is in
+# that file, so nothing lives only in the console and a redeploy can't quietly
+# drop a setting someone clicked in once.
 CLOUD_RUN_SERVICE := book-shelf-api
 CLOUD_RUN_REGION  := us-east5
 GCP_PROJECT       := tuanqpham0921
-# Setting it turns Firebase App Check on (app/api/dependencies.py): every route
-# but health then needs a token minted for the web app in this project.
-GCP_PROJECT_NUMBER := 286869228046
 # A dedicated service account, not the compute default (which carries project
 # Editor): this one may only read the two secrets below.
 CLOUD_RUN_SA      := $(CLOUD_RUN_SERVICE)@$(GCP_PROJECT).iam.gserviceaccount.com
-# Firebase serves the site on both hostnames, so both must be allowed.
-ALLOW_ORIGINS     := https://tuanqpham0921.web.app,https://tuanqpham0921.firebaseapp.com
+# Production settings, git-ignored so the endpoint host and the keys stay out
+# of version control. `dev-neon` and `local-prod-neon` read its POSTGRES_*
+# lines, so the deployed database and your local Neon runs cannot drift.
+DEPLOY_ENV        := $(MAKEFILE_DIR)config/.env.deployment
 
 # Deploy the backend. Builds from source via Cloud Build (no cloudbuild.yaml:
 # the Dockerfile and these flags already say everything one would contain),
 # pushes to Artifact Registry, and rolls out a new revision.
 #
-# Database settings are read from config/.env.neon — the same file `dev-neon`
-# uses, so the deployed database and your local Neon runs cannot drift, and the
-# endpoint host stays out of version control. The password is NOT passed here:
-# it and the OpenAI key come from Secret Manager, which is what keeps them out
-# of the revision's env (revisions are immutable and readable forever).
-#
-# The production OpenAI key and vector store id are read from the git-ignored
-# config/.env.deployment. The key still reaches the service only through
-# Secret Manager: it is pushed as a new `openai-api-key` version when it
-# differs from `latest`, and never put on the command line or the env. The
-# store id is not a secret, so it rides --set-env-vars.
-DEPLOY_ENV := $(MAKEFILE_DIR)config/.env.deployment
-
+# Every KEY=value line of DEPLOY_ENV becomes an env var except the two secrets,
+# POSTGRES_PASSWORD and OPENAI_API_KEY: those reach the service only through
+# Secret Manager, which keeps them out of the revision's env (revisions are
+# immutable and readable forever). Each is pushed as a new version when it
+# differs from `latest` — with `printf '%s'`, never `echo`, since a trailing
+# newline breaks auth like a wrong credential. A file whose APP_ENVIRONMENT is
+# not production is refused: that is what a copy of config/.env would deploy.
 .PHONY: deploy
 deploy:
-	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && \
-	OPENAI_API_KEY=$$(sed -n 's/^OPENAI_API_KEY=//p' $(DEPLOY_ENV)) && \
-	OPENAI_VECTOR_STORE_ID=$$(sed -n 's/^OPENAI_VECTOR_STORE_ID=//p' $(DEPLOY_ENV)) && \
-	if [ -z "$$OPENAI_API_KEY" ] || [ -z "$$OPENAI_VECTOR_STORE_ID" ]; then \
-		echo "OPENAI_API_KEY and OPENAI_VECTOR_STORE_ID must be set in $(DEPLOY_ENV)"; exit 1; \
+	. $(DEPLOY_ENV) && \
+	if [ "$$APP_ENVIRONMENT" != production ] || [ -z "$$POSTGRES_PASSWORD" ] || [ -z "$$OPENAI_API_KEY" ]; then \
+		echo "$(DEPLOY_ENV) needs APP_ENVIRONMENT=production, POSTGRES_PASSWORD and OPENAI_API_KEY"; exit 1; \
 	fi && \
-	if [ "$$(gcloud secrets versions access latest --secret=openai-api-key --project=$(GCP_PROJECT))" != "$$OPENAI_API_KEY" ]; then \
-		printf '%s' "$$OPENAI_API_KEY" | \
-			gcloud secrets versions add openai-api-key --data-file=- --project=$(GCP_PROJECT); \
-	fi && \
+	sync_secret() { \
+		if [ "$$(gcloud secrets versions access latest --secret=$$1 --project=$(GCP_PROJECT))" != "$$2" ]; then \
+			printf '%s' "$$2" | gcloud secrets versions add $$1 --data-file=- --project=$(GCP_PROJECT); \
+		fi; \
+	} && \
+	sync_secret postgres-password "$$POSTGRES_PASSWORD" && \
+	sync_secret openai-api-key "$$OPENAI_API_KEY" && \
+	ENV_VARS=$$(grep -E '^[A-Z_]+=' $(DEPLOY_ENV) | grep -vE '^(POSTGRES_PASSWORD|OPENAI_API_KEY)=' | paste -sd@ -) && \
 	gcloud run deploy $(CLOUD_RUN_SERVICE) \
 		--source=$(MAKEFILE_DIR) \
 		--project=$(GCP_PROJECT) \
@@ -281,7 +278,7 @@ deploy:
 		--timeout=300 \
 		--min-instances=0 --max-instances=3 --concurrency=5 \
 		--startup-probe=httpGet.path=/ready,initialDelaySeconds=5,periodSeconds=5,timeoutSeconds=5,failureThreshold=6 \
-		--set-env-vars="^@^APP_NAME=book-shelf-backend@APP_ENVIRONMENT=production@APP_ALLOW_ORIGINS=$(ALLOW_ORIGINS)@APP_FIREBASE_PROJECT_NUMBER=$(GCP_PROJECT_NUMBER)@POSTGRES_HOST=$$POSTGRES_HOST@POSTGRES_PORT=$$POSTGRES_PORT@POSTGRES_DB=$$POSTGRES_DB@POSTGRES_USER=$$POSTGRES_USER@POSTGRES_SSL_MODE=$$POSTGRES_SSL_MODE@POSTGRES_MIN_CONNECTIONS=$$POSTGRES_MIN_CONNECTIONS@POSTGRES_MAX_CONNECTIONS=$$POSTGRES_MAX_CONNECTIONS@OPENAI_BASE_MODEL=gpt-4.1-mini@OPENAI_TOKENIZER_ENCODING=o200k_base@OPENAI_EMBEDDING_MODEL=text-embedding-3-large@OPENAI_EMBEDDING_DIMENSIONS=1024@OPENAI_MAX_CONCURRENCY=10@OPENAI_VECTOR_STORE_ID=$$OPENAI_VECTOR_STORE_ID" \
+		--set-env-vars="^@^$$ENV_VARS" \
 		--set-secrets=POSTGRES_PASSWORD=postgres-password:latest,OPENAI_API_KEY=openai-api-key:latest
 	@$(MAKE) deploy-check
 
