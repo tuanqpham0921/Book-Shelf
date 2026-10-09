@@ -63,8 +63,6 @@ Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
 
 this is okay for now
 
-* send Airglider logs to the UI
-    * flattern first
 * have a link from PlanJane to blog
 * have a link to Airglider
 

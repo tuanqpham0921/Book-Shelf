@@ -92,7 +92,7 @@ CACHED_MESSAGE = "Show me books similar to Pride and Prejudice"
 
 @pytest.fixture
 def cache_dir(tmp_path):
-    """The dev cache, relocated to a tmp dir with one message mapped. Both
+    """The plan cache, relocated to a tmp dir with one message mapped. Both
     sides of a `cache_mapping` entry are the message itself — it is also the
     file name."""
     with patch.object(cache, "CACHE_DIR", tmp_path), patch.dict(
@@ -102,7 +102,7 @@ def cache_dir(tmp_path):
 
 
 class TestLoadCachedParseOutput:
-    """The dev-only plan replay.
+    """The plan replay.
 
     A cache file is a bare `PlanJaneOutput` dump now — no enclosing triage
     record, so no `output.parse_result` to reach through — and it is written
@@ -133,7 +133,7 @@ class TestLoadCachedParseOutput:
         assert load_cached_parse_output("a message nobody cached") is None
 
     def test_a_mapped_message_with_no_file_falls_through(self, cache_dir):
-        # cache_mapping outlives the files it names — two entries are mapped
+        # cache_mapping can outlive the files it names — an entry mapped
         # with nothing on disk. load_json logs and returns None, so this is a
         # planner call, not a crash inside triage.
         assert load_cached_parse_output(CACHED_MESSAGE) is None

@@ -10,7 +10,7 @@ both.
 Same reading rule as the slices (domains/README.md): this file is the flow,
 with the request builder as a module-level pure function beside it.
 `tools.py` is the `PlanJane` tool triage's LLM can pick, `external.py` is what
-the layers around triage read back, `cache.py` is the dev plan replay.
+the layers around triage read back, `cache.py` is the plan replay.
 
 Not in `app/domains/` because it is not a capability — no `NodeSpec` will ever
 point at it. A workflow rather than methods on `Orchestrator` because
