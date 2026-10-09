@@ -17,22 +17,6 @@ class ProjectInfoArgs(BaseModel):
         ),
         json_schema_extra={"example": "What tech stack does BookShelf use?"},
     )
-    
-    @task(description="Searches BookShelf's docs")
-    async def __call__(self, ctx):
-        client = ctx.client
-        
-        sources = await client.search_vector_store(self.query_input)
-        formatted_sources = [
-            f"SOURCE: {r.filename} (score: {r.score:.3f})\n\"\"\"\n{''.join(c.text for c in r.content)}\n\"\"\""
-            for r in sources
-        ]
-        result = f"\n\n---\n\n".join(formatted_sources) + f"\n\n---"
-
-        if not sources.strip():
-            raise ValueError("The project docs returned no sources")
-        
-        return result
 
 
 # Internal: the node's check call fills this from the retrieved chunks.

@@ -4,6 +4,7 @@ import logging
 from typing import Any, Optional
 
 from openai import AsyncOpenAI
+from openai.types import VectorStoreSearchResponse
 from pydantic import BaseModel, Field
 
 from .base import BaseLLMClient, BaseLLMRequest
@@ -75,26 +76,25 @@ class OpenAIClient(BaseLLMClient):
                 prompt=response.usage.prompt_tokens,
             ),
         )
-        
-    async def search_vector_store(self, query: str, max_num_results: int = 10):
-        """ Search the database vectore store
-        
-        """
+
+    async def search_vector_store(
+        self,
+        query: str,
+        max_num_results: int = OpenAIConstants.VECTOR_STORE_MAX_RESULTS,
+    ) -> list[VectorStoreSearchResponse]:
+        """The chunks of the vector store closest to `query`. Raises through
+        the caller on failure, like `get_embeddings`."""
         if not self.vector_store_id:
-            raise RuntimeError("No vector store is available")
-        
-        if not query.strip():
-            ...
-        if max_num_results < 1:
-            ...
-        
-        page = await self.client.vector_stores.search(
-            self.vector_store_id, 
-            query=query, 
-            max_num_results=max_num_results
-        )
+            raise RuntimeError("No vector store is configured")
+
+        async with self.semaphore:
+            page = await self.client.vector_stores.search(
+                self.vector_store_id,
+                query=query,
+                max_num_results=max_num_results,
+            )
         return page.data
-        
+
 
     async def execute(self, req: BaseLLMRequest, save_payload: bool = False) -> AssistantMessage:
         """Execute the chat completion.

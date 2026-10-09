@@ -35,10 +35,10 @@ frontend, **reduce** features rather than add them.
 
 In rough priority order:
 
-1. **Project questions in production.** The project-docs RAG service runs locally only,
-   so every project lookup fails in production and falls through to the planner, whose
-   node fails too. Deploy the service (or ship the chunks with the app), then fix the
-   lookup's token issues in [backlog.md](backlog.md).
+1. **Project questions in production.** The lookup now searches an OpenAI vector store
+   from the app (2026-10-09) rather than a local RAG service, so production only needs
+   `OPENAI_VECTOR_STORE_ID` in the deploy recipe, and a production key that can read the
+   store. Then fix the lookup's token issues in [backlog.md](backlog.md).
 2. **Refused goals get no reply.** A turn whose goals are all refused ends in the
    orchestrator's generic error (TODO in `planjane/executor.py`).
 3. **The golden-test gate.** Re-baseline the suites against the current node set, set

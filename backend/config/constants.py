@@ -60,6 +60,7 @@ class OpenAIConstants:
     # `max_completion_tokens`; above this is refused.
     MAX_INPUT_TOKENS       = 25_000  # whole payload, tool schemas included
     MAX_DEFAULT_COMPLETION = 10_000  # reasoning + visible output together
+    VECTOR_STORE_MAX_RESULTS = 10    # chunks per search; the API allows 1-50
 
 class FilesLocationConstants:
     """Repository paths resolved from the backend package root."""

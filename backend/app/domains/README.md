@@ -6,8 +6,9 @@ itself. The V1 node set and its rationale live in
 
 Two domains: `books/`, and `project/`, whose one node
 (`find_project_info/`, `Retrieve_Project_Info`) answers questions about
-BookShelf from a RAG service over its own docs: `search_project_docs` fetches
-the closest chunks, and one LLM call answers from them or rejects. It is
+BookShelf from an OpenAI vector store over its own docs: `search_project_docs`
+(a `@task` method) fetches the closest chunks, and one LLM call answers from
+them or rejects. It is
 `find_by_title/`'s shape minus the store and the arg parse — the instruction
 is the question — so its executor subclasses `AppWorkflow` rather than a domain base,
 and there is no `project/base_workflow.py` or `schemas.py` until a second node

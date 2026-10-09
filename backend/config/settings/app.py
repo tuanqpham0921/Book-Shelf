@@ -19,9 +19,6 @@ class AppSettings(BaseSettings):
     # check needs. The deploy recipe sets it; local dev leaves it unset, since
     # a Vite dev server has no reCAPTCHA key to earn a token with.
     FIREBASE_PROJECT_NUMBER: str | None = None
-    # The RAG service over BookShelf's own markdown docs, which answers
-    # questions about the project (find_project_info). Local-only for now.
-    PROJECT_DOCS_URL: str = "http://localhost:8001"
 
     model_config = SettingsConfigDict(
         env_file=FilesLocationConstants.ENV_FILE,

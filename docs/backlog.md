@@ -13,16 +13,18 @@ keeping graduates here.
 From the 2026-10-08 token audit of `Retrieve_Project_Info`. Accounting is correct — no
 double counting, and a rejected lookup is charged once — but:
 
-- **The RAG service is local only.** `PROJECT_DOCS_URL` defaults to
-  `http://localhost:8001`, so in production every lookup fails and project questions fall
-  through to the planner, whose node fails too.
+- **Production has no vector store id.** The lookup searches the OpenAI vector store
+  named by `OPENAI_VECTOR_STORE_ID` (2026-10-09, replacing the local RAG service), and
+  the deploy recipe does not set it yet, so in production every lookup fails and project
+  questions fall through to the planner, whose node fails too.
 - **A rejection pays twice.** A rejected lookup in triage sends the whole message to the
   planner, which usually routes back to `Retrieve_Project_Info`: a second search and a
   second check that rejects again, plus the planner call. Send triage's rejection straight
   to the reply instead; keep the fall-through only for a lookup that *errored*.
 - **Each lookup sends ~7.5k input tokens,** almost all of it chunks (a live `/query`
   returned 28,921 characters). Nothing caps them. Cheap in dollars, but the session
-  budget counts tokens. Return fewer chunks or cap their length at the service.
+  budget counts tokens. Return fewer chunks (`OpenAIConstants.VECTOR_STORE_MAX_RESULTS`) or cap their length in
+  `search_project_docs`.
 - **The reply sees the triage lookup as free.** `Orchestrator` builds its `TaskResult`
   with no duration or tokens, so the writer's `<info>` has no cost line for it. Billing is
   unaffected. Carry the lookup record's stats onto `TriageOutput`.

@@ -168,8 +168,9 @@ line, and the node never learns it. Raising the log level is the cheap fix.
 
 Answers questions about BookShelf itself, in two steps:
 
-1. `search_project_docs` (a `@task`) POSTs the instruction to `/query` on the project-docs
-   RAG service (`settings.app.PROJECT_DOCS_URL`) and gets the ten closest chunks.
+1. `search_project_docs` (a `@task` method) searches the OpenAI vector store over the
+   project docs (`settings.openai.VECTOR_STORE_ID`, via `OpenAIClient.search_vector_store`)
+   with the instruction and gets the ten closest chunks.
 2. One LLM call fills `ProjectDocsAnswer` (`supported`, `sources`, `answer`) from those
    chunks alone. `supported` is decided first; when it is false the node **rejects**
    (empty answer, not ok) instead of answering anyway. An empty `answer` alone was too

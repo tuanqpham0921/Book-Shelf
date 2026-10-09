@@ -10,7 +10,9 @@ class OpenAISettings(BaseSettings):
     EMBEDDING_MODEL: str
     EMBEDDING_DIMENSIONS: int
     MAX_CONCURRENCY: int
-    VECTOR_STORE_ID: str | None
+    # BookShelf's docs, searched by find_project_info. Unset, every project
+    # lookup fails and the message falls through to the planner.
+    VECTOR_STORE_ID: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=FilesLocationConstants.ENV_FILE,

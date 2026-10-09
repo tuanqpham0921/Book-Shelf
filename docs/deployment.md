@@ -18,8 +18,9 @@
 | Database | Neon — [deployment-neon.md](deployment-neon.md) |
 | Frontend | Firebase Hosting, target `book-rec`; `VITE_API_URL` from the committed `frontend/.env.production` |
 
-**Not in production:** the project-docs RAG service (`PROJECT_DOCS_URL`) runs locally only,
-so project lookups fail there and fall through to the planner
+**Not in production yet:** the recipe does not set `OPENAI_VECTOR_STORE_ID` (the OpenAI
+vector store over the project docs), so project lookups fail there and fall through to the
+planner
 ([backlog.md](backlog.md), Project info).
 
 ## 2. Deploying
