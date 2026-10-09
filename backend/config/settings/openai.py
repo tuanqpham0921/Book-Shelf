@@ -10,6 +10,7 @@ class OpenAISettings(BaseSettings):
     EMBEDDING_MODEL: str
     EMBEDDING_DIMENSIONS: int
     MAX_CONCURRENCY: int
+    VECTOR_STORE_ID: str | None
 
     model_config = SettingsConfigDict(
         env_file=FilesLocationConstants.ENV_FILE,
