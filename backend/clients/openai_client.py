@@ -48,6 +48,7 @@ class OpenAIClient(BaseLLMClient):
         self.max_input_tokens     = OpenAIConstants.MAX_INPUT_TOKENS
         
         self.semaphore = asyncio.Semaphore(openai_settings.MAX_CONCURRENCY)
+        self.vector_store_id = openai_settings.VECTOR_STORE_ID
     
     async def get_embeddings(self, input: list[str]) -> EmbeddingsResult:
         """Embed `input`. Raises through the caller on failure — no tracing
@@ -74,6 +75,26 @@ class OpenAIClient(BaseLLMClient):
                 prompt=response.usage.prompt_tokens,
             ),
         )
+        
+    async def search_vector_store(self, query: str, max_num_results: int = 10):
+        """ Search the database vectore store
+        
+        """
+        if not self.vector_store_id:
+            raise RuntimeError("No vector store is available")
+        
+        if not query.strip():
+            ...
+        if max_num_results < 1:
+            ...
+        
+        page = await self.client.vector_stores.search(
+            self.vector_store_id, 
+            query=query, 
+            max_num_results=max_num_results
+        )
+        return page.data
+        
 
     async def execute(self, req: BaseLLMRequest, save_payload: bool = False) -> AssistantMessage:
         """Execute the chat completion.

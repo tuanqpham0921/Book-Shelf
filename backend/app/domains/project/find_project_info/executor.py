@@ -26,23 +26,6 @@ ANSWER_PROMPT_PATH = "domains/project/find_project_info/prompts/answer_from_docs
 # that count against this cap.
 MAX_COMPLETION_TOKENS = 4_000
 
-
-@task(description="Searches BookShelf's docs")
-async def search_project_docs(question: str) -> str:
-    """The closest chunks of the docs to `question`, as the service formats
-    them: `SOURCE: <doc> (score: ...)` and the chunk text, `---` between."""
-    async with httpx.AsyncClient(
-        base_url=settings.app.PROJECT_DOCS_URL, timeout=AppConfig.DEFAULT_TIMEOUT
-    ) as client:
-        res = await client.post("/query", json={"message": question})
-        res.raise_for_status()
-        sources = res.json()["sources"]
-
-    if not sources.strip():
-        raise ValueError("The project docs returned no sources")
-    return sources
-
-
 def build_answer_request(question: str, sources: str) -> OpenAIParserRequest:
     """Ask the LLM to fill `ProjectDocsAnswer` from the chunks alone."""
     if not question:
@@ -54,11 +37,13 @@ def build_answer_request(question: str, sources: str) -> OpenAIParserRequest:
         # Measured live on six questions x3 (2026-10-08): gpt-5-mini was 14/18 at
         # medium and 18/18 at high but 12-25s a call; gpt-6-luna was 18/18 at
         # 2-3s and a ninth of the cost (it takes function tools only at "none").
-        model="gpt-5-mini",
-        reasoning_effort='low',
+        model="gpt-6-luna",
+        reasoning_effort='none',
         # the question is the planner's (or router's) work and the chunks are
         # retrieved, so neither is something the user typed
         messages=[
+            # TODO, make these into two different messages?
+            # but I don't have tool calls so ...
             AssistantMessage(
                 content=f"<question>\n{question}\n</question>\n\n"
                 f"<sources>\n{sources}\n</sources>"
@@ -80,7 +65,7 @@ class ProjectInfoExecutor(AppWorkflow[ProjectInfoOutput]):
         # 1. the closest chunks of the docs
         question = node_input.instruction
         self.result.question = question
-        sources = (await search_project_docs(question)).unwrap()
+        sources = (await ProjectInfoArgs(query=question)).unwrap()
 
         # 2. answer from them, or reject — the reply stage writes the answer
         # into prose
