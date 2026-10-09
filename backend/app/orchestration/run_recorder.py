@@ -25,6 +25,7 @@ from typing import Any
 from airglider import OperationResult
 from common.utils import (
     save_file,
+    save_text,
     to_serializable,
     remove_empty_values,
     strip_zero_token_usage,
@@ -176,6 +177,10 @@ def _save_turn_files(
     # `record_chat_run`'s except and the whole recording is logged as failed.
     if writer is not None:
         save_file(to_serializable(writer.record), file_name="writer", path=user_dir)
+        # the report the writer's prompt was given, verbatim — in writer.json
+        # it is one JSON-escaped line
+        if writer.result.render_evidence:
+            save_text(writer.result.render_evidence, file_name="render_evidence.txt", path=user_dir)
 
     # save task runner output: one `TaskResult` per goal — the node's
     # output (with its `preview` books) plus its duration, token counts
