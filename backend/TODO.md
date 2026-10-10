@@ -4,101 +4,12 @@ Durable planning lives in [/docs](../docs/README.md) — roadmap, backlog, eval 
 and design decisions. This file is only for in-flight scribbles that die within a
 session; anything worth keeping graduates into a `docs/` file.
 
-## Migration log
+--------
 
-**2026-07-17** — V1 scoping → `docs/design/node-taxonomy-v1.md` + `docs/roadmap.md`;
-code-review/security findings, test gaps, workflow-framework notes → `docs/backlog.md`;
-golden-test/suite notes → `docs/eval-strategy.md`.
+* clean up docs
 
-**2026-08-19** — "make the node args parse choose the tool → `ok=False` message back to
-the planner", the `num_books == 0` propagation bug, and "add more nodes before over
-debugging" → `docs/design/node-refusal-v1.md` (+ two backlog bullets under "Node contracts
-& refusal").
+* make sure to have the review endpoint remove for prod
+* make sure to remove the /chat_runs endpoints (prod)
 
-**2026-09-07 (a)** — the sink-vs-slice sketch ("if a node failed then you have to go and
-find it") → `docs/design/execution-pipeline-v1.md`, under the second generation-node
-attempt. Answered by the failure artifacts: a failed goal leaves a `FailedGoalOutput` and
-the runner composes the reason naming the upstream cause, so the generation node is handed
-the failure instead of having to go looking for it.
-
-**2026-09-07 (b) — full sweep against the code.** ~700 lines went out. Where they went:
-
-| What it was | Where it is now |
-|---|---|
-| Retries design; `@task` idempotency question | `docs/backlog.md` → Workflow framework, items 6–7 |
-| HITL scope limits; the intersect/CTE pause point; "you can't go back" | `docs/design/human-in-the-loop.md` → "Status update — 2026-09-07" |
-| Nested routing inside the recommend node vs. a flat planner (~90 lines) | `docs/design/planner-shape.md` → open experiment 4 |
-| Duplicate goals; domain pre-filtering as a catalog shrink | `docs/design/planner-shape.md` → open experiment 3 |
-| "Can't answer what isn't a column" (main characters, plot) | `docs/design/node-taxonomy-v1.md` → V1 conversation contract |
-| Two kinds of compare; the winner-as-filter insight; edge pruning | `docs/design/node-taxonomy-v1.md` → Future considerations |
-| SQLAlchemy pooled-connection GC warning (was a raw log paste) | `docs/backlog.md` → Reliability |
-| Rate-limit capacity arithmetic (15 requests/plan, 500 RPM) | `docs/backlog.md` → Reliability |
-| `confidence` 0.0; analyze→analyze prompt examples; first-person reasoning | `docs/backlog.md` → Planner quality |
-| Compact tracer; `add_details(log=True)`; finish the Responses API migration | `docs/backlog.md` → Tracing, clients & tooling |
-| Batching several counts into one round trip | `docs/backlog.md` → Performance |
-| "Why?" button; nodes calling the planner; bounded multi-turn loop; narration field; pre-made plans; unified artifact renderer | `docs/backlog.md` → Ideas pool |
-| Session factories on stores; per-node parsing; bounds-after-search; the 0.7 floor; generation as a sink | `docs/backlog.md` → Settled (all decided the other way) |
-
-Also restored: **`docs/design/human-in-the-loop.md`**, which five docs link to and which
-was lost in the `5df0d80` revert.
-
-Deleted as already built — the code is the record: the architecture "Guidelines" block and
-the re-architecture plan (that *is* the current architecture), `OperationResult.input`,
-`parse_intent`'s removal, the genre node (now `Retrieve_by_Lexical_Traits`), the
-collect/filter node (now `Combine_Intersect`), SSE section events (`task.start`/`task.end`),
-tasks returning typed outputs, the `Analyze_Recommend` → `Analyze_Similar_Books` rename, the
-`published after 2015` docstring gap, and the generation-node deliberation.
-
-Two items were already tracked and were **not** duplicated: the "Brave New World" title
-match is `docs/backlog.md` → Planner quality ("`Retrieve_by_Title` should prefer exact
-matches"), and retry/backoff is the same decision as the rate-limit item under Reliability.
-
-Historical cleanup logs live in git history (`git log -p -- backend/TODO.md`).
-
----
-
-## In flight
-
----
-
-this is okay for now
-
-* have a link from PlanJane to blog
-* have a link to Airglider
-
-* enable caching for the Prod
-    * need to move the cache to load in
-
-* ensure no spoiler
-
-* clean up the docs / blogs
-
-* then this should be good for this for now
-* we can keep making it better and review things
-
----
-
-
-**Eval suites and the session token budget — no longer urgent, but still true.**
-The budget is only *enforced* in production (`token_budget.ENFORCED_IN`), so a
-suite run against `make dev` is never refused. It is still charged, though, and
-`run_suites.py` mints one `test_` session and reuses it for the whole suite — so
-the row goes tens of thousands of tokens into the red and a suite's spend is one
-number instead of one per case. The flag to fix that exists and is unused: add
-`--new-session-per-query` to the `RUN_SUITE` line in `evals/makefile` (covers all
-four suite targets). Note the suites *would* be cut off under `make local-prod`.
-
-continue with CI/CD
-* clean up (UI)
-* add the bot checker thing or just get them refresh the page
-* pre-planner stuff (small talks, reject, ...)
-* eval tests
-* convo continuation
-
-===============================================================
-bugs
-* max completition and over limit
-  * needs a handler, maybe just a generic thing (ran out of tokens - but friendlier)
-  * look at chat chat_dea392cb in bugs
-  * might need to put in the prompt how much can complete
-
+* just do readme for each level
+* execept for docs
