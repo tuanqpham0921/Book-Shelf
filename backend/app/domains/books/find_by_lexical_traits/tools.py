@@ -1,3 +1,5 @@
+"""Retrieve_by_Lexical_Traits's internal parse schema (never seen by the planner)."""
+
 from pydantic import BaseModel, Field
 
 from db.schema import AudienceEnum, GenreEnum

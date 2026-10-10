@@ -1,20 +1,12 @@
-"""The lexical-traits node's flow — the single-call shape, same as `find_by_title/`.
-
-Parse the goal into lexical traits, build the deferred query, count, preview,
-hand the query on. The one thing this node does that the other retrievals don't
-is search *text* rather than a column: `BookStore.lexical_query` folds title,
-shelf label and description into one tsvector, because `books.categories` holds a
-single Google-Books shelf label per book and cannot answer "books about ninjas"
-on its own. None of that lives here — the store owns the SQL, and this file owns
-the order the steps happen in.
-"""
+"""Retrieve_by_Lexical_Traits' executor: parse keywords, genre and audience, count
+the books whose text matches, preview a few."""
 
 from app.common.prompt_loader import load_prompt
 from app.domains.books.base_workflow import BookWorkflow
-from db.stores import lexical_query
 from clients import OpenAIParserRequest
 from clients.messages import AssistantMessage
 from db.schema import AudienceEnum
+from db.stores import lexical_query
 
 from .external import FindByLexicalTraitsInput, FindByLexicalTraitsOutput
 from .tools import FindByLexicalTraitsArgs
@@ -23,20 +15,63 @@ ARGS_PARSER_PROMPT_PATH = (
     "domains/books/find_by_lexical_traits/prompts/lexical_traits_args_parser.txt"
 )
 
-# More room than the single-field parsers: keywords is a list, and this node
-# runs at reasoning_effort="low", which spends from the same budget.
+# more room than the single-field parsers: keywords is a list, and
+# reasoning_effort="low" spends from the same budget
 MAX_COMPLETION_TOKENS = 2_000
+
+
+class FindByLexicalTraitsExecutor(BookWorkflow[FindByLexicalTraitsOutput]):
+    description = "Finds books by subject"
+
+    ui_loading_message = "searching the catalog's text..."
+
+    async def run(self, node_input: FindByLexicalTraitsInput) -> None:
+        """Count the books matching the lexical traits and hand the query downstream."""
+        await self.sse_stream.send_ui_loading(self.ui_loading_message)
+
+        # 1. parse the planner's instruction into FindByLexicalTraitsArgs
+        parsed_args: FindByLexicalTraitsArgs = await self.run_llm_args_parse(
+            build_arg_parser_request(node_input.instruction)
+        )
+        self.result.args = parsed_args
+
+        # NOTE: an empty parse means this was the wrong node for the goal —
+        # refused here so the error names the goal, not the SQL.
+        if not describe_lexical_traits(parsed_args):
+            raise ValueError(
+                "No lexical traits were parsed: this goal names no keyword, "
+                "genre or audience, and those are all this node can search by"
+            )
+
+        # 2. build the query and count — no rows fetched
+        deferred = lexical_query(
+            keywords=parsed_args.keywords,
+            genre=parsed_args.genre,
+            audience=parsed_args.audience,
+        )
+        total = (await self.count_books(deferred)).unwrap()
+
+        # 3. preview cards, only when something matched
+        # NOTE: downstream nodes read `self.result.query`, never `preview`.
+        if total:
+            self.result.preview = (await self.fetch_books(deferred)).unwrap()
+            await self.stream_books(self.result.preview)
+
+        # 4. finalize — ok is read off the output
+        self.finalize_result()
+
+    def finalize_result(self):
+        # NOTE: ok means "the traits were parsed and searched", not "something
+        # matched".
+        ok = self.result.args is not None and self.result.query is not None
+        return super().finalize_result(ok=ok)
 
 
 def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
     """Ask the LLM to fill `FindByLexicalTraitsArgs` in from the planner's instruction.
 
-    Its own prompt rather than the shared `basic_fill_schema_prompt`, for the
-    reason the numeric-traits slice measured: the shared prompt's "do not infer"
-    is the opposite of what this node needs from "children's books", which names
-    no field but means `audience: children`. The inference here is narrow — a
-    word to a shelf, never a word to a bound — so the prompt spends most of its
-    length on what *not* to put in `keywords`.
+    NOTE: its own prompt, not the shared fill-schema one — that prompt says "do
+    not infer", but "children's books" has to become `audience: children`.
     """
     if not instruction:
         raise ValueError("No instruction to parse arguments from")
@@ -61,11 +96,7 @@ _READERS: dict[AudienceEnum, str] = {
 def describe_lexical_traits(args: FindByLexicalTraitsArgs) -> str:
     """The traits as the user-facing line, e.g. `non-fiction about space, for children`.
 
-    Only what the parse actually set; an all-empty args object returns "", which
-    is what the executor reads to refuse the goal. The lexical counterpart of
-    `describe_bounds`, which lives in `find_by_numeric_traits/executor.py` and is
-    private to that slice the same way this one is to this: each node renders the
-    args it parses, and no node parses another's.
+    Only what the parse set; all-empty args return "", which `run` refuses.
     """
     subject = " and ".join(keyword for keyword in args.keywords if keyword.strip())
     readers = _READERS[args.audience] if args.audience else None
@@ -84,53 +115,3 @@ def describe_lexical_traits(args: FindByLexicalTraitsArgs) -> str:
         return ""
 
     return f"{what}, for {readers}" if readers else what
-
-
-class FindByLexicalTraitsExecutor(BookWorkflow[FindByLexicalTraitsOutput]):
-    description = "Finds books by subject"
-
-    ui_loading_message = "searching the catalog's text..."
-
-    async def run(self, node_input: FindByLexicalTraitsInput) -> None:
-        """Count the books matching the lexical traits and hand the query downstream."""
-        await self.sse_stream.send_ui_loading(self.ui_loading_message)
-
-        # 1. parse the goal text into this node's own schema
-        instruction = node_input.instruction
-        parsed_args: FindByLexicalTraitsArgs = await self.run_llm_args_parse(
-            build_arg_parser_request(instruction)
-        )
-        self.result.args = parsed_args
-
-        # An empty parse means no keyword, no shelf and no audience were found,
-        # which means this node was the wrong one for the goal. Refused here,
-        # naming the goal, rather than left to the store's ValueError, which can
-        # only name the SQL.
-        described = describe_lexical_traits(parsed_args)
-        if not described:
-            raise ValueError(
-                "No lexical traits were parsed: this goal names no keyword, "
-                "genre or audience, and those are all this node can search by"
-            )
-
-        # 2. build the deferred query and count — no rows fetched
-        deferred = lexical_query(
-            keywords=parsed_args.keywords,
-            genre=parsed_args.genre,
-            audience=parsed_args.audience,
-        )
-        total = (await self.count_books(deferred)).unwrap()
-
-        # 3. Cards for the section, kept on the output as `preview` for the
-        # record and the reply; downstream still composes the query.
-        if total:
-            self.result.preview = (await self.fetch_books(deferred)).unwrap()
-            await self.stream_books(self.result.preview)
-
-        # 4. last: ok is read off the output
-        self.finalize_result()
-
-    def finalize_result(self):
-        # ok means "the traits were parsed and searched", not "something matched"
-        ok = self.result.args is not None and self.result.query is not None
-        return super().finalize_result(ok=ok)

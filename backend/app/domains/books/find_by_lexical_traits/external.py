@@ -1,3 +1,5 @@
+"""Retrieve_by_Lexical_Traits's request, input and output schemas."""
+
 from typing import Literal
 
 from app.domains.base_request import BaseRequest
@@ -61,37 +63,20 @@ class FindByLexicalTraitsRetrieval(BaseRequest):
 
 
 class FindByLexicalTraitsInput(NodeInput):
-    """The goal text and nothing else.
+    """The planner's instruction only — no field for upstream output.
 
-    The traits are read out of this node's own goal, so it has no field for
-    upstream output — it *structurally* cannot consume one, which is the contract
-    the empty subclass states. That absence is what separates this node from
-    Combine_Intersect, whose `anchors` is required: this node contributes a set,
-    that one combines sets, and neither can be handed the other's input by
-    accident.
+    NOTE: empty on purpose. An upstream artifact routed here is logged as
+    unclaimed by `build_input` instead of shaping the query.
     """
 
 
 class FindByLexicalTraitsOutput(BookCandidateOutput):
-    """`num_books` is how many books match the traits, `query` is how to reach them.
+    """How many books' text matches the traits (`num_books`) and the query that
+    reaches them.
 
-    A **candidate** set, and the clearest case for the split: "mystery" matches
-    358 books, and folding 358 blurbs into one description of an ideal book
-    describes nothing at all. A lexical ask is served by embedding the words
-    themselves, not by anchoring on what those words happened to match.
-
-    The node keeps no rows: it streams a few cards so the section has something
-    in it, and what it hands downstream is the query. That query is the point of
-    this node — it is what lets Combine_Intersect AND it together with an
-    author's bibliography or a page-count bound.
-
-    The count is the honest report of a *lexical* match: these are books whose
-    text contains the words, not books an embedding judged similar. `num_books ==
-    0` is a real answer and the moment to try a broader word, not a failure.
-
-    `args` is declared here rather than on `NodeWorkflowOutput`, and typed as the
-    schema this node actually parses. None means the parse never happened, which
-    is what `finalize_result` reads.
+    NOTE: a candidate, not an anchor — "mystery" matches hundreds of books, and
+    folding their blurbs into one description describes nothing.
     """
 
+    # None means the parse never happened (read by `finalize_result`)
     args: FindByLexicalTraitsArgs | None = None
