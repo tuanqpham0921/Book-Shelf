@@ -1,8 +1,10 @@
+workflow output summary
+
+
 # backend/app/domains
 
 The node type system — what the planner can plan with — plus PlanJane, the planner
-itself. The V1 node set and its rationale live in
-[docs/design/node-taxonomy-v1.md](../../../docs/design/node-taxonomy-v1.md).
+itself.
 
 Two domains: `books/`, and `project/`, whose one node
 (`find_project_info/`, `Retrieve_Project_Info`) answers questions about

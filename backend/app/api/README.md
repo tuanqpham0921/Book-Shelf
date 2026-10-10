@@ -1,0 +1,45 @@
+intro
+
+/message flow
+
+There is no auth yet — a known pre-deploy blocker (docs/backlog.md, Security P1).
+
+## Request flow (current state)
+
+1. `POST /session/{session_id}/message` validates the message and builds a
+   `RequestContext`. It touches no database: the whole token budget is the
+   turn's own work, so `Orchestrator.run` opens the session itself with
+   `start_session_turn` — one round trip, a `@task` and the turn's first step,
+   which also creates the `sessions` row if this is the session's first message.
+   A session with nothing left is told so over the stream and the turn ends
+   there, before triage, which is the first thing that costs money. **Enforced
+   in every environment since 2026-09-23** — the old production-only gate is
+   gone, so a `make dev` session or an eval suite now stops when its 200,000
+   tokens do. Otherwise the turn goes to `TriageWorkflow`
+   (`orchestration/triage/`), which decides whether to plan at all — replay a
+   cached plan, or let a gpt-5-mini router pick: the planner, a clarifying
+   question or a security refusal (both fixed replies, no plan), or no tool,
+   in which case its own text answers small talk.
+2. `PlanJaneExecutor` (`domains/planjane/`) parses the message into goals against the
+   live tool catalog and streams the plan's Mermaid diagram over SSE.
+3. `TaskRunnerWorkflow` (`orchestration/task_runner.py`) runs the accepted goals in dependency
+   order against the **real** executors (`REGISTRY.spec(...).executor` in
+   `registry.py`), for the node types registered on this branch. It
+   brackets each node with `task.start` / `task.end` SSE events — closed in a `finally`,
+   so a node that raises still closes its UI section — and stamps the node's `num_books`
+   onto the section header on close. Retrieval nodes report a count plus a few preview
+   cards; only the terminal node fetches the full rows.
+4. `Orchestrator._finalize` charges the turn to its session
+   (`orchestration/token_budget.py`), using the root envelope's token total — so the
+   planner and the reply are billed alongside the tasks. It runs first of the three
+   cleanup steps, on its own database session, and never raises. A turn that spent
+   nothing — a refusal — writes nothing.
+5. `Orchestrator._finalize` then records the turn — **one sink per environment**
+   (`orchestration/run_recorder.py`, since 2026-09-23). Production inserts one
+   `chat_runs` row (planner/tasks/writer JSONB), which is what the review page and
+   the eval reports read and the only durable copy a deployed turn gets; Cloud
+   Run's filesystem is in-memory, so files are never the production sink.
+   Development writes JSON files under `logs/<chat_id>/` instead — no row, so a
+   local turn finishes whether or not Postgres is up. Test writes nothing. Either
+   way it never raises. Requests are stateless: nothing reads prior turns back
+   (single-turn by design for V1).

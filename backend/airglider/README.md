@@ -1,3 +1,18 @@
+intro
+
+purpose / limitations
+* envolope (structure) 
+   * how to read
+   * business_error logic and actual errors
+* inheritence, @task
+
+installations
+
+usage
+
+future plans
+* retries (backoff)..., more meaningful errors
+
 # airglider
 
 Result envelopes and workflow scaffolding for async pipelines: every step

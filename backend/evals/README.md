@@ -1,3 +1,14 @@
+intro
+* use for testing nodes, planner, tool calls
+* how to use make commands
+
+* folder structure
+  suites the tests
+  runner
+  local results
+
+
+
 # backend/evals
 
 Evals, one folder per thing under test. **Why it's built this way and where it's

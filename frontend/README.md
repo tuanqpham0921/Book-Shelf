@@ -1,3 +1,7 @@
+make commands
+
+how to deploy or run locally
+
 # frontend
 
 React 19 + Vite single-page app. Source map in [src/README.md](src/README.md).
