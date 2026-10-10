@@ -19,7 +19,7 @@ export const userInputSuggestions = {
         "give me information on Stephen King",
         "Find the book with ISBN 9780441172719",
         "that one book we talked about but longer",
-        "Set my preference: I love mystery novels with strong female protagonists",
+        "Set my preference: I love mystery novels",
     ],
 
     // Example questions for the project
