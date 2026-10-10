@@ -9,14 +9,15 @@ from db.stores import title_query
 from .external import FindByTitleInput, FindByTitleOutput
 from .tools import FindByTitleArgs
 
-# a ceiling against runaways, not a shape for the output (includes reasoning)
+# one field to fill, so this sits far above a healthy reply — it stops a
+# runaway, it doesn't shape the output (reasoning counts against it)
 MAX_COMPLETION_TOKENS = 1_000
 
 
 class FindByTitleExecutor(BookWorkflow[FindByTitleOutput]):
     description = "Finds books by title"
 
-    ui_loading_message = "getting book by title..."
+    ui_loading_message = "getting books by title..."
 
     async def run(self, node_input: FindByTitleInput) -> None:
         """Count the matching titles and hand the query downstream, not the rows."""
