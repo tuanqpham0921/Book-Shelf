@@ -1,10 +1,12 @@
+"""Retrieve_by_Numeric_Traits slice: exports the node's `SPEC`."""
+
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindByNumericTraitsExecutor
 from .external import (
-    FindByNumericTraitsRetrieval,
     FindByNumericTraitsInput,
     FindByNumericTraitsOutput,
+    FindByNumericTraitsRetrieval,
 )
 from .labels import FindNumericTraitsNodeTypeEnum
 from .tools import FindByNumericTraitsArgs

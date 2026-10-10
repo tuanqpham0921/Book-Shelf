@@ -1,3 +1,5 @@
+"""Retrieve_by_Numeric_Traits's internal parse schema (never seen by the planner)."""
+
 from pydantic import BaseModel, Field
 
 from db.schema import BookMetadataFilter
@@ -30,22 +32,13 @@ class FindByNumericTraitsArgs(BaseModel):
             min_pages: 300, max_pages: 500, min_year: 2015
     """
 
-    # The per-field mapping lives on `BookMetadataFilter` rather than here. It
-    # was shared with Filter_Retrieval's args until 2026-08-24, so that the two
-    # could not calibrate "well rated" differently; that node is gone and this
-    # is now the only shipper, but the split still earns its keep — the field
-    # descriptions say what one bound means, and the examples above show
-    # *combinations*, which no single field description can. This is the one
-    # node whose whole job is the inference, so it is worth the tokens here.
-    # Measured: without them, gpt-5-nano returned an empty filter for "obscure"
-    # and "really long".
-    #
-    # `BookMetadataFilter` also carries `is_children`, a flag rather than a
-    # measurement. Retrieve_by_Lexical_Traits now owns audience, and did *not* take
-    # this field with it: it resolves audience against `books.genre`, while this
-    # one still targets `books.is_children`, which is NULL on all 5,197 rows and
-    # matches nothing. Setting it here is a silent zero — known and accepted;
-    # see the note on `BookMetadataFilter.is_children`.
+    # what one bound means is on `BookMetadataFilter`'s field descriptions; the
+    # docstring examples above show combinations, which no field can
+    # NOTE: without the examples, gpt-5-nano returned an empty filter for
+    # "obscure" and "really long".
+    # NOTE: `is_children` targets `books.is_children`, which is NULL on every
+    # row — setting it matches nothing. Audience belongs to
+    # Retrieve_by_Lexical_Traits.
     traits: BookMetadataFilter = Field(
         ...,
         description="Measurable bounds to search the whole catalog by.",
