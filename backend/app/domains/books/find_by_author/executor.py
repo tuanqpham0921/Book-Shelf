@@ -1,22 +1,56 @@
-"""The author node's flow — the single-call shape, same as `find_by_title/`.
+"""Retrieve_by_Author's executor: parse an author, count their books, preview a few."""
 
-One request schema, one executor, one LLM call (the arg parse), then the
-counts-first opening move: nothing to interpret from upstream, so no satellite
-modules. The template and the reading rule are in domains/README.md.
-"""
-
-from clients.messages import AssistantMessage
-from app.domains.books.base_workflow import BookWorkflow
-from db.stores import author_query
-from clients import OpenAIParserRequest
 from app.common.prompt_loader import FILL_SCHEMA_ARGS_PROMPT_PATH, load_prompt
+from app.domains.books.base_workflow import BookWorkflow
+from clients import OpenAIParserRequest
+from clients.messages import AssistantMessage
+from db.stores import author_query
 
-from .tools import FindByAuthorArgs
 from .external import FindByAuthorInput, FindByAuthorOutput
+from .tools import FindByAuthorArgs
 
-
-# One field to fill; see find_by_title/executor.py for the sizing rule.
+# one field to fill; see find_by_title/executor.py for the sizing rule
 MAX_COMPLETION_TOKENS = 1_000
+
+
+class FindByAuthorExecutor(BookWorkflow[FindByAuthorOutput]):
+    description = "Finds books by author"
+
+    ui_loading_message = "getting books by author..."
+
+    async def run(self, node_input: FindByAuthorInput) -> None:
+        """Count the author's books and hand the query downstream, not the rows."""
+        await self.sse_stream.send_ui_loading(self.ui_loading_message)
+
+        # 1. parse the planner's instruction into FindByAuthorArgs
+        parsed_args: FindByAuthorArgs = await self.run_llm_args_parse(
+            build_arg_parser_request(node_input.instruction)
+        )
+        self.result.args = parsed_args
+
+        if not parsed_args.author:
+            raise ValueError("No author was parsed")
+
+        # 2. build the query and count — no rows fetched
+        deferred = author_query(author=parsed_args.author)
+        total = (await self.count_books(deferred)).unwrap()
+
+        # 3. preview cards, only when something matched
+        # NOTE: downstream nodes read `self.result.query` (the whole
+        # bibliography), never `preview`.
+        if total:
+            self.result.preview = (await self.fetch_books(deferred)).unwrap()
+            await self.stream_books(self.result.preview)
+
+        # 4. finalize — ok is read off the output
+        self.finalize_result()
+
+    def finalize_result(self):
+        # NOTE: ok means "the query got built", not "something matched" — an
+        # unknown author is an answer, and the empty half of a "did X write Y?"
+        # intersect.
+        ok = self.result.args is not None and self.result.query is not None
+        return super().finalize_result(ok=ok)
 
 
 def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
@@ -29,60 +63,10 @@ def build_arg_parser_request(instruction: str) -> OpenAIParserRequest:
         prompt_path=FILL_SCHEMA_ARGS_PROMPT_PATH,
         model="gpt-5-nano",
         reasoning_effort="minimal",
-        # the instruction is the planner's own work, not something the user typed.
-        # NOTE: this should carry the previous messages too; clear and direct
-        # instructions are enough while the conversation is single-turn.
+        # the planner wrote the instruction, so it goes in as an assistant turn
+        # NOTE: single-turn only — earlier messages belong here once
+        # conversations carry them.
         messages=[AssistantMessage(content=instruction)],
         tool_models=[FindByAuthorArgs],
         max_completion_tokens=MAX_COMPLETION_TOKENS,
     )
-
-
-class FindByAuthorExecutor(BookWorkflow[FindByAuthorOutput]):
-    description = "Finds books by author"
-
-    ui_loading_message = "getting books by author..."
-
-    async def run(self, node_input: FindByAuthorInput) -> None:
-        """Count the author's books and hand the query downstream — not the set.
-
-        A bibliography is the retrieval most likely to be large, so the count
-        is what makes a "217 matched, narrow it down?" pause possible before
-        any of it is built; the query is what lets a later node intersect this
-        author with a title, or narrow it by metadata, in SQL rather than over
-        two already-capped lists.
-        """
-        await self.sse_stream.send_ui_loading(self.ui_loading_message)
-
-        # 1. parse the goal text into this node's own schema
-        instruction = node_input.instruction
-        parsed_args: FindByAuthorArgs = await self.run_llm_args_parse(
-            build_arg_parser_request(instruction)
-        )
-        self.result.args = parsed_args
-
-        author = parsed_args.author
-        if not author:
-            raise ValueError("No author was parsed")
-
-        # 2. build the deferred query and count — no rows fetched
-        deferred = author_query(author=author)
-        total = (await self.count_books(deferred)).unwrap()
-
-        # 3. Cards for the section, kept on the output as `preview` for the
-        # record and the reply. What travels downstream is still the query on
-        # `self.result`, which reaches the whole bibliography rather than these
-        # few rows. Skipped entirely when nothing matched.
-        if total:
-            self.result.preview = (await self.fetch_books(deferred)).unwrap()
-            await self.stream_books(self.result.preview)
-
-        # 4. last: ok is read off the output
-        self.finalize_result()
-
-    def finalize_result(self):
-        # ok means "the query got built", not "something matched" — an author
-        # the catalog has never heard of is an answer this node reports, and
-        # the whole point of the intersect that verifies an attribution.
-        ok = self.result.args is not None and self.result.query is not None
-        return super().finalize_result(ok=ok)
