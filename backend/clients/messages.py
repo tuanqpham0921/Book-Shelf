@@ -49,8 +49,10 @@ class UserMessage(BaseMessage):
     def to_openai_dict(self) -> dict:
         if self.pass_validation is False:
             raise RuntimeError("UserMessage did not pass risk validatation. Can't continue")
-        elif self.pass_validation is None:
-            logger.warning("UserMessage has not been validated for risks.")
+        # TODO: add this in once the communication between
+        # planner and nodes (assistant_msg or user_msg)
+        # elif self.pass_validation is None:
+        #     logger.warning("UserMessage has not been validated for risks.")
             
         return {"role": self.role, "content": self.content}
 

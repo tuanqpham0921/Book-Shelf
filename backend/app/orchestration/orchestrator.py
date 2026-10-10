@@ -183,7 +183,10 @@ class Orchestrator:
                 await sse_stream.send_chars(reply)
                 await sse_stream.send(
                     "complete",
-                    {"status": "completed", "chat_id": request_context.user_message.id},
+                    {"status": "completed", 
+                     "chat_id": request_context.user_message.id,
+                     "log_record": flat_record(record),
+                    },
                 )
                 return
 
