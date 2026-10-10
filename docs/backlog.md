@@ -6,6 +6,8 @@ The BookShelf backlog is a temporary buffer for known bugs and small follow-ups 
 
 - [ ] **Escape `%` and `_` in title search** — `title_query` ([book_store.py](../backend/db/stores/book_store.py)) passes the title straight into `ILIKE`, so `%` and `_` act as wildcards (a search for "100%" matches more than it should). Check the other `ilike` builders for the same issue.
 
+- [ ] **`stream_books` crashes on a bad row** — one book that fails `BookOut` validation (e.g. no `isbn13`) raises and stops the remaining cards ([base_workflow.py](../backend/app/domains/books/base_workflow.py)). Skip and log it instead.
+
 ## Cleanup
 
 - [ ] **Remove unused phrase builders** — `describe_bounds` / `range_phrase` (numeric traits) and `describe_lexical_traits` build user-facing lines that nothing shows; they're only used as an "is the parse empty?" check. Replace with a plain check and delete them and their tests.

@@ -1,59 +1,21 @@
-"""`Book`, and the output-shape vocabulary node docstrings are written in.
+"""`Book`, the one book model above the database layer.
 
-`Book` is the one book model: every books-table column except the embedding.
-Narrow at the point of use, never by declaring a second, smaller model.
-
-The shape *classes* live next door in `external.py`, which is what the layers
-outside this domain import.
-
-## The output-shape vocabulary
-
-Node docstrings name what they return, and what they may depend on, using these
-shape names, so the planner can tell which nodes may feed which:
-
-- `BookRetrievalOutput` — a match: how many books, and the query reaching them.
-  Never the rows. Every retrieval and combine node. The only shape "depends on
-  books" consumes. It splits in two by whether the match can be anchored on:
-  - `BookAnchorOutput` — the user named these books (`Retrieve_by_Title`), so a
-    later step can fold them into a description of what to look for next.
-  - `BookCandidateOutput` — these books match a description
-    (`Retrieve_by_Author`, `Retrieve_by_Lexical_Traits`, `Retrieve_by_Numeric_Traits`,
-    and `Analyze_Similar_Books`' chosen pool, whose description the system wrote
-    rather than the user). A set, not a reference; nothing may anchor on it.
-- `AnalyzeBooksOutput` — a written report about books. Names books without
-  being a book list, so nothing may treat it as a retrieval.
-- `ActionConfirmationOutput` — a record of a write (shelf actions, feedback).
-
-The first three are real classes (in `external.py`), and a node's output
-subclasses the shape its docstring claims, so `Returns:` is checkable. The last
-two are reserved names — add the class alongside the first node that produces
-the shape. See docs/design/node-taxonomy-v1.md.
-
-Node-specific fields live on the slice's own output in
-`app/domains/books/<node>/external.py`, which subclasses the shape it returns.
+The output shapes nodes return are in `external.py`.
 """
 
 from pydantic import BaseModel
 
 
 class Book(BaseModel):
-    """One book above the database layer: every `books` column except the
-    embedding, matching what `BookModel.to_dict()` hands back.
+    """Every `books` column except the embedding, as `BookModel.to_dict()`
+    returns it.
 
-    The embedding's absence is load-bearing. These models are serialized into
-    `chat_runs` JSONB; a 1536-float vector per book would bloat every run record
-    for something no reader of it can use. A caller needing vectors goes to the
-    store.
+    Narrow at the point of use (`model_dump(include=...)`), never with a
+    second, smaller model.
 
-    There is deliberately no narrower book model — the prompt-facing renderers
-    already select fields by hand, so a second model was only a field list free
-    to drift from this one. Narrow at the point of use instead.
-
-    Field names are a persisted contract: they land in `chat_runs.tasks` and are
-    read back by the review page and the eval reports, so a rename breaks
-    readers against older rows. Every field needs a default except the two that
-    identify a book, because `Workflow.__init__` builds envelopes before there
-    is anything to put in them.
+    NOTE: field names are persisted in `chat_runs.tasks` and read back by the
+    review page and eval reports — renaming one breaks older rows. The
+    embedding stays out so it never bloats those records.
     """
 
     isbn13: str
@@ -70,15 +32,3 @@ class Book(BaseModel):
     description: str | None = None
     thumbnail: str | None = None
     title_and_subtiles: str | None = None
-
-    # `similarity_score` lived here until 2026-08-24, attached per row by
-    # `BookStore.search_similar`. Both are gone: the similarity node hands on a
-    # deferred query instead of rows, so nothing attaches a per-book score and
-    # `materialize()` returns plain columns like every other fetch. The record
-    # of how close a match was is `SimilarBooksOutput.score`, over the pool.
-
-
-
-
-
-

@@ -1,10 +1,7 @@
-"""Book-domain guide: the specs of every node this domain offers.
+"""The books domain's registered nodes, one `SPEC` per line.
 
-One line per node; `Registry` (app/registry.py) answers everything else from
-these. To park a node — keep the code, hide it from the planner — drop its SPEC
-here: the slice stays importable, but the planner never sees it and
-`planjane/executor.py` refuses any goal targeting it. See
-docs/design/node-taxonomy-v1.md.
+`Registry` (app/registry.py) answers every lookup from these. To hide a node
+from the planner without deleting it, drop its `SPEC` here.
 """
 
 from app.domains.books import (
@@ -17,18 +14,6 @@ from app.domains.books import (
 )
 from app.domains.node_spec import NodeSpec
 
-# `intersect_books` (Combine_Intersect) registered 2026-08-24, replacing the
-# `filter_books` (Filter_Retrieval) slice that was parked 2026-08-22 and is now
-# deleted: bounds are a retrieval (`find_by_numeric_traits`) and combining them
-# with a subject is this node's job, so the two ways of expressing a bound
-# collapsed into one. See docs/design/node-taxonomy-v1.md.
-#
-# `write_recommendations` (Generate_Recommendations) was registered 2026-09-07
-# and DEREGISTERED 2026-09-08 — not parked. It is not a capability the planner
-# picks any more but one stage the orchestrator runs after every plan, so its
-# request schema, node type and spec are gone rather than commented out here.
-# It lives at `app/orchestration/write_reply/`; see
-# docs/design/execution-pipeline-v1.md.
 BOOK_SPECS: tuple[NodeSpec, ...] = (
     find_by_title.SPEC,
     find_by_author.SPEC,
