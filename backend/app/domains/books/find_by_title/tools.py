@@ -1,3 +1,5 @@
+"""Retrieve_by_Title's internal parse schema (never seen by the planner)."""
+
 from pydantic import BaseModel, Field
 
 
