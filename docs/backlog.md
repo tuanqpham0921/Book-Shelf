@@ -20,4 +20,6 @@ The BookShelf backlog is a temporary buffer for known bugs and small follow-ups 
 - [ ] **airglider: retries and typed errors** — retry with backoff, and an error type a caller can branch on (business failure vs crash).
 - [ ] **airglider: `Workflow` sets `ok=True` on clean completion** — today each `run()` sets it (`AppWorkflow.finalize_result`).
 - [ ] **airglider: `to_summary()` includes the input summary** — so the summary has everything the full record does.
+- [ ] **clients: drop `sse_stream` from `BaseLLMRequest`** — it is the last app import in `clients/`. Have `execute` yield events when streaming, and let the workflow forward them to its `SSEStream`.
+- [ ] **clients: warn on an unvalidated `UserMessage`** — `to_openai_dict` raises on `pass_validation=False` but says nothing on `None`. Add a warning once it's settled whether planner→node instructions go as user or assistant messages (today they're `AssistantMessage`s, so they wouldn't trip it).
 - [ ] **Take the dev note out of `FindByLexicalTraitsArgs`' docstring** — the "deliberately not `BooksFilter`" paragraph is shipped to the LLM as part of the tool description. Move it to a code comment and re-run the lexical eval cases.

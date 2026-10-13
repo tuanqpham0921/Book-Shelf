@@ -1,3 +1,6 @@
+"""The message models a request carries, each rendering itself with
+`to_openai_dict()`; `APIMessage` picks one by `role`."""
+
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -48,12 +51,7 @@ class UserMessage(BaseMessage):
 
     def to_openai_dict(self) -> dict:
         if self.pass_validation is False:
-            raise RuntimeError("UserMessage did not pass risk validatation. Can't continue")
-        # TODO: add this in once the communication between
-        # planner and nodes (assistant_msg or user_msg)
-        # elif self.pass_validation is None:
-        #     logger.warning("UserMessage has not been validated for risks.")
-            
+            raise RuntimeError("UserMessage did not pass risk validation. Can't continue")
         return {"role": self.role, "content": self.content}
 
 
@@ -78,10 +76,8 @@ class AssistantMessage(BaseMessage):
 
 
 class ToolMessage(BaseMessage):
-    """A tool result on its way back to the model. Pure message shape —
-    *running* a tool call is `AppWorkflow.execute_tool_call`, which is where
-    the dispatch used to live as a classmethod here and took clients/' last
-    piece of instrumentation with it when it moved."""
+    """A tool result on its way back to the model. Message shape only —
+    *running* a tool call is `AppWorkflow.execute_tool_call`."""
 
     role: Literal[Role.TOOL] = Role.TOOL
     name: str

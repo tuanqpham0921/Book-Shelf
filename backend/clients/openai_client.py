@@ -1,3 +1,6 @@
+"""`OpenAIClient`: completions, embeddings and vector-store search, all behind
+one semaphore. Raises on failure; tracing is the app's job."""
+
 import asyncio
 import json
 import logging
@@ -21,8 +24,7 @@ class EmbeddingsResult(BaseModel):
 
     A model rather than bare vectors so the app's wrapping `@task`
     (`AppWorkflow.get_embeddings`) can promote `token_usage` — the same hook
-    `AssistantMessage` rides — because embedding spend used to vanish from the
-    run record entirely.
+    `AssistantMessage` rides — and embedding spend lands in the run record.
 
     `embeddings` is excluded from serialization: ~1KB of floats per text that
     no reader of a `chat_runs` row can use. Callers read it live.
@@ -118,19 +120,14 @@ class OpenAIClient(BaseLLMClient):
     async def execute(self, req: BaseLLMRequest, save_payload: bool = False) -> AssistantMessage:
         """Execute the chat completion.
 
-        Typed at the base request, matching `BaseLLMClient.execute` — the body
-        only ever touches `to_payload()` and `sse_stream`, both of which the
-        base declares, and narrowing it here made every app-layer caller (which
-        holds a `BaseLLMRequest`) an error.
+        Typed at the base request, matching `BaseLLMClient.execute`: the body
+        only touches `to_payload()` and `sse_stream`, which the base declares.
         """
         payload = req.to_payload()
-        
-        # Serialized, because the bill is messages *and* tool schemas: the
-        # numeric-traits parse is 74% tool schema, so counting message content
-        # alone undercounts it ~4x. This overcounts by ~5% (JSON syntax) —
-        # the safe direction for a ceiling — and, unlike a hand-picked list of
-        # keys, cannot silently miss a component a new request type adds.
-        # (Passing `payload` itself counted its *keys*: 4 tokens.)
+
+        # NOTE: count the serialized payload, because the bill is messages *and*
+        # tool schemas (a numeric-traits parse is 74% tool schema). JSON syntax
+        # overcounts by ~5%, the safe direction for a ceiling.
         prompt_tokens = self.token_count(json.dumps(payload, default=str))
         if prompt_tokens > self.max_input_tokens:
             raise ValueError(
@@ -184,9 +181,7 @@ class OpenAIClient(BaseLLMClient):
         completion_details = usage.completion_tokens_details
 
         # `or 0` on the inner reads too: the details object can be present
-        # with its count still None. This raised a ValidationError for years —
-        # invisibly, because the client's old `@task` swallowed it into a
-        # failed envelope whose *default* usage was what tests then read.
+        # with its count still None
         return TokenUsage(
             model = model,
             total=usage.total_tokens,
@@ -208,7 +203,6 @@ class OpenAIClient(BaseLLMClient):
                     await sse_stream.send_chars(data=event.delta)
 
             final_completion = await stream.get_final_completion()
-            # print_json(final_completion.model_dump(), "Final Completion")
 
         return final_completion
 

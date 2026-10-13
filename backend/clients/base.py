@@ -1,3 +1,5 @@
+"""The provider-neutral interfaces: `BaseLLMRequest` and `BaseLLMClient`."""
+
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
@@ -20,41 +22,12 @@ class BaseLLMRequest(BaseModel, ABC):
     prompt_path: str
     messages: list[APIMessage]
     model: str
-    
-    # TODO: remove this / streaming=True have the client stream them back
-    # and in the workflow I think you can do something like
-    # for event in self.llm.execute(req):
-    #     if some event: self.sse_stream.put(...)
-    #
-    # and in the execute
-    # you do yield if streaming=true
-    # This is the one remaining app import in clients/ — the @task half of
-    # separating clients from the app is already done (see BaseLLMClient).
+
+    # NOTE: the one app import left in clients/ (see docs/backlog.md).
     sse_stream: Optional[SSEStream] = Field(default=None, exclude=True)
 
     @abstractmethod
     def to_payload(self) -> dict[str, Any]: ...
-
-    def to_summary(self) -> dict[str, Any]:
-        """The *shape* of the request, not its contents.
-
-        The app wraps every client call in a `@task`
-        (`AppWorkflow.llm_execute`), which stamps its arguments — so this is
-        what lands in `OperationResult.input` on every LLM step. Without it the
-        full prompt and message list would sit in every `chat_runs` row, which
-        is what `save_payload` exists to gate. Sizes and the model answer what
-        a trace is read for; the payload is available on demand.
-
-        Here rather than on each provider's request, so a new one is summarized
-        correctly by default.
-        """
-        return {
-            "model": self.model,
-            "prompt_path": self.prompt_path,
-            "prompt_chars": len(self.prompt),
-            "num_messages": len(self.messages),
-            "streaming": self.sse_stream is not None,
-        }
 
 
 class BaseLLMClient(ABC):
@@ -65,9 +38,7 @@ class BaseLLMClient(ABC):
     plain function. The step envelope, the failure capture and the token-usage
     promotion all happen one layer up, on `AppWorkflow`'s thin wrappers
     (`llm_execute`, `get_embeddings`) — the app decides what is a step, the
-    client doesn't know envelopes exist. The one airglider import left in this
-    package is the `TokenUsage` data shape (see messages.py); airglider is
-    itself standalone, so clients stay extractable with it.
+    client doesn't know envelopes exist.
     """
 
     client: Any

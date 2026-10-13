@@ -1,3 +1,5 @@
+"""clients — the OpenAI wrapper; see README.md. Import from here."""
+
 from .base import BaseLLMClient, BaseLLMRequest
 from .openai_client import FileSource, OpenAIClient
 from .openai_requests import (
