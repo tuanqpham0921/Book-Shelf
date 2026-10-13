@@ -1,6 +1,6 @@
 _A book assistant that shows you how it thinks._
 
-BookShelf is a chat assistant for one shelf of a little over 5,000 books. Ask it for books by an author, books about a subject, books like one you loved, or books under a certain length, and it answers only from that shelf. While it works, it shows you its plan and every step it takes.
+BookShelf is a chat assistant for one shelf of about 5,000 books. Ask it for books by an author, books about a subject, books like one you loved, or books under a certain length, and it answers only from that shelf. While it works, it shows you its plan and every step it takes.
 
 ---
 
