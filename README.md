@@ -20,6 +20,39 @@ flowchart LR
     R --> W["reply<br/>written from the results"]
 ```
 
+## Vocabulary
+
+**A turn**, in the order it runs:
+
+| Term | Meaning |
+|---|---|
+| **Triage** | decides whether a message needs a plan at all |
+| **Promoted tool** | a node triage can call directly, so a common ask skips the planner; an optimization, like triage's plan cache |
+| **PlanJane** | the planner: turns a message into goals, one node each, and draws the plan |
+| **Goal** | one step of a plan: a node, its instruction, and the goals it depends on |
+| **TaskRunner** | runs the goals in dependency order |
+| **Reply stage** | writes the answer from every goal's result, once per turn |
+
+**Nodes**, what the planner plans with:
+
+| Term | Meaning |
+|---|---|
+| **Node** | one capability, run like a small agent: it reads an instruction, calls its own tools and returns a typed output |
+| **Tool** | a schema an LLM fills in one call; the atomic unit of LLM work |
+| **Catalog** | the set of nodes the planner can pick from |
+| **Spec** | a node's entry in the catalog: its name, the description the planner reads, and what goes in and comes out |
+| **Slice** | the folder holding one node: its spec, schemas and executor |
+| **`external.py`** | a slice's schemas for what goes into and out of the node |
+| **Executor** | the code that runs a node |
+| **Anchor / candidate** | books the user named, versus books that match a description |
+
+**Tracing:**
+
+| Term | Meaning |
+|---|---|
+| **airglider** | the tracing and execution engine every step runs under |
+| **Envelope** | airglider's record of one step: input, output, ok, timing, tokens and child steps |
+
 ## Where to go
 
 | To | Read |
