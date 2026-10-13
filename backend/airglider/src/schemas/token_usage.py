@@ -1,3 +1,6 @@
+"""`TokenUsage`: token counts for one LLM call or a roll-up of many, priced in
+USD from `config.py`."""
+
 from pydantic import BaseModel, model_validator, Field
 
 from ..config import UNKNOWN_MODEL, cost_of

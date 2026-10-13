@@ -16,4 +16,8 @@ The BookShelf backlog is a temporary buffer for known bugs and small follow-ups 
 
 - [ ] **Name node enums after their classes** — `FindTitleNodeTypeEnum` sits beside `FindByTitle*` (same in `find_by_author`, `find_by_lexical_traits`, `find_by_numeric_traits`). Rename to `FindByTitleNodeTypeEnum` etc. across the book slices.
 - [ ] **Move parse model names to config** — every book slice's `build_arg_parser_request` writes `model="gpt-5-nano"` inline; CLAUDE.md says model names belong in `config/constants.py`.
+- [ ] **Before extracting airglider** — move `src/` to `src/airglider/` at the package root (or drop the layer); rename `base_glider.py` to match `Workflow`; settle one name for record / `OperationResult` / "envelope"; `exception.py` → `exceptions.py`; give it its own `pyproject.toml` and pytest config (the suite inherits the host's `asyncio_mode = "auto"`).
+- [ ] **airglider: retries and typed errors** — retry with backoff, and an error type a caller can branch on (business failure vs crash).
+- [ ] **airglider: `Workflow` sets `ok=True` on clean completion** — today each `run()` sets it (`AppWorkflow.finalize_result`).
+- [ ] **airglider: `to_summary()` includes the input summary** — so the summary has everything the full record does.
 - [ ] **Take the dev note out of `FindByLexicalTraitsArgs`' docstring** — the "deliberately not `BooksFilter`" paragraph is shipped to the LLM as part of the tool description. Move it to a code comment and re-run the lexical eval cases.

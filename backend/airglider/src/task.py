@@ -1,3 +1,6 @@
+"""`@task`, the decorator that turns one async function into a traced unit of
+work: the function returns its payload, and the caller gets an envelope."""
+
 import logging
 from typing import Callable
 from functools import wraps
@@ -75,15 +78,10 @@ def task(
             with record_span(result, logger, label="task", log_info=log_info):
                 raw_output = await func(*args, **kwargs)
 
-                # A body returning an envelope used to be the way to report `ok`
-                # yourself or hand back what you called. Both have better
-                # answers now — `ok` means "ran to completion" so nobody votes
-                # on it, and anything awaited inside this body already attached
-                # itself — which leaves only the ways it can go wrong: the
-                # subtree serialized twice, or a failed step read as a success
-                # with a None payload. Rejected rather than unwrapped silently,
-                # because the two spellings below mean different things and
-                # guessing is what produced the None.
+                # NOTE: a returned envelope is rejected, not unwrapped: it would
+                # either serialize the subtree twice or read a failed step as a
+                # success with a None payload. The message says which verb to
+                # use instead.
                 if isinstance(raw_output, OperationResult):
                     raise TypeError(
                         f"{func_ref} returned an OperationResult. A @task "

@@ -1,3 +1,6 @@
+"""airglider's one exception, `StepFailure`."""
+
+
 class StepFailure(RuntimeError):
     """Control-flow only: raised by `OperationResult.unwrap` to abort the caller
     after a step it needed failed.

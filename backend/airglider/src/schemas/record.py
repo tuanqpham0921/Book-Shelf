@@ -1,3 +1,6 @@
+"""`OperationResult`, the envelope every unit of work returns, with its `Time`
+and `Response` parts and the methods that build and read the tree."""
+
 import logging
 from datetime import datetime, timedelta
 
@@ -55,7 +58,6 @@ class OperationResult(BaseModel, Generic[OutputT]):
     id: str = Field(default_factory=lambda: f"op_{uuid_8()}")
     parent_id: str | None = None
     name: str | None = None
-    
     description: str | None = None
 
     ok: bool = False
@@ -100,9 +102,7 @@ class OperationResult(BaseModel, Generic[OutputT]):
 
         The verb for "I need what this step produced". `await` is the other one:
         it hands back this envelope and leaves the caller to decide what a
-        failure means. Between them they replaced `run_async_step` and its
-        `raise_on_failure` flag, splitting awaiting from the failure policy — so
-        a caller can retry an envelope, or inspect it and *then* insist.
+        failure means.
 
         A failed step notes itself on whatever envelope is currently being built
         and raises `StepFailure`, which `record_span` reports as a stop rather
@@ -196,13 +196,6 @@ class OperationResult(BaseModel, Generic[OutputT]):
         bottom without unfolding payloads. Complements the full record, never
         replaces it. `details` is omitted: it is mostly decorator bookkeeping.
         """
-        # TODO: add the input summary in here
-        # so the main record has everything
-        
-        # NOTE: this is to meta-data summary
-        # rather than content or response summary
-        # ideally we can have tokens and content
-        
         payload = self.result
         # bound rather than `hasattr`-guarded: the payload is `OutputT | None`,
         # so a checker cannot narrow the attribute access on its own

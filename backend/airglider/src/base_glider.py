@@ -1,3 +1,6 @@
+"""`Workflow`, the base class for a multi-step unit of work: subclass it, declare
+an output type, override `run()`, and calling the instance returns its envelope."""
+
 from abc import ABC, abstractmethod
 import logging
 from typing import Any, ClassVar, Generic, TypeVar
@@ -91,20 +94,11 @@ class Workflow(ABC, Generic[OutputT]):
 
         return self.record
 
-    # NOTE: I think if you do .run()
-    # then it won't span or capture the errors
-    # tho it could be something to handle later
+    # NOTE: call the instance, not `.run()` directly — `run()` alone records no
+    # timing, no error and no place in the tree.
     @abstractmethod
     async def run(self, *args: Any, **kwargs: Any) -> None:
         pass
-
-    # `run_async_step` is gone. Attaching stopped being its job once nesting
-    # became automatic, and what was left — the failure policy — is two verbs
-    # that need no method and work inside a `@task` just as well: `await step`
-    # hands back the envelope and leaves the caller to decide,
-    # `(await step).unwrap()` hands back the payload or raises `StepFailure`.
-    # A coroutine created outside this workflow's scope still attaches with
-    # `self.record.add_step(...)`, which is what that call always meant.
 
     @property
     def workflow_ref(self) -> str:
