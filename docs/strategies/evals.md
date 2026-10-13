@@ -2,6 +2,14 @@
 
 BookShelf's eval strategy is to grade the LLM calls that decide what a turn does, one kind of check per question, and to grow coverage by adding cases rather than changing harnesses. How to run each eval, and the suites they read: [backend/evals/](../../backend/evals/README.md).
 
+## Why the system is testable
+
+The steps of a turn talk to each other in natural language: the planner writes each goal as a plain instruction, and each node parses its own arguments from it, with only its own context. So:
+
+- **A node is tested alone,** by handing it an instruction and its inputs.
+- **Correctness concentrates in the planner.** If PlanJane emits the right nodes, in the right order, with self-contained instructions, the rest follows. Most of the eval effort goes there.
+- **The planner's model is chosen by eval.** It is the one call that sees the whole catalog, so it gets the strongest model that tests well; the identical catalog keeps its cache hit rate high and its short output keeps writes low.
+
 ## Three kinds of eval
 
 | Kind | Grades | Why this shape |

@@ -9,6 +9,14 @@ BookShelf grows by adding nodes: each capability is one slice the planner can pi
 - **Only what a `books` row can answer.** The catalog holds author, year, pages, rating, shelf, genre and a marketing blurb. "Who wrote Dune" is answerable; "who is the main character" is not. A node over the blurb will match words and answer confidently anyway, so a node needs a column that actually holds its answer.
 - **Pick the output shape on purpose.** Books the user named are anchors; books matching a description are candidates ([decision 004](../decisions/004-anchors-and-candidates.md)). The shape decides which nodes can depend on it.
 
+## Each node gets only its own context
+
+A node hears its instruction from the planner and the typed results it depends on, nothing else: not the user's whole message, not another node's prompt. Keep it that way when writing one.
+
+- **Security:** an injected string must survive the planner's rewrite to reach a node, and a node can offer the common `SecurityReview` and `ClarifyingQuestion` tools (`app/common/tools.py`) to flag misuse or ask instead of guessing.
+- **Small prompts:** no node pays tokens for context it doesn't use, and its prompt's opening can stay identical so the prompt cache serves it.
+- **Adjustable:** what a node sees is declared on its input, so widening or narrowing it is a change to one slice.
+
 ## Keeping the catalog honest
 
 - **The request docstring is prompt text.** It is all the planner reads. Write `Do not use:` and `Example queries:`, the sections that prevent misroutes.
