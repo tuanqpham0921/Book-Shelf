@@ -1,10 +1,5 @@
-"""Triage — whether a turn gets planned at all.
-
-`external.py` holds what the layers around it read back (`TriageOutput`);
-`tools.py` holds the `PlanJane` tool its LLM can pick; `executor.py` runs;
-`cache.py` is the plan replay. Import from this package root rather than
-any of them.
-"""
+"""Triage decides whether a turn gets planned at all. Import from this package
+root rather than its modules."""
 
 from .executor import TriageWorkflow
 from .external import TriageOutput

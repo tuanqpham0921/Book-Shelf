@@ -197,8 +197,7 @@ class Orchestrator:
             triage_workflow = TriageWorkflow(request_context, messages=messages)
             await asyncio.wait_for(
                 triage_workflow(
-                    NodeInput(instruction=request_context.user_message.content),
-                    # use_caching=False,
+                    NodeInput(instruction=request_context.user_message.content)
                 ),
                 timeout=CONVERSATION_TIMEOUT,
             )

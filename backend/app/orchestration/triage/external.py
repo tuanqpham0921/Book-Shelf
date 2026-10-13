@@ -1,20 +1,15 @@
-"""What triage exposes to the layers around it: the plan when there is one,
-and the project facts when the router looked them up itself.
-
-`tools.py` is what the *LLM* fills in; this is what the orchestrator and the
-run recorder read back.
-"""
+"""`TriageOutput`, what the orchestrator and run recorder read back: the plan,
+and the project facts when the router looked them up itself."""
 
 from typing import Any
 
 from app.domains.base_workflow import NodeWorkflowOutput
-from app.domains.planjane import ExecutionOrder, PlanJaneOutput
+from app.domains.planjane import PlanJaneOutput
 from app.domains.project.find_project_info import ProjectInfoOutput
 
 
-# NOTE: this is okay for now
-# this should store conversation summary, failed tasks, internal summary message
-# for llm — maybe also referenced books or things from processing the steps
+# TODO: carry what a later turn needs (a conversation summary, failed tasks,
+# referenced books) once conversations are multi-turn
 class TriageOutput(NodeWorkflowOutput):
     session_id: str | None = None
 
@@ -45,13 +40,3 @@ class TriageOutput(NodeWorkflowOutput):
         because `chat_runs.mermaid` is promoted out of this envelope and the
         review page reads it."""
         return self.parse_result.diagram if self.parse_result else None
-
-    def execution_order(self) -> ExecutionOrder | None:
-        if not self.parse_result:
-            return None
-        return self.parse_result.execution_order()
-
-    def accepted_goals_ids(self) -> list[str] | None:
-        if not self.parse_result:
-            return None
-        return self.parse_result.accepted_goals_ids()

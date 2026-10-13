@@ -1,10 +1,4 @@
-"""Triage's own tool — what the LLM fills in when it hands the turn on.
-
-Split from `executor.py` to match the slice layout: `tools.py` is what the
-LLM fills in, `executor.py` is what runs. Of the other three tools triage
-offers, `SecurityReview` and `ClarifyingQuestion` live in `app/common/tools.py`
-and `ProjectInfoArgs` is the project slice's own parse schema.
-"""
+"""`PlanJane`, the tool triage's router calls to hand the turn to the planner."""
 
 from pydantic import BaseModel, Field
 

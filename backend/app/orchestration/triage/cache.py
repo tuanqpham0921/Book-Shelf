@@ -1,11 +1,4 @@
-"""The plan cache — replay a recorded plan instead of calling the planner.
-
-Served in every environment: the files sit beside this module under `app/`,
-which is what the image copies, so production replays them too.
-
-Its own file so that deleting it is this file, `files/` and the one call in
-`executor.py`, with nothing else to untangle.
-"""
+"""The plan cache: replay a recorded plan instead of calling the planner."""
 
 import logging
 from pathlib import Path
@@ -15,6 +8,7 @@ from common.utils.json_handler import load_json
 
 logger = logging.getLogger(__name__)
 
+# NOTE: under app/, which the image copies, so production replays these too
 CACHE_DIR = Path(__file__).parent / "files"
 # message → file name in CACHE_DIR (without .json)
 cache_mapping = {

@@ -1,22 +1,5 @@
-"""Triage's flow — what happens to a turn before, and instead of, planning.
-`run` is the table of contents; everything else sits where the flow reaches it.
-
-Sits between `Orchestrator` (transport) and `PlanJane` (produce a plan), and
-decides whether to plan at all: replay a cached plan, answer small talk, ask
-for a clearer message, turn the message away, look up facts about the project,
-or hand it to the planner — the last two together when a message asks for
-both.
-
-Same reading rule as the slices (domains/README.md): this file is the flow,
-with the request builder as a module-level pure function beside it.
-`tools.py` is the `PlanJane` tool triage's LLM can pick, `external.py` is what
-the layers around triage read back, `cache.py` is the plan replay.
-
-Not in `app/domains/` because it is not a capability — no `NodeSpec` will ever
-point at it. A workflow rather than methods on `Orchestrator` because
-`Orchestrator` owns no envelope, so a cache hit or a refusal would produce no
-step in the trace tree.
-"""
+"""Triage's flow: replay a cached plan, reply directly, refuse, look up project
+facts, or hand the message to the planner. `run` is the table of contents."""
 
 import logging
 from typing import TypeVar
@@ -65,57 +48,29 @@ Pick = PlanJane | SecurityReview | ClarifyingQuestion | ProjectInfoArgs
 ToolT = TypeVar("ToolT", bound=BaseModel)
 
 
-def build_route_request(query: str) -> OpenAIParserRequest:
-    """Ask a cheap model which tools the message goes to — `PlanJane`,
-    `ProjectInfoArgs`, `SecurityReview` or `ClarifyingQuestion`, several at
-    once when parts of it need different ones — or, when none fits, to answer
-    the user in text itself.
-
-    Cheap on purpose: it runs ahead of every planned turn, and it only has to
-    pick out misuse, an unclear message, small talk and a question about the
-    project — everything else goes to the planner, which decides what it can
-    actually do. The message goes in as the `UserMessage` it is; the prompt
-    tells the model to route it, never follow it.
-    """
-    return OpenAIParserRequest(
-        prompt=load_prompt(prompt_path=ROUTE_PROMPT_PATH),
-        prompt_path=ROUTE_PROMPT_PATH,
-        model="gpt-5-mini",
-        reasoning_effort="low",
-        messages=[UserMessage(content=query)],
-        tool_models=[PlanJane, SecurityReview, ClarifyingQuestion, ProjectInfoArgs],
-        max_completion_tokens=MAX_COMPLETION_TOKENS,
-    )
-
-
-def _first(picks: list[Pick], tool: type[ToolT]) -> ToolT | None:
-    """The first call of `tool` among the picks — the prompt asks for each at
-    most once, and a second would only repeat the first."""
-    return next((pick for pick in picks if isinstance(pick, tool)), None)
-
-
+# A workflow, not methods on Orchestrator: Orchestrator owns no envelope, so a
+# cache hit or a refusal would leave no step in the trace.
 class TriageWorkflow(AppWorkflow[TriageOutput]):
     description = "Decides how to handle your message"
 
     planner_failure_message = "I couldn't understand your request. Please try again."
     ui_loading_message = "starting conversation..."
 
-    async def run(self, node_input: NodeInput, *, use_caching=True) -> None:
+    async def run(self, node_input: NodeInput) -> None:
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
 
         query = node_input.instruction
         self.result.session_id = self.session_id
 
         # 1. replay a recorded plan when one exists — no LLM, same output shape
-        if use_caching:
-            cached = load_cached_parse_output(query)
-            if cached is not None:
-                logger.info(f"Replaying cached plan for: {query}")
-                await self.sse_stream.send_chars(CACHE_HIT_RESPONSE)
-                await self.sse_stream.send_divider()
-                self.result.parse_result = cached
-                self.finalize_result(ok=True)
-                return
+        cached = load_cached_parse_output(query)
+        if cached is not None:
+            logger.info(f"Replaying cached plan for: {query}")
+            await self.sse_stream.send_chars(CACHE_HIT_RESPONSE)
+            await self.sse_stream.send_divider()
+            self.result.parse_result = cached
+            self.finalize_result(ok=True)
+            return
 
         # 2. let the model pick its tools. A bare await: a pick that failed
         # reads as the default one and sends the whole message on — the
@@ -143,8 +98,8 @@ class TriageWorkflow(AppWorkflow[TriageOutput]):
                 self.finalize_result(ok=True)
                 return
 
-        # 4. a project question is answered here by the project node — no
-        # plan. The orchestrator writes the reply from the answer together
+        # 4. a project question is answered here by the project node, a
+        # promoted tool (see README) — no plan. The orchestrator writes the reply from the answer together
         # with whatever the plan finds. A lookup that fails, or that the docs
         # do not answer, sends the whole message on, like a failed pick
         facts = _first(picks, ProjectInfoArgs)
@@ -216,3 +171,32 @@ class TriageWorkflow(AppWorkflow[TriageOutput]):
         if not msg.content:
             raise ValueError("LLM response contained neither a tool call nor text")
         return msg.content
+
+
+def build_route_request(query: str) -> OpenAIParserRequest:
+    """Ask a cheap model which tools the message goes to — `PlanJane`,
+    `ProjectInfoArgs`, `SecurityReview` or `ClarifyingQuestion`, several at
+    once when parts of it need different ones — or, when none fits, to answer
+    the user in text itself.
+
+    Cheap on purpose: it runs ahead of every planned turn, and it only has to
+    pick out misuse, an unclear message, small talk and a question about the
+    project — everything else goes to the planner, which decides what it can
+    actually do. The message goes in as the `UserMessage` it is; the prompt
+    tells the model to route it, never follow it.
+    """
+    return OpenAIParserRequest(
+        prompt=load_prompt(prompt_path=ROUTE_PROMPT_PATH),
+        prompt_path=ROUTE_PROMPT_PATH,
+        model="gpt-5-mini",
+        reasoning_effort="low",
+        messages=[UserMessage(content=query)],
+        tool_models=[PlanJane, SecurityReview, ClarifyingQuestion, ProjectInfoArgs],
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
+    )
+
+
+def _first(picks: list[Pick], tool: type[ToolT]) -> ToolT | None:
+    """The first call of `tool` among the picks — the prompt asks for each at
+    most once, and a second would only repeat the first."""
+    return next((pick for pick in picks if isinstance(pick, tool)), None)
