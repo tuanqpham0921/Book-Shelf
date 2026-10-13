@@ -1,3 +1,6 @@
+"""The task runner: run the plan's goals in dependency order, each in its own
+UI section, and keep one `TaskResult` per goal for the reply."""
+
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -34,11 +37,9 @@ class TaskRunnerInput(WorkflowInput):
 class TaskResult(BaseModel):
     """One goal as the turn remembers it: what it produced, and what it cost.
 
-    The runner's counterpart to `AssistantMessage`. `OpenAIClient.execute`
-    keeps a completion's content and token usage and lets the raw response go;
-    `from_step` does the same to a node's envelope — the output plus a summary
-    of its metadata, with the step tree left on the trace, where it already
-    lives in full. This is what the reply is written from, and what a later
+    `from_step` keeps a node's output plus a summary of its envelope and leaves
+    the step tree on the trace, the way `AssistantMessage` keeps a completion's
+    content and usage. This is what the reply is written from, and what a later
     turn would read back.
 
     `output` is the node's own output, or a `FailedGoalOutput` for a goal that
@@ -89,53 +90,6 @@ class TaskResult(BaseModel):
         return result
 
 
-def _root_error(step: OperationResult) -> RuntimeErrorInfo | None:
-    """The exception that actually crashed a step, beneath any `StepFailure`.
-
-    A node that stops on `.unwrap()` records a `StepFailure` naming the step it
-    needed ("Step failed: count_books"), and the real error sits on that step,
-    one or more levels down. Falls back to the `StepFailure` itself when no
-    failed child carries one.
-    """
-    error = step.runtime_error
-    if error is None or error.type != StepFailure.__name__:
-        return error
-    for child in step.steps:
-        if not child.ok and (cause := _root_error(child)) is not None:
-            return cause
-    return error
-
-
-def task_details(goal: SystemGoal, step: OperationResult | None) -> dict[str, Any]:
-    """What a task section shows above its cards: the arguments its node
-    parsed, the SQL it counted with, and what it cost. The goal's instruction
-    is not repeated here — it is the section's title, sent on `task.start`.
-
-    Read off the envelope rather than a finished `TaskResult`, whose output is
-    a `FailedGoalOutput` for a goal that failed — and the arguments a node
-    parsed before failing are the part most worth seeing. `getattr` for the
-    same reason as the count: every parsing slice types its own `args`, and the
-    runner stays out of the book domain. No envelope (a cancelled turn) leaves
-    nothing to show.
-    """
-    details: dict[str, Any] = {}
-    if step is not None and step.result is not None:
-        output = step.result
-        args = getattr(output, "args", None)
-        details["args"] = args.model_dump(mode="json") if args is not None else None
-        details["sql"] = getattr(output, "query_sql", None)
-        details |= TaskResult.from_step(goal, output, step).model_dump(
-            include={
-                "duration",
-                "total_tokens",
-                "input_tokens",
-                "output_tokens",
-                "error_message",
-            }
-        )
-    return remove_empty_values(details)
-
-
 class TaskRunnerOutput(NodeWorkflowOutput):
     session_id: str | None = None
     # every goal's `TaskResult`, keyed by goal id — the turn's source of truth:
@@ -163,15 +117,9 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
     ui_loading_message = "running tasks..."
 
     async def run(self, node_input: TaskRunnerInput) -> None:
-        """Execute accepted tasks in dependency order, assembling each task's
-        declared input from the outputs of the tasks it depends on. Each task
-        runs as its own AppWorkflow sharing self.messages, so its result lands
-        on the same trace as the planner's.
-
-        The spine — resolve, run, record — keeping what the loop accumulates
-        (`results` for downstream nodes, `failed_task` for the final `ok`) in
-        one place. The helpers below each answer one question about one goal.
-        """
+        """Run the accepted goals in dependency order, each with its declared
+        input assembled from the outputs of the goals it depends on. The helpers
+        below each answer one question about one goal."""
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
 
         plan = node_input.plan
@@ -180,7 +128,7 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
         order = plan.execution_order()
         results: dict[str, TaskResult] = {}
 
-        # Goals in a cycle, or waiting on one the planner refused. Counted as
+        # 1. goals in a cycle, or waiting on one the planner refused. Counted as
         # failures so the turn cannot report ok after dropping part of the plan.
         for goal in order.unreachable:
             logger.warning(
@@ -191,6 +139,8 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
                 goal, "it depended on work that could never run", results
             )
 
+        # 2. layer by layer: build the executor and its input, run it in its
+        # section, and keep its result for the goals that depend on it
         for goals_layer in order.layers:
             for goal in goals_layer:
                 prepared = self._prepare(goal, results)
@@ -218,6 +168,7 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
                 )
                 await self.sse_stream.send_divider()
 
+        # 3. ok only when no goal failed
         self.result.task_results = results
         self.finalize_result(ok=not self.result.failed_task)
 
@@ -230,8 +181,8 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
         input that can't be assembled — logged apart because they mean
         different things, but all three skip one goal rather than abort the
         plan. The string is the *reason*, written as prose: it becomes the
-        goal's `FailedGoalOutput`, which a generation node hands to the reply
-        writer verbatim — so the internals (schema names, missing-field lists)
+        goal's `FailedGoalOutput`, which the reply stage relays verbatim — so
+        the internals (schema names, missing-field lists)
         go to the log and `add_details`, never into it.
 
         The assembly failure is the hook for the agentic version: the named
@@ -283,10 +234,9 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
 
         The count (`failed_task`) is what keeps the turn from reporting ok
         after dropping part of the plan. The artifact is what lets the plan
-        keep going *informatively*: it flows to dependents like any output, a
-        node that declares a slot for failures (the generation node) relays
-        it, and every other node's typed fields simply never match it — the
-        skip cascade is unchanged.
+        keep going *informatively*: it flows to dependents like any output, no
+        node's typed fields ever match it, so its dependents skip, and the
+        reply stage relays the reason.
 
         `step` is the envelope of a goal that ran and then failed, so what it
         spent getting there stays on its `TaskResult`; a goal that never ran
@@ -306,7 +256,7 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
         `num_books == 0` (`getattr` — the runner stays out of the book domain,
         same as the task.end count). This is how "I don't have Dune" travels
         two hops to the reply: the similarity goal's failure reason names the
-        empty title lookup, and the generation goal renders it.
+        empty title lookup, and the reply stage renders it.
         """
         notes = []
         for dep_id in goal.depends_on:
@@ -327,10 +277,8 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
 
         A failed dependency arrives as its `FailedGoalOutput` — every goal
         leaves *something* in `results`, so the plan is followed as written and
-        it is the input contract that decides what each node hears: a
-        generation node declares a slot for failures and narrates them, a
-        retrieval-consuming node's typed fields never match one and the goal
-        skips in `_prepare`. The keys are provenance only; `build_input`
+        it is the input contract that decides what each node hears: no node's
+        typed fields match a failure, so the goal skips in `_prepare`. The keys are provenance only; `build_input`
         matches these onto declared fields by type. Absent means the id was
         never a goal at all (the planner refused it).
         """
@@ -379,8 +327,6 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
         step_result = None
         try:
             step_result = await executor(node_input)
-
-            # NOTE: probably should unwrap here
             return step_result
         finally:
             output = step_result.result if step_result else None
@@ -392,3 +338,50 @@ class TaskRunnerWorkflow(AppWorkflow[TaskRunnerOutput]):
                 ok=bool(step_result and step_result.ok),
                 details=task_details(goal, step_result),
             )
+
+
+def _root_error(step: OperationResult) -> RuntimeErrorInfo | None:
+    """The exception that actually crashed a step, beneath any `StepFailure`.
+
+    A node that stops on `.unwrap()` records a `StepFailure` naming the step it
+    needed ("Step failed: count_books"), and the real error sits on that step,
+    one or more levels down. Falls back to the `StepFailure` itself when no
+    failed child carries one.
+    """
+    error = step.runtime_error
+    if error is None or error.type != StepFailure.__name__:
+        return error
+    for child in step.steps:
+        if not child.ok and (cause := _root_error(child)) is not None:
+            return cause
+    return error
+
+
+def task_details(goal: SystemGoal, step: OperationResult | None) -> dict[str, Any]:
+    """What a task section shows above its cards: the arguments its node
+    parsed, the SQL it counted with, and what it cost. The goal's instruction
+    is not repeated here — it is the section's title, sent on `task.start`.
+
+    Read off the envelope rather than a finished `TaskResult`, whose output is
+    a `FailedGoalOutput` for a goal that failed — and the arguments a node
+    parsed before failing are the part most worth seeing. `getattr` for the
+    same reason as the count: every parsing slice types its own `args`, and the
+    runner stays out of the book domain. No envelope (a cancelled turn) leaves
+    nothing to show.
+    """
+    details: dict[str, Any] = {}
+    if step is not None and step.result is not None:
+        output = step.result
+        args = getattr(output, "args", None)
+        details["args"] = args.model_dump(mode="json") if args is not None else None
+        details["sql"] = getattr(output, "query_sql", None)
+        details |= TaskResult.from_step(goal, output, step).model_dump(
+            include={
+                "duration",
+                "total_tokens",
+                "input_tokens",
+                "output_tokens",
+                "error_message",
+            }
+        )
+    return remove_empty_values(details)

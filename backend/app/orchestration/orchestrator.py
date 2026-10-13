@@ -1,3 +1,7 @@
+"""The turn, end to end: budget, message check, triage, tasks, reply, then
+charge, record and close the stream. `Orchestrator.run` is the table of
+contents."""
+
 import asyncio
 import logging
 import time
@@ -57,54 +61,19 @@ DEBIT_TOKENS_TIMEOUT = AppConfig.DATABASE_TIMEOUT * 3  # seconds
 OUT_OF_SCOPE_REASON = "it is outside what a book assistant does"
 
 
-async def _best_effort(
-    coro: Coroutine[Any, Any, Any], timeout: float, what: str, turn_id: str
-) -> None:
-    """Run one cleanup step under a ceiling, and never raise.
-
-    The ceiling is not redundant with the database's own timeouts, because
-    `_finalize` runs inside `asyncio.shield` — nothing outside can stop these,
-    so this is what makes them terminate at all. It also covers what Postgres
-    cannot see: the wait for a connection, the connect handshake, and the two
-    steps here that never touch a database.
-
-    **The timeout gets its own branch because it is the only thing that
-    normally arrives.** `debit_session_tokens` and `record_chat_run` both
-    swallow their own exceptions, so a step that broke has already been logged
-    with its traceback by the time we get here; what reaches this function is
-    the `TimeoutError` that `wait_for` raises after cancelling them — and their
-    own `except Exception` could not have caught that, since `CancelledError`
-    has been a `BaseException` since 3.8. Logging both cases as one anonymous
-    warning lost the distinction and the cause with it.
-    """
-    try:
-        await asyncio.wait_for(coro, timeout=timeout)
-    except TimeoutError:
-        logger.warning(
-            "⏱️ %s gave up after %ss and was cancelled — turn %s",
-            what,
-            timeout,
-            turn_id,
-        )
-    except Exception:
-        # Reachable from `sse_stream.close()`, which catches nothing of its
-        # own. With the traceback: an exception that got this far is a surprise.
-        logger.exception("%s failed — turn %s", what, turn_id)
-
-
 class Orchestrator:
-    """Main orchestration engine for processing user queries through AI pipelines."""
+    """Owns the turn's transport: the SSE stream, timeouts, cancellation and
+    recording. Each stage of the work is its own workflow, wired together here
+    and nowhere else."""
 
     reply_failure_message = (
         "Sorry, I couldn't finish writing my reply this time.\n"
         "Please try sending your message again."
     )
 
-    def __init__(self):
-        pass
-
     async def run(self, request_context: RequestContext):
-        """Run orchestration with SSE streaming."""
+        """Run one turn, streaming it to the client, and always charge, record
+        and close it, however it ends."""
 
         sse_stream = request_context.sse_stream
         # Bound before the try so a cancellation mid-await still leaves them
@@ -130,12 +99,12 @@ class Orchestrator:
 
         # Core work
         try:
-            # First and unconditionally: this id exists before any work
+            # 1. first and unconditionally: this id exists before any work
             # starts, so the client can attach feedback even if the turn later
             # errors, times out, or is stopped before 'complete' fires.
             await sse_stream.send_chat_id(request_context.user_message.id)
 
-            # Opens the turn: one round trip that creates the sessions row on a
+            # 2. the session's budget: one round trip that creates the sessions row on a
             # first message and reports the balance. Attached by hand because
             # `run` builds this root rather than being a unit of work itself,
             # so nothing is in scope to adopt the step — and attached before
@@ -154,6 +123,7 @@ class Orchestrator:
                 await sse_stream.send_error(OUT_OF_TOKENS_MESSAGE)
                 return
 
+            # 3. the site's daily budget, in production only
             if request_context.app_env == SITE_BUDGET_ENFORCED_IN:
                 site_step = await read_site_spend(request_context)
                 record.add_step(site_step)
@@ -168,7 +138,7 @@ class Orchestrator:
                     await sse_stream.send_error(SITE_OUT_OF_TOKENS_MESSAGE)
                     return
 
-            # The message arrives unvalidated, and nothing past this point reads
+            # 4. the message check. It arrives unvalidated, and nothing past this point reads
             # it until it passes. Unwrapped like the balance read: a check that
             # returned no verdict stops the turn rather than waving it through.
             await sse_stream.send_ui_loading("reading your message...")
@@ -183,9 +153,10 @@ class Orchestrator:
                 await sse_stream.send_chars(reply)
                 await sse_stream.send(
                     "complete",
-                    {"status": "completed", 
-                     "chat_id": request_context.user_message.id,
-                     "log_record": flat_record(record),
+                    {
+                        "status": "completed",
+                        "chat_id": request_context.user_message.id,
+                        "log_record": flat_record(record),
                     },
                 )
                 return
@@ -193,6 +164,7 @@ class Orchestrator:
             request_context.user_message.pass_validation = True
             messages.append(request_context.user_message)
 
+            # 5. triage: replay, answer, refuse, look up facts, or plan
             await sse_stream.send_ui_loading("starting conversation...")
             triage_workflow = TriageWorkflow(request_context, messages=messages)
             await asyncio.wait_for(
@@ -202,26 +174,18 @@ class Orchestrator:
                 timeout=CONVERSATION_TIMEOUT,
             )
 
-            # No plan when triage handled the turn without planning (small
-            # talk, a refusal, a project question and nothing else, a cache
-            # miss on a failed planner): `parse_result` is None and there is
-            # nothing for the runner to execute.
-            #
-            # `record.unwrap()`, because `unwrap` lives on the envelope and not
-            # on the workflow — `triage_workflow.record` is what the decorator
-            # built. A triage that *failed* stops the turn right here: the
-            # `StepFailure` lands in the `except Exception` below, which stamps
-            # it on the turn and sends the generic error. That is on top of
-            # whatever triage already said for itself, and deliberate — a
-            # failed triage read as "no plan" would answer the turn with
-            # silence.
-            # TODO: if something goes wrong
-            # maybe check if the planner and triage has no task
-            # then response that hallucationation happended and no retries yet
+            # No plan when triage handled the turn itself (small talk, a
+            # refusal, a project question and nothing else): `parse_result` is
+            # None. NOTE: a triage that *failed* stops the turn here — the
+            # `StepFailure` lands in `except Exception` below and sends the
+            # generic error on top of triage's own, because a failed triage
+            # read as "no plan" would answer the turn with silence.
+            # TODO: when triage and the planner both come back with nothing,
+            # say so plainly instead of the generic error (there are no retries)
             triage_output = triage_workflow.record.unwrap()
             plan = triage_output.parse_result
 
-            # What the reply is written from: the project facts triage looked
+            # 6. what the reply is written from: the project facts triage looked
             # up without planning, first because they came first, then every
             # goal the plan ran. Any one part alone is enough to write from.
             results: list[TaskResult] = []
@@ -257,6 +221,7 @@ class Orchestrator:
                     )
                     for portion in plan.out_of_scope
                 )
+            # 7. the reply
             if results:
                 writer = await self._write_reply(request_context, results, messages)
                 if not writer.record.ok:
@@ -267,11 +232,13 @@ class Orchestrator:
                 # a plan whose every goal was unreachable: nothing to write
                 # from, so the stage would only invent evidence
                 logger.warning("No task results to write a reply from")
-                
-            # Here rather than after each await, so the timeout/cancel paths
-            # record their partial work too. isinstance-guarded rather than
-            # letting add_step raise: a raise in this finally would replace the
-            # exception in flight and skip the recording and stream close below.
+
+            # 8. hang each stage's envelope on the turn's root, so ok, duration
+            # and token usage cover the whole turn, then send 'complete'.
+            # NOTE: in the try rather than the finally, so 'complete' can carry
+            # the trace — which means a refused, timed-out, cancelled or failed
+            # turn skips it: those stages' spend is never rolled up, so it is
+            # neither recorded on the root nor charged.
             for workflow in (triage_workflow, task_runner, writer):
                 step = getattr(workflow, "record", None)
                 if isinstance(step, OperationResult):
@@ -284,8 +251,7 @@ class Orchestrator:
             record.timing.duration = round(time.perf_counter() - time_start, 2)
 
             # chat_id lets the client attach feedback to the chat_runs row;
-            # log_record is the turn's trace so far, for the reply's log
-            # button (ok and duration are stamped later, in the finally)
+            # log_record is the turn's trace, for the reply's log button
             await sse_stream.send(
                 "complete",
                 {
@@ -350,17 +316,10 @@ class Orchestrator:
     ) -> GenerationExecutor:
         """Write the turn's reply from everything triage and the plan produced.
 
-        The third layer of the turn, and the only one that speaks prose. It is
-        wired here rather than reached through the registry because it is not a
-        capability: no goal targets it, nothing depends on it, and it runs once
-        per turn whatever the plan was. That is the same reason `Triage` is a
-        workflow in `orchestration/` rather than a node — and it keeps the
-        import pointing downward, since `orchestration/` may read `domains/`.
-
-        Returns the workflow so the caller can hang its record on the turn's
-        tree, matching how triage and the runner are handled. The caller never
-        passes an empty list — the `ValueError` in the stage's `run` is what
-        that would hit.
+        Wired here, not reached through the registry, because it is not a
+        capability: no goal targets it and it runs once per turn. Returns the
+        workflow so the caller can hang its record on the turn's tree. Never
+        called with an empty list; the stage raises on one.
         """
         writer = GenerationExecutor(request_context, messages=messages)
         await asyncio.wait_for(
@@ -419,3 +378,33 @@ class Orchestrator:
             "sse_stream.close",
             turn_id,
         )
+
+
+async def _best_effort(
+    coro: Coroutine[Any, Any, Any], timeout: float, what: str, turn_id: str
+) -> None:
+    """Run one cleanup step under a ceiling, and never raise.
+
+    The ceiling is not redundant with the database's own timeouts: `_finalize`
+    runs inside `asyncio.shield`, so nothing outside can stop these, and it
+    also covers what Postgres cannot see (the wait for a connection, the
+    handshake, and the steps that never touch a database).
+
+    NOTE: the timeout gets its own branch because it is the only thing that
+    normally arrives. `debit_session_tokens` and `record_chat_run` swallow and
+    log their own exceptions, but not the `CancelledError` `wait_for` raises
+    into them, which is a `BaseException`.
+    """
+    try:
+        await asyncio.wait_for(coro, timeout=timeout)
+    except TimeoutError:
+        logger.warning(
+            "⏱️ %s gave up after %ss and was cancelled — turn %s",
+            what,
+            timeout,
+            turn_id,
+        )
+    except Exception:
+        # Reachable from `sse_stream.close()`, which catches nothing of its
+        # own. With the traceback: an exception that got this far is a surprise.
+        logger.exception("%s failed — turn %s", what, turn_id)
