@@ -1,56 +1,43 @@
-# backend/config
+# config
 
-Configuration via pydantic-settings. Everything loads from **`config/.env`** (path
-defined by `FilesLocationConstants.ENV_FILE` in `constants.py`).
-
-Production's values live in git-ignored **`config/.env.deployment`**, which the app never
-reads: `make deploy` turns it into the Cloud Run service and its env (secrets excepted), and
-`make dev-neon` layers its `POSTGRES_*` lines over `config/.env`. A new variable that
-production needs goes in both files.
-
-## Usage
+`config` is where BookShelf's backend reads its settings: environment values from `config/.env`, validated by pydantic-settings, and the fixed constants in `constants.py`.
 
 ```python
-from config import settings, FilesLocationConstants
+from config import settings, AppConfig, BookConstraints, FilesLocationConstants
 
-settings.openai
-settings.sqlalchemy
-settings.app
+settings.app.ENVIRONMENT
+settings.openai.EMBEDDING_MODEL
+settings.sqlalchemy.sqlalchemy_url
 ```
 
-`Settings` (`settings/main.py`) aggregates three sub-configs, each its own class and
-file:
+## Settings
 
-| Sub-config | File | Holds |
+`settings` is built once, at import. Each sub-settings class reads the variables with its prefix:
+
+| Sub-settings | Prefix | Holds |
 |---|---|---|
-| `settings.app` | `settings/app.py` | App/environment settings |
-| `settings.openai` | `settings/openai.py` | `OPENAI_API_KEY`, model options |
-| `settings.sqlalchemy` | `settings/sqlalchemy.py` | `POSTGRES_*` connection settings |
+| `settings.app` | `APP_` | name, environment (`development` / `test` / `production`), CORS origins, Firebase App Check |
+| `settings.openai` | `OPENAI_` | API key, model names, embedding size, the project-docs vector store |
+| `settings.sqlalchemy` | `POSTGRES_` | host, credentials, pool size, TLS mode |
 
-## Adding or renaming an env var
+To add a variable, add a field to the matching class and the value to `config/.env`. Copy `.env.example` to start one. Keys a class does not declare are ignored.
 
-Env var names are defined by the **field names/aliases in the sub-settings classes** —
-change them there, not in `main.py`. To add a variable: add a field to the right
-sub-settings class, then add the value to `config/.env`. Unknown keys in `.env` are
-ignored (`extra="ignore"`).
+## The two env files
+
+| File | Read by |
+|---|---|
+| `config/.env` | the app, everywhere it runs locally |
+| `config/.env.deployment` | `make deploy`, which turns it into the Cloud Run service and its env (secrets excepted); `make dev-neon` and `make local-prod-neon` read its `POSTGRES_*` lines |
+
+Both are git-ignored. A variable production needs goes in both.
 
 ## Constants
 
-`constants.py` holds non-env constants: `FilesLocationConstants` (paths),
-`AppConfig`, and domain constants. Prefer these over hard-coded paths/values.
+`constants.py` holds what is not read from the environment:
 
-## Pricing — moved
+- **`AppConfig`**: the token budgets, the per-IP rate limit, message and feedback size caps, App Check keys, and `DATABASE_TIMEOUT`.
+- **`OpenAIConstants`**: the per-call token caps and the vector-store search size.
+- **`BookConstraints`**: the catalog's bounds (pages, rating, year), the similarity floor and the preview size.
+- **`FilesLocationConstants`**: paths, resolved from the backend root.
 
-Model rates no longer live here. They moved to
-[`airglider/src/config.py`](../airglider/src/config.py) so `TokenUsage` can
-stamp `cost_usd` without the host wiring anything up, which is what let
-airglider stop importing from this package. Import via `from airglider import
-cost_of, MODEL_PRICES, PRICES_CHECKED_ON`.
-
-**Those rates go stale** — re-verify and bump `PRICES_CHECKED_ON` when cost
-figures matter. A model with no entry is reported in `unpriced_models` and
-contributes nothing to `cost_usd`: unknown spend, deliberately not silent zero
-spend.
-
-Note: `.env` is gitignored — there is no Redis; the core variables are
-`OPENAI_API_KEY` plus the `POSTGRES_*` set.
+Use these rather than literals at the call site. Model prices are not here; they live in [airglider](../airglider/README.md).

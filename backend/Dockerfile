@@ -1,5 +1,5 @@
 # Build context is backend/. Deployed by `make deploy` (gcloud run deploy
-# --source), which hands this file to Cloud Build — see docs/deploy.md.
+# --source), which hands this file to Cloud Build; see docs/temp_docs/deployment.md.
 
 FROM python:3.12-slim AS deps
 
@@ -29,9 +29,9 @@ COPY --from=deps /app/.venv /app/.venv
 # tiktoken fetches its BPE ranks over the network on first use
 # (clients/openai_client.py, lazily imported inside token_count). Bake them in
 # so a cold instance doesn't call openaipublic.blob.core.windows.net on its
-# first embedding. cl100k_base backs text-embedding-3-large; o200k_base is
-# OPENAI_TOKENIZER_ENCODING.
-RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
+# first embedding. cl100k_base backs text-embedding-3-large, the only
+# encoding the app uses.
+RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
 
 # An explicit whitelist, not `COPY . .`: logs/, data/, evals/, playground/ and
 # tests/ cannot enter the image even if .dockerignore drifts. Copying whole

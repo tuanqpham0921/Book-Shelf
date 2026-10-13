@@ -1,3 +1,5 @@
+"""Configuration: `settings` loaded from config/.env, and the constants beside it."""
+
 from .settings import settings, Settings
 from .constants import (
     AppConfig,

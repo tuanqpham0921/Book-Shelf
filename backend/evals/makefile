@@ -1,16 +1,9 @@
 # -------------------------------------------------------------------
-# Eval-run commands — moved here from backend/Makefile.
-#
-# Pulled into the root Makefile via `include makefile`, so `make query-suite-all`
-# etc. work from backend/. Every path below is anchored to $(EVALS_DIR) rather
-# than to cwd, so the same targets also work invoked from evals/ directly
-# (`make -f makefile query-suite`). They used to be bare relative paths, which
-# silently only worked from evals/ despite the root Makefile documenting the
-# opposite.
-#
-# The postgres dump targets this flow needs (README step 2) already live in the
-# root Makefile: `make postgres-dump-chat-runs` / `make postgres-dump-feedback`
-# (they used to be duplicated here — dropped to avoid override warnings on include).
+# Eval-run commands. The root Makefile includes this file, so every target
+# runs from backend/; each path is anchored to $(EVALS_DIR), so they also run
+# from evals/ (`make -f makefile query-suite`). The postgres dump targets a
+# campaign needs (postgres-dump-chat-runs, postgres-dump-feedback) are in the
+# root Makefile.
 # -------------------------------------------------------------------
 
 # Absolute path to this file's directory, resolved at parse time. Must stay
@@ -67,7 +60,7 @@ query-suite-stress:
 	$(RUN_SUITE) $(SUITES_DIR)/query_suite_stress.json 2>&1 | tee $(LOG_DIR)/stress_$$(date +%Y%m%d_%H%M%S).log
 
 # run the extended-catalog scaling suite (ids 101+)
-# its tool schemas are still parked in playground/app_mock, not wired into the registry
+# NOTE: its nodes exist only in playground/app_mock, so most cases fail today
 .PHONY: query-suite-extended
 query-suite-extended:
 	@mkdir -p $(LOG_DIR)
@@ -173,6 +166,3 @@ eval-routing:
 .PHONY: eval-validation
 eval-validation:
 	poetry run python $(EVALS_DIR)validation/eval_validate_message.py $(call campaign_out,validate_message.md) $(ARGS)
-
-# TODO: make the path to variable names
-# make a better run make, so it dumps and copy the logs over

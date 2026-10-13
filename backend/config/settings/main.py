@@ -1,3 +1,5 @@
+"""`Settings`, which gathers the three sub-settings, and the `settings` instance."""
+
 from pydantic import BaseModel
 from pydantic_settings import SettingsConfigDict
 

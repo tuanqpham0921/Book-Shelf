@@ -1,13 +1,12 @@
-"""Tests for write_recommendations/executor.py — the reply stage's flow.
+"""Tests for write_reply/executor.py — the reply stage's flow.
 
-The stage no longer fetches (2026-09-11): every book node keeps the preview it
-streamed on its output, and the runner hands each goal over as a `TaskResult`.
-So what is asserted here is what the stage does with those — what it tells the
-writer, and which cards follow which text — against a faked LLM call.
+The stage fetches nothing: every book node keeps the preview it streamed on
+its output, and the runner hands each goal over as a `TaskResult`. So what is
+asserted here is what the stage does with those — what it tells the writer,
+and which cards follow which text — against a faked LLM call.
 
-Since it was deregistered (2026-09-08) it takes one undifferentiated
-`results` list rather than a `sources`/`failures` split assembled by
-`build_input`, so `_input` below is what does the partitioning in reverse.
+It takes one undifferentiated `results` list, so `_input` below builds that
+list and the stage does the partitioning.
 """
 
 from unittest.mock import AsyncMock, patch

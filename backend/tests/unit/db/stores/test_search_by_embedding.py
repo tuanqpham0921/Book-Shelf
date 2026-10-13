@@ -1,17 +1,14 @@
 """What `embedding_search_stmt` puts into its one statement.
 
-**The odd one out among the store's query builders until 2026-08-24**, when it
-started returning a `DeferredBookQuery` like the rest. The old premise — that it
-*could not* be one, because it returns rows in cosine order and no composable
-SELECT reproduces that order — was half right: `materialize_stmt` does reproduce
-an order (it sorts by `score`), just not a truncation. So the LIMIT stayed in the
-statement and became the class's one documented exception — an exception carried
-by the SQL alone, since nothing on `DeferredBookQuery` marks it.
+It returns a `DeferredBookQuery` like the other builders, with one exception:
+it keeps its LIMIT, because `materialize_stmt` can reproduce its order (it
+sorts by `score`) but not its truncation. That exception is carried by the SQL
+alone, since nothing on `DeferredBookQuery` marks it.
 
-That is what most of this file now guards. The similarity floor and the
-exclusions still have to be *in* the statement, for the original reason: the
-search orders the whole table and truncates, so anything cut afterwards is cut
-from an already-truncated set. What is new is the shape of what comes back — isbn13
+That is what most of this file guards. The similarity floor and the
+exclusions have to be *in* the statement: the search orders the whole table
+and truncates, so anything cut afterwards is cut from an already-truncated
+set. The shape of what comes back matters too — isbn13
 plus a column named exactly `score`, which is what `compose(op="and")` carries and
 `materialize_stmt` orders by, and therefore what lets a downstream bound narrow
 a similarity pool without flattening its ranking.
@@ -41,7 +38,7 @@ def _compiled(**kwargs):
 
 
 class TestItIsADeferredQuery:
-    """The 2026-08-24 change: a pool that can be narrowed, not a list of rows."""
+    """A pool that can be narrowed, not a list of rows."""
 
     def test_it_returns_a_deferred_query(self):
         assert isinstance(_built(), DeferredBookQuery)

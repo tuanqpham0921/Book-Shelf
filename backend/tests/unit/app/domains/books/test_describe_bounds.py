@@ -4,10 +4,6 @@ No workflow, no store, no LLM: a parsed `BookMetadataFilter` goes in, the line
 that reaches the chat comes out. Worth pinning because it is the only place the
 node explains itself — a count with no phrase beside it is a number the user
 cannot check.
-
-It lived in `filter_books` until 2026-08-24 and was shared with this node;
-`Combine_Intersect` parses no bounds, so the numeric node is the only caller
-and now the owner.
 """
 
 from app.domains.books.find_by_numeric_traits.executor import describe_bounds

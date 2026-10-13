@@ -1,10 +1,10 @@
 """In-process API tests of POST /session/{id}/message — what the route does
-before a turn starts, which since 2026-09-23 is validation and nothing else.
+before a turn starts, which is validation and nothing else.
 
-The session token budget used to be read here. It moved into the turn:
-creating the row, reading the balance, judging it and charging it back are all
-`Orchestrator`'s work now (tests/unit/app/orchestration/test_orchestrator.py
-and test_token_budget.py). What is pinned here is what is left — the 400s (blank, emoji-only, too long),
+The session token budget is the turn's work, not the route's: creating the
+row, reading the balance, judging it and charging it back are all in
+`Orchestrator` (tests/unit/app/orchestration/test_orchestrator.py and
+test_token_budget.py). What is pinned here is the route's part — the 400s (blank, emoji-only, too long),
 the context the route builds for the turn, and that the handler opens no
 database session of its own.
 

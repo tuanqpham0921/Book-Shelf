@@ -1,3 +1,5 @@
+"""OpenAI settings (`OPENAI_*`): the API key, model names and the docs vector store."""
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from config.constants import FilesLocationConstants
 
@@ -5,7 +7,6 @@ from config.constants import FilesLocationConstants
 class OpenAISettings(BaseSettings):
     API_KEY: str
     BASE_MODEL: str
-    TOKENIZER_ENCODING: str
 
     EMBEDDING_MODEL: str
     EMBEDDING_DIMENSIONS: int

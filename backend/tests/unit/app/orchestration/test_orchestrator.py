@@ -3,11 +3,10 @@ always handed to record_chat_run — the "don't record" decision for a missing
 result lives inside record_chat_run itself (see test_run_recorder.py), not in
 the orchestrator, so _finalize calls it unconditionally.
 
-`TestWritingTheReply` covers the third layer the orchestrator gained on
-2026-09-08, when the generation node was deregistered into a stage that runs
-once after the runner. The wiring is what is asserted here — whether the stage
+`TestWritingTheReply` covers the reply stage, which runs once after the
+runner. The wiring is what is asserted here — whether the stage
 runs, and what it is fed — not the reply itself, which is
-test_write_recommendations_executor.py.
+test_write_reply_executor.py.
 
 `TestChargingTheSession` covers the fourth thing `_finalize` does: charge the
 turn to its session's token budget. `TestRefusingAnExhaustedSession` is the other

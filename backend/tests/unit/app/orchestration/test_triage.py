@@ -73,12 +73,6 @@ class TestTriageWorkflowSteps:
         assert orchestrator.record.token_usage.prompt == 60
         assert orchestrator.record.token_usage.completion == 40
 
-    def test_shared_messages_list_appended_by_children(self, orchestrator):
-        # TODO: fix this
-        msg = AssistantMessage(content="hello")
-        orchestrator.messages.append(msg)
-        assert msg in orchestrator.messages
-
     def test_appends_to_result_steps(self, orchestrator):
         step = OperationResult(
             ok=True, name="some_step", response=Response(result=PlanJaneOutput())

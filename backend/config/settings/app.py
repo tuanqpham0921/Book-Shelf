@@ -1,3 +1,5 @@
+"""App settings (`APP_*`): name, environment, CORS origins and App Check."""
+
 from typing import Annotated, Literal
 
 from pydantic import field_validator

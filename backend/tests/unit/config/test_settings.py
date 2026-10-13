@@ -72,7 +72,6 @@ class TestOpenAISettings:
         s = OpenAISettings.model_construct(
             API_KEY="sk-test",
             BASE_MODEL="gpt-4o",
-            TOKENIZER_ENCODING="cl100k_base",
             EMBEDDING_MODEL="text-embedding-3-small",
             EMBEDDING_DIMENSIONS=1536,
             MAX_CONCURRENCY=5,
@@ -117,7 +116,6 @@ class TestSettings:
             openai=OpenAISettings.model_construct(
                 API_KEY="sk-test",
                 BASE_MODEL="gpt-4o",
-                TOKENIZER_ENCODING="cl100k_base",
                 EMBEDDING_MODEL="text-embedding-3-small",
                 EMBEDDING_DIMENSIONS=1536,
                 MAX_CONCURRENCY=5,

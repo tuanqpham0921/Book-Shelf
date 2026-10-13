@@ -17,7 +17,7 @@ classDiagram
     OpenAIClient ..> AssistantMessage : returns
 ```
 
-- **`BaseLLMClient` / `BaseLLMRequest`** are the provider-neutral interfaces: `execute`, `token_count`, `ping`, `close` on the client; `prompt`, `messages`, `model` and `to_payload()` on the request.
+- **`BaseLLMClient` / `BaseLLMRequest`** are the provider-neutral interfaces: `execute`, `token_count`, `close` on the client; `prompt`, `messages`, `model` and `to_payload()` on the request.
 - **`OpenAIClient`** implements them, plus `get_embeddings` and `search_vector_store`. One instance is built per app (`AppContext`) and shared by every request.
 - **`APIMessage`** is a union of `SystemMessage`, `UserMessage`, `AssistantMessage` and `ToolMessage`, picked by `role`.
 

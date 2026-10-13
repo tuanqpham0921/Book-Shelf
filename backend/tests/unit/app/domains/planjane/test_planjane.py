@@ -283,7 +283,6 @@ class TestRun:
         )
 
     async def test_accepted_goals_populated_from_tool_call(self, parse_wf):
-        # TODO: add make fail goals, and overload
         parse_result = _make_parse_result(goals=[_make_goal()])
         parse_wf.sse_stream.send_ui_loading = AsyncMock()
         parse_wf.run_llm_call = AsyncMock(

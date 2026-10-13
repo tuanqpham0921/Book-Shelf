@@ -1,3 +1,5 @@
+"""Tests for clients/openai_requests.py — what each request type puts into its payload."""
+
 import pytest
 from unittest.mock import MagicMock
 from openai.lib._parsing._completions import is_parseable_tool

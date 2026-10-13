@@ -21,10 +21,9 @@ dev:
 	LOG_LEVEL=INFO poetry run uvicorn app.main:app --reload --reload-include "*.py" --reload-include "*.env"
 
 # The deployed service, locally: APP_ENVIRONMENT=production (the same value the
-# deploy recipe sets) and no --reload, so the production-only paths are live —
-# today that means the session token budget, which is read everywhere but only
-# enforced here. Against the compose Postgres; for the deployed database use
-# local-prod-neon.
+# deploy recipe sets) and no --reload, so the production-only paths are live:
+# the site-wide token cap, the per-IP rate limit and chat_runs recording.
+# Against the compose Postgres; for the deployed database use local-prod-neon.
 .PHONY: local-prod
 local-prod:
 	APP_ENVIRONMENT=production LOG_LEVEL=INFO poetry run uvicorn app.main:app
@@ -68,24 +67,26 @@ postgres-cli:
 	docker exec -it -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
 		psql -U $$POSTGRES_USER -d $$POSTGRES_DB
 
-# run an ad hoc query file against the dev postgres container (default: data/sql_dev_commands.sql)
-# usage: make postgres-query [FILE=data/some_other_file.sql]
+# run a SQL file against the dev postgres container
+# usage: make postgres-query FILE=path/relative/to/backend.sql
 .PHONY: postgres-query
 postgres-query:
+	@test -n "$(FILE)" || { echo "usage: make postgres-query FILE=<file.sql>"; exit 1; }
 	set -a && . $(ENV_FILE) && set +a && \
 	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
-		psql -U $$POSTGRES_USER -d $$POSTGRES_DB < $(MAKEFILE_DIR)$(or $(FILE),data/sql_dev_commands.sql)
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB < $(MAKEFILE_DIR)$(FILE)
 
 BACKUP_FILE ?= $(MAKEFILE_DIR)data/backup.sql
-# restore plain-SQL backup (data/backup.sql) into the compose postgres container
+# restore a whole-database dump (postgres-dump) into the compose postgres container.
+# NOTE: the dump has its own CREATE TABLEs, so restore into an empty database;
+# a container that ran db/init already has the tables and the restore errors.
 .PHONY: postgres-restore
 postgres-restore:
 	set -a && . $(ENV_FILE) && set +a && \
 	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
 		psql -U $$POSTGRES_USER -d $$POSTGRES_DB < $(BACKUP_FILE)
 
-# dump the postgres data to a file (overwrites existing backup.sql)
-# currently throw an error because entry point init and backup does have IF NOT EXISTS
+# dump the whole database, schema included, to data/backup.sql (overwrites it)
 .PHONY: postgres-dump
 postgres-dump:
 	set -a && . $(ENV_FILE) && set +a && \
@@ -342,10 +343,6 @@ tests-all:
 typecheck:
 	poetry run pyright
 
-.PHONY: playground
-playground:
-	poetry run python playground/scratch.py
-
 .PHONY: local-end-to-end-test
 local-end-to-end-test:
 	./tests/scripts/local_end_to_end_test.sh
@@ -355,8 +352,3 @@ local-end-to-end-test:
 # so they still run as `make query-suite-all` from backend/ (cwd stays backend/,
 # so the relative suite/log paths in those recipes resolve).
 include $(MAKEFILE_DIR)evals/makefile
-
-# .Phony: lint
-# lint:
-# 	poetry run ruff check --fix clients/ tests/unit/clients/
-#   poetry run black common/utils/ tests/unit/common/utils/

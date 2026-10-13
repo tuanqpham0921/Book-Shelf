@@ -56,7 +56,6 @@ class OpenAIClient(BaseLLMClient):
             raise ValueError("OpenAI API key not set")
         
         self.client               = AsyncOpenAI(api_key=openai_settings.API_KEY)
-        self.base_model           = openai_settings.BASE_MODEL
         self.embedding_model      = openai_settings.EMBEDDING_MODEL
         self.embedding_dimensions = openai_settings.EMBEDDING_DIMENSIONS
         self.max_input_tokens     = OpenAIConstants.MAX_INPUT_TOKENS
@@ -235,12 +234,3 @@ class OpenAIClient(BaseLLMClient):
 
         # list of strings
         return sum(len(encoding.encode(item)) for item in text)
-    
-    async def ping(self):
-        """Ping the OpenAI API."""
-        
-        response = await self.client.responses.create(
-            model=self.base_model,
-            input="ping"
-        )
-        return response

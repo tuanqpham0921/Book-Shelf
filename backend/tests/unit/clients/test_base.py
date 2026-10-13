@@ -1,3 +1,5 @@
+"""Tests for clients/base.py — the provider-neutral client and request bases."""
+
 import pytest
 from typing import Any
 from clients.messages import UserMessage
@@ -15,7 +17,6 @@ class ConcreteClient(BaseLLMClient):
     async def execute(self, *_): ...
     async def close(self): ...
     def token_count(self, text): return len(text)
-    async def ping(self): return True
 
 
 USER_MSG = UserMessage(content="hello")

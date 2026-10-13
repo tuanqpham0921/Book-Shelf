@@ -19,10 +19,8 @@
 config/.env
 config/.env.*
 
-# SQL run against the database, never read by the app: db/init builds a fresh
-# database, db/commands holds ad-hoc queries and dated migrations
+# the schema SQL, run against the database and never read by the app
 db/init
-db/commands
 
 **/__pycache__
 **/*.py[cod]

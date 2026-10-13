@@ -1,13 +1,15 @@
-from pathlib import Path
-""" Centralized constants for the application.
-Makefile and docker compose will need to update (manually) if these are changed.
+"""Constants that are not read from the environment: limits, budgets, timeouts and paths.
+
+The Makefile and docker-compose.yml hard-code some of the same paths, so a
+change here needs the same change there.
 """
+
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 class AppConfig:
     """System-level constants."""
-    SESSION_PREFIX   = "session"
 
     # What a new session may spend, across every call of every turn. Unlike the
     # per-call caps in OpenAIConstants this is a real budget: it is spent down
@@ -37,26 +39,21 @@ class AppConfig:
     FEEDBACK_MAX_COMMENTS   = 20
     FEEDBACK_COMMENT_LENGTH = 500
 
-    # The ceiling on any one statement a store runs, in seconds. Applied by the
-    # engine (db/async_engine.py), which derives every layer from it, each one
-    # sitting above what it backs up: Postgres' statement_timeout, asyncpg's
-    # command_timeout above that, and pool_timeout and the connect timeout for
-    # the two waits Postgres cannot see. Enforced there rather than around the
-    # await, so a query that runs long is cancelled by the server and the
-    # connection survives — cancelling mid-execute leaves it in a state
-    # SQLAlchemy no longer knows. Orchestrator.DEBIT_TOKENS_TIMEOUT is one rung
-    # further out again, since a debit pays those waits before its statement.
     # Firebase App Check's public signing keys. Firebase asks callers to cache
     # them for no more than six hours, which is the lifespan used.
     APP_CHECK_JWKS_URL      = "https://firebaseappcheck.googleapis.com/v1/jwks"
     APP_CHECK_JWKS_LIFESPAN = 6 * 60 * 60
 
+    # The ceiling on any one statement a store runs, in seconds. The engine
+    # derives four timeout layers from it (db/README.md).
+    # NOTE: DEBIT_TOKENS_TIMEOUT in orchestrator.py must stay above this, since a
+    # debit waits for a connection before its statement runs.
     DATABASE_TIMEOUT = 10.0
-    OPENAI_TIMEOUT   = 10.0
-    DEFAULT_TIMEOUT  = 10.0
 
 
 class OpenAIConstants:
+    """Per-call token caps and the vector-store search size."""
+
     # App wide limit. Guards against a runaway, not a budget: you are billed
     # for tokens generated, so a cap costs nothing until it binds — and when
     # it binds it fails the turn. A node may set a smaller
@@ -79,17 +76,17 @@ class FilesLocationConstants:
     # in the image; compose mounts it, make neon-bootstrap applies it to Neon
     DB_INIT_DIR = PROJECT_ROOT / "db" / "init"
     SCHEMA_INDEXES_FILE = DB_INIT_DIR / "02_indexes.sql"
-    
+
     LOG_DIR = PROJECT_ROOT / "logs"
 
 class BookConstraints:
     """Domain constraints for book data."""
     MIN_PAGE_COUNT = 4
     MAX_PAGE_COUNT = 3342
-    
+
     MIN_RATING = 0.0
     MAX_RATING = 5.0
-    
+
     MIN_PUBLISHED_YEAR = 1876
     MAX_PUBLISHED_YEAR = 2019
 
@@ -97,26 +94,10 @@ class BookConstraints:
     # candidate at all, as cosine similarity. Without a floor the vector search
     # returns its top N however far away they are — the whole table ordered,
     # truncated — so an ask with no near match comes back full of strangers.
-    # Deliberately permissive: enforced now (see `embedding_search_stmt`), and
-    # `similarity_score` is recorded on every recommended book in `chat_runs`,
-    # so tune this off the real distribution rather than off a guess.
+    # Deliberately permissive: `similarity_score` is recorded on every
+    # recommended book in `chat_runs`, so tune this off the real distribution
+    # rather than off a guess.
     MIN_SIMILARITY = 0.35
 
-    MIN_LIMIT = 1
-    MAX_LIMIT = 5
+    # books a node fetches for its preview cards
     default_limit = 4
-
-    def __str__(self):
-        """Return string representation of all constraints."""
-        result = "BookConstraints:\n"
-        
-        # Get all class attributes that are constants (uppercase or constraint names)
-        constraints = {
-            name: value for name, value in self.__class__.__dict__.items()
-            if not name.startswith('_') and not callable(value)
-        }
-        
-        for attr_name, attr_value in constraints.items():
-            result += f"  {attr_name} = {attr_value}\n"
-
-        return result

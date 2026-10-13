@@ -1,3 +1,5 @@
+"""Tests for OpenAIClient: payload execution, streaming, token usage, embeddings and vector-store search, against a faked SDK."""
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from clients.openai_client import FileSource, OpenAIClient
@@ -369,25 +371,3 @@ class TestChatStream:
 
         result = await self.client._chat_stream({}, sse_stream=None)
         assert result == fake_completion
-
-
-class TestPing:
-    def setup_method(self):
-        self.client = make_client()
-
-    @pytest.mark.asyncio
-    async def test_calls_responses_api(self):
-        self.client.client.responses.create = AsyncMock(return_value=MagicMock())
-        await self.client.ping()
-        self.client.client.responses.create.assert_called_once_with(
-            model="gpt-4o", input="ping"
-        )
-
-    @pytest.mark.asyncio
-    async def test_reraises_on_failure(self):
-        # tracing-free again, so a failure raises straight through
-        self.client.client.responses.create = AsyncMock(
-            side_effect=RuntimeError("timeout")
-        )
-        with pytest.raises(RuntimeError, match="timeout"):
-            await self.client.ping()

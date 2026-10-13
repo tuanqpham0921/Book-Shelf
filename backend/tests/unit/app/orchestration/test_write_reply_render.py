@@ -1,4 +1,4 @@
-"""Tests for write_recommendations/render.py — the plan as the writer sees it.
+"""Tests for write_reply/render.py — the plan as the writer sees it.
 
 Pure functions with no database and no LLM, which is the point of the satellite
 module: what the reply is allowed to know is decided here, and it is checkable
@@ -269,9 +269,8 @@ class TestRenderSection:
 
 class TestRenderReport:
     def test_the_report_is_evidence_only(self):
-        # the `What to write:` brief went with the goal (2026-09-08): an
-        # unregistered stage has no planner text, so nothing in this block is
-        # an instruction and the prompt's trust boundary has no exception
+        # an unregistered stage has no planner text, so nothing in this block
+        # is an instruction and the prompt's trust boundary has no exception
         rendered = render_report([_source()])
 
         assert rendered.startswith("What I found:")

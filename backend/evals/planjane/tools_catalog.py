@@ -8,12 +8,13 @@ what the whole block costs per request at current rates.
 Reads no database, only the live registry, so it always describes the code as
 it stands — re-run it after adding or editing a node.
 
-Two token costs, paid at different points by different models:
+Two token figures:
 
-- catalog tokens — `Registry.format_catalog()`, rendered into the goal
-  generator and parse-response prompts, so the block is paid twice per request.
-- schema tokens — one node's JSON function-tool schema, sent per accepted goal
-  by classification. Per-goal, not per-request.
+- catalog tokens — `Registry.format_catalog()`, rendered once per request into
+  the planner's goal-parse prompt.
+- schema tokens — the node's request class as a JSON function-tool schema.
+  NOTE: no call sends these today (the planner sees only the catalog), so this
+  column measures nothing that is billed.
 
 Usage (from backend/, or `make tools-catalog`):
     poetry run python evals/planjane/tools_catalog.py
@@ -44,16 +45,14 @@ DESCRIPTION_PRINT_LIMIT = 110
 # families ship with.
 FALLBACK_ENCODING = "o200k_base"
 
-# The models the planner runs, and how many times each sees the whole catalog
-# per request. Classification is absent on purpose: it sends per-node schemas,
-# not the catalog, and is reported separately.
+# The models that see the whole catalog, and how many times per request:
 # (model, catalog sends per request, call site). Unpriced models report `?`.
 CATALOG_CONSUMERS = (
     ("gpt-6-sol", 1, "planjane.build_goal_parse_request (goal generation)"),
 )
 
 # Prompt engineering, not style: "Do not use" and "Example queries" are the
-# levers for the discrimination failures tracked in docs/eval-strategy.md.
+# levers for the discrimination failures tracked in docs/temp_docs/eval-strategy.md.
 EXPECTED_SECTIONS = (
     "Purpose:",
     "Args:",
@@ -325,7 +324,7 @@ def build_audit(tools: list[dict], stats: dict) -> list[str]:
             "- ⚠️ **Incomplete descriptions.** These docstrings are the planner's "
             "only instructions for when to pick a node; a missing `Do not use:` or "
             "`Example queries:` is a known source of misroutes "
-            "(docs/eval-strategy.md).",
+            "(docs/temp_docs/eval-strategy.md).",
             "",
             "| node type | missing |",
             "|---|---|",
