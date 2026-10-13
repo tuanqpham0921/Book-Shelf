@@ -46,6 +46,8 @@ Before the planner, the message check refuses harmful or gibberish messages, and
 
 ### Docs and the chatbot
 
+The READMEs and `docs/` are built into the chat assistant, so a developer can ask it how BookShelf works, such as how a node is added or why retrieval counts first, instead of hunting through folders. That makes onboarding and day-to-day development faster, and it keeps the docs honest: a wrong page shows up as a wrong answer.
+
 `Retrieve_Project_Info` answers from a vector store over the READMEs and `docs/`, so those pages are written for a reader who gets one chunk at a time ([documentation strategy](strategies/documentation.md)). The store is loaded by hand today.
 
 ## Architecture

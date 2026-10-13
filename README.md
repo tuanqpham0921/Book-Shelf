@@ -2,7 +2,9 @@
 
 BookShelf is a chat assistant for a fixed book shelf. Ask it for books by an author, books on a subject, books like one you liked, or books under some page count, and it answers only from that shelf.
 
-**Try it:** [tuanqpham0921.web.app](https://tuanqpham0921.web.app)
+**Try it:** [tuanqpham0921.web.app](https://tuanqpham0921.web.app). 
+
+Besides finding books, the chatbot answers questions about BookShelf's own docs and design.
 
 ## Why it is built this way
 
