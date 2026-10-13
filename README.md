@@ -9,8 +9,18 @@ BookShelf is a chat assistant for a fixed book shelf. Ask it for books by an aut
 BookShelf deliberately does not search the internet or rely on what the model already knows about books. Every answer comes from its own catalog, which brings three things:
 
 - **Control:** the model cannot recommend a book that isn't in the inventory or invent facts about one.
-- **A visible plan:** each message becomes a short plan of contained tasks, such as "find books by this author" or "keep the ones under 300 pages". The plan is drawn as a diagram before anything runs, and each task shows what it did: the arguments it parsed, the SQL it ran, what it cost.
+- **A visible plan:** each message becomes a short plan of contained tasks, such as "find books by this author" or "keep the ones under 300 pages".
 - **Something to measure:** each task can be checked on its own, and the planner is graded against expected plans.
+
+## Transparent by design
+
+BookShelf tries to hide nothing about how it reached an answer. You can look through the AI rather than at it:
+
+- **The plan comes first,** drawn as a diagram before any task runs.
+- **Every task shows its work:** the arguments the model parsed from your message, the SQL it ran, how many books matched, the time and tokens it took, and a preview of what it found.
+- **The whole trace is yours:** the log button shows every step of the turn, and a project answer lists the docs it came from.
+- **Failures are explained, not hidden:** a step that found nothing or broke says so, and the reply tells you why.
+- **The code and docs are open,** and the chatbot answers questions about BookShelf from those same docs.
 
 ```mermaid
 flowchart LR

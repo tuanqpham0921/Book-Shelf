@@ -70,22 +70,33 @@ Proposed, not built: pause after the plan ("continue?"), persist the run, and re
 
 V1.1's flagship. `chat_runs` already records each turn and its results, which is what a later turn would read. It needs history loading, prompt changes and a running summary. **The reply prompt says the opposite today** (`write_reply/prompts/reply.txt` says the system keeps no memory between messages, and its no-questions rule leans on that), so that has to be unwound first.
 
-### Caching
+### Caching Strategies
 
-- **The planner's catalog is byte-identical on every request,** so OpenAI's prompt cache serves most of it. `make suite-stats` reports the hit rate.
-- **Triage replays recorded plans** for a short list of fixed messages (`orchestration/triage/cache.py`), in every environment.
-- Nothing caches an embedding, a search result or a reply.
+Each layer chooses its own caching:
+
+- **Promoted tools.** Any node can be offered to triage as a tool, so a common ask skips the planner and its whole catalog. `Retrieve_Project_Info` is the one promoted today.
+- **Prompt-level caching.** Each node builds its own LLM request, so it can keep its prompt's opening byte-identical and let OpenAI's prompt cache serve it. The planner's catalog is the main case. `make suite-stats` reports the hit rate.
+- **Plan replay.** Triage replays recorded plans for a short list of fixed messages (`orchestration/triage/cache.py`), in every environment.
+
+Nothing caches an embedding, a search result or a reply.
 
 ### Security
 
-There is no user auth in V1; the review routes are off in production, and App Check plus spend caps stand in ([decision 009](decisions/009-no-user-auth-in-v1.md)). Prompt injection is stopped at the message check and triage, but triage fails open, and a node's parsed arguments, where an injected string would land, have no tests of their own.
+There is no user auth in V1; the review routes are off in production, and App Check plus spend caps stand in ([decision 009](decisions/009-no-user-auth-in-v1.md)).
 
-## Frontend
+Misuse is checked in layers. The message check refuses harmful or gibberish messages, then triage's router turns misuse away with `SecurityReview`. `SecurityReview` and `ClarifyingQuestion` are common tools (`app/common/tools.py`), so any node can offer them in its own LLM call: to flag the part of its instruction that is misuse and carry on with the rest, or to ask the user rather than guess. Today only triage offers them.
 
-- **One page, one view per path,** each loaded on first visit and kept mounted.
-- **The work folds and the answer stays open.** The plan diagram comes first, then one folded section per goal (its arguments, SQL, cost and a preview), then the reply.
+Triage fails open, and a node's parsed arguments, where an injected string would land, have no tests of their own.
+
+## Frontend Design
+
+- **Bookish, in black and white.** A serif typeface on a black, white and gray palette, so it reads like a printed page. Color is added only where it helps a section read more easily. The palette is tokens in `styles/tokens.css`.
+- **Looking through the AI.** The chat sits in a translucent white panel, so the work shows through rather than being hidden behind an answer.
+- **Every step can be inspected.** The plan diagram comes first, then one folded section per goal with its task result: the arguments the node parsed, its SQL, its cost and a preview of the books. The reply stays open below them.
+- **The log and sources reach the browser.** Each turn's full trace and, for project questions, the docs the answer came from are sent to the frontend, behind the log and Sources buttons.
 - **Cards follow the text.** The reply is paragraphs and the cards they mention, so only books the text points at are shown.
-- **Feedback per answer:** thumbs, comments, the turn's trace and its sources.
+- **Feedback per answer:** thumbs and comments.
+- **One page, one view per path,** each loaded on first visit and kept mounted.
 
 How a turn renders: [frontend/src/](../frontend/src/README.md).
 
