@@ -1,3 +1,8 @@
+"""`SSEStream`, the turn's outbound event queue: workflows `send` typed events
+into it, and the chat route drains it as server-sent events. The events and
+their payloads are listed in frontend/src/README.md.
+"""
+
 import asyncio
 import json
 import logging
@@ -7,9 +12,13 @@ from sse_starlette import ServerSentEvent
 
 logger = logging.getLogger(__name__)
 
-SSE_TIMEOUT = 120 # seconds
+SSE_TIMEOUT = 120  # seconds the consumer waits for the next event
+
 
 class SSEStream:
+    """One turn's event queue. Sends after `close()` are dropped, and the
+    consumer stops only once it has drained everything queued before it."""
+
     def __init__(self) -> None:
         self._queue = asyncio.Queue()
         self._stream_end = object()
@@ -54,20 +63,20 @@ class SSEStream:
             raise StopAsyncIteration
 
     async def put(self, data: str | dict):
-        """Put data into the queue."""
+        """Queue one raw payload; a dict is JSON-encoded. Prefer `send`."""
         if self._closed or self._finished:
             return
 
         if isinstance(data, dict):
             data = json.dumps(data)
-            
+
         try:
             await self._queue.put(data)
         except Exception as e:
             logger.exception(f"❌ Error putting data into the queue: {data} with type: {type(data)}", exc_info=e)
     
     async def send(self, event_type: str, data: dict[str, Any] | str):
-        """Send an SSE event with structured data."""
+        """Queue a `{type, data}` event. An empty type or data is dropped."""
         if self._closed or self._finished:
             return
         if not event_type or not data:
@@ -77,21 +86,21 @@ class SSEStream:
         await self.put(json.dumps(payload))
 
     async def send_book_card(self, position: int, data: dict):
-        """Send raw JSON data."""
-        # TODO: fix this so data={position, data}
+        """Send one book card, at `position` among its section's cards."""
+        # TODO: nest under data, as {position, data}, like every other event
         if self._closed or self._finished or not data:
             return
         payload = {"type": "book_card", "position": position, "data": data}
         await self.put(json.dumps(payload))
 
     async def send_chars(self, data: str, delay: float = 0.01):
-        """Stream text character by character for smoother effect."""
+        """Stream text one `content.delta` per character, for a typing effect."""
         for ch in data:
             await self.send(event_type="content.delta", data=str(ch))
             await asyncio.sleep(delay)
 
     async def send_ui_loading(self, text: str):
-        """Send loading message to UI."""
+        """Set the loading line under the chat."""
         await self.send(event_type="ui.loading", data=text)
 
     async def send_chat_id(self, chat_id: str):
@@ -101,17 +110,16 @@ class SSEStream:
         await self.send(event_type="chat.id", data={"chat_id": chat_id})
 
     async def send_error(self, text: str):
-        """Send error message."""
+        """Send an error message for the chat to show."""
         await self.send(event_type="error", data=text)
 
     async def send_divider(self, data: str = "\n\n---\n\n"):
-        """Send divider."""
-        # TODO: make this into a seperate event type
-        # so you can append or not by checking the previous message on UI
+        """Send a horizontal rule between parts of the reply."""
+        # TODO: its own event type, so the UI can skip it after a section
         await self.send(event_type="content.delta", data=data)
 
     async def send_mermaid(self, data: str):
-        """Send mermaid diagram."""
+        """Send the plan's Mermaid diagram."""
         await self.send(event_type="mermaid.diagram", data=data)
 
     async def send_sources(self, sources: list[str]):
@@ -148,9 +156,9 @@ class SSEStream:
                 "details": details or {},
             },
         )
-    
+
     async def close(self):
-        """Close the stream."""
+        """End the stream after whatever is already queued."""
         if self._closed or self._finished:
             return
 

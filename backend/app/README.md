@@ -22,7 +22,7 @@ Architecture overview lives in the root [CLAUDE.md](../../CLAUDE.md); V1 plans i
 | `api/schemas/` | External request/response models (`ChatIn`, `FeedbackIn`, `ReviewIn`, …) |
 | `orchestration/` | `Orchestrator` (transport per message), `TriageWorkflow`, `TaskRunnerWorkflow`, run recorder |
 | `domains/` | Node type system + PlanJane, the planner — see [domains/README.md](domains/README.md) |
-| `common/` | `RequestContext`, `SSEStream`, message types, prompt loading |
+| `common/` | `RequestContext`, `SSEStream`, the ending tools, field types, prompt loading — see [common/README.md](common/README.md) |
 | `registry.py` | `Registry` — every node lookup (schema, executor, catalog, planner enum) derived from `SPECS` |
 
 ## API surface

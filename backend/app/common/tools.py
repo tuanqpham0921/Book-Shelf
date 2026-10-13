@@ -1,7 +1,9 @@
-"""Tools that end a turn without a plan. Calling one returns the reply the user
-gets. Both quote what the model copied out of the message (`flagged_portion`,
-a correction's `original`): the user's own words when the model copies
-faithfully, which nothing checks."""
+"""The ending tools: `SecurityReview` and `ClarifyingQuestion` end a turn without
+a plan, and calling one returns the reply the user gets.
+
+NOTE: both quote what the model copied out of the message (`flagged_portion`,
+a correction's `original`), which nothing checks against the message.
+"""
 
 from enum import Enum
 
@@ -74,8 +76,6 @@ class ClarifyingQuestion(BaseModel):
         ...,
         description="Why it cannot be acted on, in one short sentence",
     )
-
-    # NOTE: nodes can save context or anything else here
 
     def __call__(self) -> str:
         """The reply the user gets, worded by the kind of clarification."""

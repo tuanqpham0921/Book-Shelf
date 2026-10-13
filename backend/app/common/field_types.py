@@ -1,5 +1,9 @@
-from common.pydantic_validators import bounded_float, bounded_string
+"""Bounded field types for what an LLM fills in: a value out of range is clamped
+or trimmed on the way in, rather than failing validation."""
+
 from typing import Annotated
+
+from common.pydantic_validators import bounded_float, bounded_string
 
 MIN_CONFIDENCE = 0.0
 MAX_CONFIDENCE = 1.0
@@ -7,12 +11,10 @@ MAX_CONFIDENCE = 1.0
 MAX_STRING_LENGTH = 100
 REASONING_FALLBACK = "(no reasoning provided)"
 
-# A goal's instruction is the only thing its node is told about the ask, so it
-# gets its own, larger bound: `MAX_STRING_LENGTH` bounds a *label* (reasoning),
-# and `bounded_string` truncates silently — losing the tail of a description is
-# cosmetic, losing the tail of an instruction changes what the node does.
-# `Field(max_length=...)` carries this into the tool schema, which is how the
-# planner learns the budget.
+# NOTE: an instruction gets its own, larger bound because `bounded_string`
+# truncates silently: a clipped reasoning is cosmetic, a clipped instruction
+# changes what the node does. `Field(max_length=...)` carries it into the tool
+# schema, which is how the planner learns the budget.
 MAX_INSTRUCTION_LENGTH = 300
 INSTRUCTION_FALLBACK = "(no instruction provided)"
 
@@ -25,6 +27,3 @@ ReasoningStr = Annotated[str, bounded_string(
 InstructionStr = Annotated[str, bounded_string(
     max_length=MAX_INSTRUCTION_LENGTH,
     fallback=INSTRUCTION_FALLBACK)]
-
-OptionalStr = Annotated[str | None, bounded_string(
-    max_length=MAX_STRING_LENGTH)]
