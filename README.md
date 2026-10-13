@@ -1,52 +1,46 @@
 # BookShelf
-intro (why, demo link)
 
-To set up dev
-- to frontend README
-- to backend README
+BookShelf is a chat assistant for a fixed book sehlf. Ask it for books by an author, books on a subject, books like one you liked, or books under some page count, and it answers only from that shelf.
 
+**Try it:** [tuanqpham0921.web.app](https://tuanqpham0921.web.app)
 
+## Why it is built this way
 
----
+BookShelf deliberately does not search the internet or rely on what the model already knows about books. Every answer comes from its own catalog, which brings three things:
 
-## Project structure
+- **Control:** the model cannot recommend a book that isn't in the inventory or invent facts about one.
+- **A visible plan:** each message becomes a short plan of contained tasks, such as "find books by this author" or "keep the ones under 300 pages". The plan is drawn as a diagram before anything runs, and each task shows what it did: the arguments it parsed, the SQL it ran, what it cost.
+- **Something to measure:** each task can be checked on its own, and the planner is graded against expected plans.
 
-```
-backend/
-  app/
-    api/            FastAPI routes and request/response schemas
-    common/         messages, SSE stream, RequestContext
-    domains/        one folder per capability (vertical slices) + the book domain
-    orchestration/  Orchestrator, Triage, TaskRunner, run recorder
-    registry.py     the node registry — every lookup answers from SPECS
-  airglider/        standalone tracing/result library (own tests, no app imports)
-  clients/          OpenAI client, tracing-free by design
-  config/           pydantic-settings + constants (.env lives here, git-ignored)
-  db/               async engine, SQLAlchemy models, stores, init SQL
-  evals/            planner suites, runner and reports; the triage decomposition eval
-  Dockerfile        what Cloud Run builds
-frontend/
-  src/
-    api.js          the only backend surface
-    components/     chat, book cards, mermaid diagram, review queue
-    pages/          BookShelfPage (shell), ChatReviewPage
-    design-system/  buttons, modals, dropdowns
-  public/about/       static markdown for the about pages (/bookshelf, /airglider, /planjane)
-docs/               roadmap, backlog, eval strategy, design records, runbooks
+```mermaid
+flowchart LR
+    M["message"] --> T["Triage<br/>plan it, answer it, or turn it away"]
+    T --> P["PlanJane<br/>the planner"]
+    P --> R["TaskRunner<br/>one contained task per goal"]
+    R --> W["reply<br/>written from the results"]
 ```
 
----
+## Where to go
 
-## Status
+| To | Read |
+|---|---|
+| run the backend, or deploy it | [backend/](backend/README.md) |
+| run the frontend, or deploy it | [frontend/](frontend/README.md) |
+| see how a request flows through the app | [backend/app/](backend/app/README.md) |
+| see what the planner is and how it plans | [PlanJane](backend/app/domains/planjane/README.md) |
+| see how every step is traced | [airglider](backend/airglider/README.md) |
+| learn where the books come from | [the dataset](backend/data/README.md) |
+| learn about the database and its schema | [db/](backend/db/README.md) |
+| run or read the evals | [evals/](backend/evals/README.md) |
+| deploy for the first time (Cloud Run, Neon) | [deployment](docs/temp_docs/deployment.md), [Neon](docs/temp_docs/deployment-neon.md) |
+| see why things are built the way they are | [design records](docs/temp_docs/design/), [decisions](docs/decisions/) |
+| see what's next | [roadmap](docs/temp_docs/roadmap.md), [backlog](docs/backlog.md) |
+| write or edit docs here | [documentation strategy](docs/strategies/documentation.md) |
 
-Public pre-release. Conversation is single-turn: each message is planned and
-answered statelessly. What is deliberately not done yet — an auth gate on the
-review endpoints, turning run recording back on in production, rate limiting —
-is tracked in [docs/backlog.md](docs/backlog.md) and Stage 4 of
-[docs/deployment.md](docs/deployment.md).
+## Built with
 
----
+Python, FastAPI, PostgreSQL with pgvector and OpenAI on the backend; React and Vite on the frontend. It is deployed on Cloud Run, Neon and Firebase Hosting.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Feedback welcome: tuanqpham0921@gmail.com
+MIT, see [LICENSE](LICENSE). Feedback is welcome at tuanqpham0921@gmail.com.
