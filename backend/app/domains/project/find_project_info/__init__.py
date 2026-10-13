@@ -1,3 +1,6 @@
+"""Retrieve_Project_Info slice: exports the node's `SPEC`, plus the pieces
+triage runs it with directly."""
+
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import ProjectInfoExecutor

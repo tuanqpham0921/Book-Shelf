@@ -10,6 +10,8 @@ The BookShelf backlog is a temporary buffer for known bugs and small follow-ups 
 
 ## Cleanup
 
+- [ ] **A command to load the project-docs vector store** — the store `Retrieve_Project_Info` searches is built by hand from [file_search_docs.ipynb](../backend/evals/app_docs/file_search_docs.ipynb), so a README edit doesn't reach the chatbot until someone re-runs it. Add a make target that uploads the READMEs and `docs/` into the store named by `OPENAI_VECTOR_STORE_ID`.
+
 - [ ] **Remove unused phrase builders** — `describe_bounds` / `range_phrase` (numeric traits) and `describe_lexical_traits` build user-facing lines that nothing shows; they're only used as an "is the parse empty?" check. Replace with a plain check and delete them and their tests.
 
 - [ ] **Name node enums after their classes** — `FindTitleNodeTypeEnum` sits beside `FindByTitle*` (same in `find_by_author`, `find_by_lexical_traits`, `find_by_numeric_traits`). Rename to `FindByTitleNodeTypeEnum` etc. across the book slices.

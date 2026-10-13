@@ -1,3 +1,6 @@
+"""Retrieve_Project_Info's public surface: the request the planner picks, the
+input the task runner builds, and the output triage and the reply stage read."""
+
 from typing import Any, Literal
 
 from app.domains.base_request import BaseRequest
@@ -33,7 +36,7 @@ class ProjectInfoRequest(BaseRequest):
         - "where's the GitHub repo"
         - "tell me about this project"
         - "what can you do?"
-        - "why is coversation only single turn? what was the rationale?"
+        - "why is conversation only single turn? what was the rationale?"
         - "how long did this project take or cost to run?"
     """
 

@@ -14,9 +14,11 @@ from app.domains.project.find_project_info import (
     ProjectInfoExecutor,
     ProjectInfoInput,
 )
-from app.domains.project.find_project_info.executor import build_answer_request
+from app.domains.project.find_project_info.answer_from_docs import (
+    ProjectDocsAnswer,
+    build_answer_request,
+)
 from clients import FileSource
-from app.domains.project.find_project_info.tools import ProjectDocsAnswer
 from app.registry import REGISTRY
 
 def _hit(file_name: str, score: float, content: str) -> FileSource:

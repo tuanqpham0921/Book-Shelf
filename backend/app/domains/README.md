@@ -6,15 +6,9 @@ workflow output summary
 The node type system — what the planner can plan with — plus PlanJane, the planner
 itself.
 
-Two domains: `books/`, and `project/`, whose one node
-(`find_project_info/`, `Retrieve_Project_Info`) answers questions about
-BookShelf from an OpenAI vector store over its own docs: `search_project_docs`
-(a `@task` method) fetches the closest chunks, and one LLM call answers from
-them or rejects. It is
-`find_by_title/`'s shape minus the store and the arg parse — the instruction
-is the question — so its executor subclasses `AppWorkflow` rather than a domain base,
-and there is no `project/base_workflow.py` or `schemas.py` until a second node
-needs one.
+Two domains: [books/](books/README.md), which finds books in the catalog, and
+[project/](project/README.md), which answers questions about BookShelf from
+its own docs.
 
 ## How it fits together
 
