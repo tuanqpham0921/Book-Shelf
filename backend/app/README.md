@@ -1,32 +1,45 @@
-intro
+# App
 
-how to read the folder structure
-registry - specs
+The app (`backend/app/`) is BookShelf's FastAPI application: it takes a chat message over HTTP, plans the work, runs it against the book catalog and streams the reply back. `main.py` builds the app and registers the routes.
 
-folder structure
+## How the folders fit together
 
-api endpoints
+A message passes down through four packages, and each imports only from the ones below it:
 
-# backend/app
+```mermaid
+flowchart TD
+    A[api: HTTP routes] --> B[orchestration: runs one turn]
+    B --> C[domains: the nodes and the planner]
+    C --> D[common: request context, SSE stream]
+```
 
-The FastAPI application layer: HTTP surface, orchestration, and the domain node system.
-Architecture overview lives in the root [CLAUDE.md](../../CLAUDE.md); V1 plans in
-[/docs](../../docs/README.md).
+- **api** receives the message and streams the turn back.
+- **orchestration** runs the turn: check the message, decide whether to plan, run the plan, write the reply.
+- **domains** holds what the app can do: one node per capability, plus PlanJane, the planner.
+- **common** holds what every layer reads.
 
-## Layout
+## Registry
 
-| Path | What it is |
+The registry (`registry.py`) is the list of nodes the planner can pick. Each node exports one `NodeSpec`, each domain's `guide.py` lists its specs, and `REGISTRY` is built from those lists alone:
+
+```
+NodeSpec   node_type, tier, request, input, output, executor
+REGISTRY   spec(node_type) -> NodeSpec        the task runner's lookup
+           format_catalog()                   the tool list the planner reads
+           NodeTypeEnum                       the names the planner may emit, plus "unknown"
+```
+
+A node is live when its spec is in a `guide.py`, and parked when it is not. `make tools-catalog` prints the live catalog. Adding a node: [domains/README.md](domains/README.md#adding-a-node).
+
+## Folders
+
+| Folder | What it is |
 |---|---|
-| `main.py` | FastAPI app factory, CORS, router registration |
-| `api/routes/` | One file per router (health, session, chat_message, chat_run, feedback) — `feedback.py` holds two, because only the chat's one is served in production |
-| `api/schemas/` | External request/response models (`ChatIn`, `FeedbackIn`, `ReviewIn`, …) |
-| `orchestration/` | `Orchestrator` (transport per message), `TriageWorkflow`, `TaskRunnerWorkflow`, run recorder |
-| `domains/` | Node type system + PlanJane, the planner — see [domains/README.md](domains/README.md) |
-| `common/` | `RequestContext`, `SSEStream`, the ending tools, field types, prompt loading — see [common/README.md](common/README.md) |
-| `registry.py` | `Registry` — every node lookup (schema, executor, catalog, planner enum) derived from `SPECS` |
+| [api/](api/README.md) | The HTTP routes and how they are guarded |
+| [orchestration/](orchestration/README.md) | The `Orchestrator` and the stages of a turn: validation, triage, the task runner, the reply |
+| [domains/](domains/README.md) | The nodes, their base workflows, and PlanJane |
+| [common/](common/README.md) | `RequestContext`, `SSEStream`, the ending tools, field types, prompt loading |
 
-## API surface
+## API endpoints
 
-The routes and how they are guarded: [api/README.md](api/README.md).
-
-
+The routes, their access rules and the wire models: [api/README.md](api/README.md).

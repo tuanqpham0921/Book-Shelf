@@ -1,15 +1,8 @@
-"""The live node registry — everything the planner and the task runner look up.
+"""The live node registry: collects every domain's `NodeSpec`s into `REGISTRY`,
+which answers every node lookup the planner and the task runner make.
 
-Each capability is a vertical slice exporting one `NodeSpec`; a domain's
-`guide.py` lists its specs; this module collects them into `SPECS` and hands
-that tuple to a single `Registry`. See `app/domains/README.md`.
-
-The specs are the only state — request schema, executor, catalog entry and the
-enum the planner emits under are all answered from that one indexed tuple, so
-there are no parallel dicts to drift apart.
-
-`make tools-catalog` renders this module rather than a checked-in snapshot.
-"""
+NOTE: the specs are the only state. Every lookup reads them, so there are no
+parallel dicts to drift apart."""
 
 import inspect
 import logging

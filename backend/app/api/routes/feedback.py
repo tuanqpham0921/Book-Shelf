@@ -13,7 +13,7 @@ from db.stores.feedback_store import FeedbackStore
 logger = logging.getLogger(__name__)
 
 # NOTE: two routers so production can serve only `router`: `review_router`
-# reads every session's reviews and has no admin gate (docs/deployment.md §4.1).
+# reads every session's reviews and has no admin gate.
 router = APIRouter(tags=["Feedback"])
 review_router = APIRouter(tags=["Feedback"])
 
