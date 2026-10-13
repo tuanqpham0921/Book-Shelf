@@ -1,45 +1,59 @@
-intro
+# API
 
-/message flow
+The API (`app/api/`) is BookShelf's HTTP surface: FastAPI routes for health, sessions, the chat and feedback. The routes stay thin. The chat route checks the message and hands the turn to the [orchestrator](../orchestration/README.md), and the other routes are one store call each.
 
-There is no auth yet — a known pre-deploy blocker (docs/backlog.md, Security P1).
+## Flow
 
-## Request flow (current state)
+```mermaid
+flowchart TD
+    A[request] --> B{1. App Check token?}
+    B -->|no| X[401]
+    B -->|yes| C{2. under the per-IP limit?<br/>chat only, production}
+    C -->|no| Y[429]
+    C -->|yes| D{3. body valid?}
+    D -->|no| Z[400 / 422]
+    D -->|yes| E[4. route]
+    E -->|chat| F[orchestrator streams the turn as SSE]
+    E -->|other| G[one store call, JSON back]
+```
 
-1. `POST /session/{session_id}/message` validates the message and builds a
-   `RequestContext`. It touches no database: the whole token budget is the
-   turn's own work, so `Orchestrator.run` opens the session itself with
-   `start_session_turn` — one round trip, a `@task` and the turn's first step,
-   which also creates the `sessions` row if this is the session's first message.
-   A session with nothing left is told so over the stream and the turn ends
-   there, before triage, which is the first thing that costs money. **Enforced
-   in every environment since 2026-09-23** — the old production-only gate is
-   gone, so a `make dev` session or an eval suite now stops when its 200,000
-   tokens do. Otherwise the turn goes to `TriageWorkflow`
-   (`orchestration/triage/`), which decides whether to plan at all — replay a
-   cached plan, or let a gpt-5-mini router pick: the planner, a clarifying
-   question or a security refusal (both fixed replies, no plan), or no tool,
-   in which case its own text answers small talk.
-2. `PlanJaneExecutor` (`domains/planjane/`) parses the message into goals against the
-   live tool catalog and streams the plan's Mermaid diagram over SSE.
-3. `TaskRunnerWorkflow` (`orchestration/task_runner.py`) runs the accepted goals in dependency
-   order against the **real** executors (`REGISTRY.spec(...).executor` in
-   `registry.py`), for the node types registered on this branch. It
-   brackets each node with `task.start` / `task.end` SSE events — closed in a `finally`,
-   so a node that raises still closes its UI section — and stamps the node's `num_books`
-   onto the section header on close. Retrieval nodes report a count plus a few preview
-   cards; only the terminal node fetches the full rows.
-4. `Orchestrator._finalize` charges the turn to its session
-   (`orchestration/token_budget.py`), using the root envelope's token total — so the
-   planner and the reply are billed alongside the tasks. It runs first of the three
-   cleanup steps, on its own database session, and never raises. A turn that spent
-   nothing — a refusal — writes nothing.
-5. `Orchestrator._finalize` then records the turn — **one sink per environment**
-   (`orchestration/run_recorder.py`, since 2026-09-23). Production inserts one
-   `chat_runs` row (planner/tasks/writer JSONB), which is what the review page and
-   the eval reports read and the only durable copy a deployed turn gets; Cloud
-   Run's filesystem is in-memory, so files are never the production sink.
-   Development writes JSON files under `logs/<chat_id>/` instead — no row, so a
-   local turn finishes whether or not Postgres is up. Test writes nothing. Either
-   way it never raises. Requests are stateless: nothing reads prior turns back
-   (single-turn by design for V1).
+1. **App Check:** every route but the health checks needs a valid Firebase App Check token.
+2. **Rate limit:** in production, each IP may send `AppConfig.MESSAGES_PER_IP` chat messages per hour.
+3. **Body:** the request is validated against its wire model. The chat route also refuses a blank or overlong message.
+4. **Route:** the chat route builds a `RequestContext` and streams the orchestrator's events. It touches no database: the token budget is the turn's own work, so a spent session is told in the stream. The other routes read or write through a store on one request-scoped session.
+
+## Routes
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/health`, `/ping` | The process is up |
+| GET | `/ready` | The orchestrator is built and the database answers; 503 otherwise |
+| POST | `/session/new` | Mints a session id prefixed with its environment (`dev_…`). Writes nothing: the first message creates the session's row |
+| POST | `/session/{session_id}/message` | The chat: streams the turn as SSE events. 400 on a blank or overlong message |
+| PUT | `/session/{session_id}/message/{chat_id}/feedback` | The chat's thumbs up/down and comments on its own reply, replacing any earlier ones. 404 unless this session's turn is recorded |
+| GET | `/chat_runs` | The review queue, least-reviewed first. **Not served in production** |
+| PUT | `/feedback/review` | One review per (chat_id, session_id), replaced whole. **Not served in production** |
+| GET | `/feedback?chat_id=` | Every review of one turn. **Not served in production** |
+
+The chat's events are listed in [frontend/src/README.md](../../../frontend/src/README.md#sse-events-the-chat-handles).
+
+## Contract
+
+The wire models are in [schemas/external.py](schemas/external.py); import them from `app.api.schemas`.
+
+```
+ChatIn        message (emoji stripped)
+SessionOut    id, created_at
+FeedbackIn    liked, comments: list of ReviewCommentIn (category, message, positive)
+ReviewIn      FeedbackIn + chat_id, session_id
+BookOut       the book fields a card shows, sent in each book_card event
+```
+
+`BookOut` is the only book shape that reaches the browser, so a column added to the internal `Book` stays on the server unless it is added here too.
+
+## Access
+
+- **There is no user auth.** App Check proves a request came from the site, not who sent it: a token copied out of a browser can be replayed until it expires.
+- **App Check is enforced only when `APP_FIREBASE_PROJECT_NUMBER` is set**, which the deploy sets and local dev doesn't.
+- **The review routes are off in production**, since they read every session's turns and have no admin gate. Review locally with `make dev-neon`, which reads the same database.
+- **Feedback on the chat** is checked against the session that produced the turn, so a session rates only its own replies. Development records no turns, so it always 404s under `make dev`; test it with `make local-prod`.

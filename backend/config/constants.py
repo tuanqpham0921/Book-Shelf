@@ -28,6 +28,9 @@ class AppConfig:
     MESSAGES_PER_IP        = 30
     MESSAGES_PER_IP_WINDOW = 60 * 60  # seconds
 
+    # The longest chat message the route accepts, in characters
+    MAX_MESSAGE_LENGTH = 2000
+
     # Bounds on one feedback row's comment list, which the chat can write in
     # production. The frontend's feedback popup and review editor stop at the
     # same numbers.

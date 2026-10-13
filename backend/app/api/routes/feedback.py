@@ -1,3 +1,6 @@
+"""The feedback routes: the chat's thumbs up/down on its own replies, and the
+/review page's reviews. Both upsert the same `feedback` row."""
+
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,10 +12,8 @@ from db.stores.feedback_store import FeedbackStore
 
 logger = logging.getLogger(__name__)
 
-# Two routers over the one feedback table, because only one of them is served
-# in production (app/main.py): `router` is the chat's thumbs up/down on its own
-# replies, `review_router` is the /review page's surface, which reads every
-# session's reviews and has no admin gate yet (docs/deployment.md §4.1).
+# NOTE: two routers so production can serve only `router`: `review_router`
+# reads every session's reviews and has no admin gate (docs/deployment.md §4.1).
 router = APIRouter(tags=["Feedback"])
 review_router = APIRouter(tags=["Feedback"])
 

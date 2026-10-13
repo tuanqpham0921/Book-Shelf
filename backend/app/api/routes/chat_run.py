@@ -1,3 +1,6 @@
+"""The review queue: `GET /chat_runs` lists recorded turns, least-reviewed first.
+Not served in production (see app/main.py)."""
+
 from fastapi import APIRouter, Depends, Query
 
 from app.api.dependencies import get_chat_run_store

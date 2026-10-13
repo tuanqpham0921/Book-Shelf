@@ -1,3 +1,8 @@
+"""The routes' FastAPI dependencies: the app's services off `app.state`, a
+request-scoped database session for the plain routes, the chat's
+`RequestContext` factory, and the two guards (App Check, the per-IP rate limit).
+"""
+
 import logging
 import time
 from collections import defaultdict, deque
@@ -32,6 +37,7 @@ def get_orchestrator(request: Request) -> Orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not available")
     return orchestrator
 
+
 def get_sqlalchemy_session_factory(request: Request):
     """Get SQLAlchemy session maker"""
     session_factory = getattr(request.app.state, "sqlalchemy_session_factory", None)
@@ -45,18 +51,14 @@ def get_sqlalchemy_session_factory(request: Request):
 async def get_sqlalchemy_session(
     session_factory=Depends(get_sqlalchemy_session_factory),
 ) -> AsyncGenerator[AsyncSession, None]:
-    """One session and one transaction for the length of a request.
+    """One session and one transaction for the length of a request, for the
+    plain HTTP routes, where the request is the unit of work.
 
-    `.begin()` rather than `()`: it commits on a clean exit, rolls back on an
-    exception and closes either way, which is why no store commits for itself
-    (see `BaseStore.execute_statement`). The commit therefore lands when the
-    dependency is torn down, after the handler has returned its value — fine
-    here because `expire_on_commit=False` keeps the returned rows readable.
-
-    Only the plain HTTP routes use this, because only there is the request the
-    unit of work. `/session/{id}/message` streams its response and outlives
-    this scope entirely; it opens its own sessions through
-    `RequestContext.store`.
+    `.begin()` commits on a clean exit and rolls back on an error, which is why
+    no store commits for itself. NOTE: the commit lands after the handler has
+    returned, which is fine because `expire_on_commit=False` keeps the rows
+    readable. The chat route streams past this scope, so it uses
+    `RequestContext.store` instead.
     """
     async with session_factory.begin() as session:
         yield session
@@ -85,7 +87,9 @@ def get_app_env(request: Request) -> str:
 
 
 def get_sse_stream() -> SSEStream:
+    """A fresh stream per request."""
     return SSEStream()
+
 
 async def get_request_context_factory(
     llm_client=Depends(get_openai_client),
@@ -93,14 +97,14 @@ async def get_request_context_factory(
     app_env: str = Depends(get_app_env),
     session_factory=Depends(get_sqlalchemy_session_factory),
 ):
-    """Factory to create request contexts with runtime arguments."""
+    """A function that builds the turn's `RequestContext` once the route has the
+    session id and the message."""
     from clients.messages import UserMessage
     from app.common.request_context import RequestContext
 
     async def create_context(session_id: str, user_message: UserMessage):
-        # The factory, never a session or a store built on one: this runs in
-        # the handler, and the turn it serves runs after the handler returns.
-        # Each unit of work opens its own through `RequestContext.store`.
+        # the session factory, never a session: the turn runs after the
+        # handler returns (see `RequestContext.store`)
         return RequestContext(
             app_env=app_env,
             session_id=session_id,
