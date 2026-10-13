@@ -3,7 +3,7 @@ workflow output summary
 
 # backend/app/domains
 
-The node type system — what the planner can plan with — plus PlanJane, the planner
+The node type system — what the planner can plan with — plus [planjane/](planjane/README.md), the planner
 itself.
 
 Two domains: [books/](books/README.md), which finds books in the catalog, and
@@ -236,33 +236,8 @@ pointing at it; `base_workflow.py` holding the bases they build on.
 - `UnknownNodeTypeEnum` lives in `app/registry.py` beside the `NodeTypeEnum`
   it complements (the old `node_types.py` module here is gone — neither enum
   can live under `domains/` without an import cycle back through the slices).
-- `planjane/` — **the planner**, split three ways, matching the slice layout
-  used elsewhere. `external.py` is what the plan *is* and the address every
-  other layer imports it from: `SystemGoal`, `PlanJaneOutput`, and
-  `ExecutionOrder` with `execution_order()`, the dependency layering the task
-  runner consumes. `tools.py` is what the LLM fills in (`GoalParseRequest`,
-  `MAX_SYSTEM_GOALS`). `executor.py` runs (`PlanJaneExecutor`: message →
-  goals). The dependency runs `external ← tools ← executor`, so a consumer of
-  the plan pulls in neither the prompt example nor the executor — import from
-  the `planjane` package root and the split stays free to move. Prompts live in
-  `planjane/prompts/*.txt`.
-- `planjane/dial/` — how PlanJane *shows* a plan, and the only Mermaid code in
-  the app. `mermaid.py` turns goals into `MermaidBox`es — what a box says, and
-  the `depends_on` → `sent_to` inversion — and `format.py` turns boxes into the
-  diagram string (markup, orientation, emission). It lives under the planner
-  because the diagram *is* the plan rendered, so a caller that drew it would be
-  doing the planner's job; `PlanJaneExecutor.send_mermaid` stamps the result
-  onto `PlanJaneOutput.diagram`.
-
-  **`dial/` imports nothing from `app/`.** `format.py`'s only import is
-  `airglider`, which is itself standalone, and `mermaid.py` adds nothing beyond
-  it — so the subpackage runs with no `app` package present at all. That is
-  deliberate: PlanJane is headed for being a service of its own, and this is
-  the corner already free to travel. Import from `dial`, not from its modules.
-
-  What decides *whether* to call PlanJane — cache, small talk, unclear, misuse —
-  is `app/orchestration/triage/`, not here: it is not a capability, and
-  no `NodeSpec.executor` will ever point at it.
+- [planjane/](planjane/README.md) — **the planner**, which turns a message into
+  goals for the task runner, and draws the plan (`planjane/dial/`).
 - `TaskRunnerWorkflow` lives in **`app/orchestration/task_runner.py`** (it
   dispatches capabilities rather than being one, like Triage). It takes a
   `TaskRunnerInput(plan=...)` and nothing else — no `query`, because its work

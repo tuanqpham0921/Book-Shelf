@@ -9,9 +9,9 @@ fills in; `executor.py` runs. Import from this package root rather than any of
 them — the split is free to move.
 """
 
-from .executor import GoalParseRequest, PlanJaneExecutor, PlanJaneInput
+from .executor import PlanJaneExecutor, PlanJaneInput
 from .external import ExecutionOrder, PlanJaneOutput, SystemGoal
-from .tools import MAX_SYSTEM_GOALS
+from .tools import MAX_SYSTEM_GOALS, GoalParseRequest
 
 __all__ = [
     "PlanJaneExecutor",

@@ -6,7 +6,6 @@ in `external.py`, because they outlive the tool call — the task runner and
 triage read them long after the parse is over.
 """
 
-import logging
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,8 +18,6 @@ from .external import SystemGoal
 from .labels import PlannerNodeTypeEnum
 from .prompts.example import planner_example
 from airglider import OperationResult
-
-logger = logging.getLogger(__name__)
 
 # The cap the LLM emits under. Lives with the field it bounds, not with the
 # goals — `executor.py` reuses it when refusing overflow into `buffer_goals`.

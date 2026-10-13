@@ -134,6 +134,11 @@ class ExecutionOrder(NamedTuple):
 
 
 class PlanJaneOutput(NodeWorkflowOutput):
+    """The plan: goals sorted into accepted (what the task runner runs),
+    refused (unsure or unsupported) and buffered (valid, but past
+    MAX_SYSTEM_GOALS), the parts of the message set aside as out of scope, and
+    the rendered diagram."""
+
     accepted_goals: list[SystemGoal] = Field(default_factory=list)
     refused_goals: list[SystemGoal] = Field(default_factory=list)
     buffer_goals: list[SystemGoal] = Field(default_factory=list)
