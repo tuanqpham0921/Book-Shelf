@@ -45,8 +45,8 @@ class NodeWorkflowOutput(BaseModel, ABC):
     `goal_instruction` is stamped by the task runner when the output lands in
     its results map — what the plan told this step to do, in the planner's
     words. It lives here rather than on each shape because it is provenance,
-    not payload: a generation node renders "what was asked → what came of it"
-    from its typed sources alone, without knowing the planner's types. None on
+    not payload: the reply stage renders "what was asked → what came of it"
+    from the outputs alone, without knowing the planner's types. None on
     outputs that never travelled through the runner (triage, the planner's own).
     """
 
@@ -60,10 +60,9 @@ class FailedGoalOutput(NodeWorkflowOutput):
     """What the runner records for a goal that produced no output — failed,
     skipped in `_prepare`, or never reachable.
 
-    A typed artifact, not a sentinel: it flows through `build_input` like any
-    dependency output, so a node that *declares* a slot for failures (the
-    generation node's `failures` field) hears about them, and every other
-    node's typed fields simply never match it — the skip cascade is unchanged.
+    A typed artifact, not a sentinel: the reply stage picks it out of the
+    results by type to say why a goal didn't run, and no node's typed input
+    fields match it, so the goals depending on it are skipped.
     `reason` is prose for a writer to relay, already composed with the failed
     dependencies' instructions where the cause sits upstream.
     """
@@ -90,11 +89,10 @@ class AppWorkflow(Workflow[OutputT], ABC):
 
     ui_loading_message = "working..."
 
-    # A generation node owns the reply, so its section is not folded away.
-    # Every other node's is: its cards are working material, and the prose
-    # written from them is what the user is meant to read. A PLAIN CLASS
-    # ATTRIBUTE ON PURPOSE — task_runner.py reads it off the *class*, and a
-    # @property there is always truthy rather than an error.
+    # A node's section is folded away: its cards are working material, and
+    # the reply written from them is what the user reads (the reply stage sets
+    # False). NOTE: a plain class attribute on purpose — task_runner.py reads
+    # it off the *class*, and a @property there is always truthy.
     ui_section_collapsible: bool = True
 
     @classmethod
@@ -179,12 +177,10 @@ class AppWorkflow(Workflow[OutputT], ABC):
     # in the caller (policy).
 
     @task(description="Calls the language model")
-    async def llm_execute(
-        self, req: BaseLLMRequest, save_payload: bool = False
-    ) -> AssistantMessage:
+    async def llm_execute(self, req: BaseLLMRequest) -> AssistantMessage:
         """One completion call as a step. `AssistantMessage.token_usage` rides
         the promotion hook onto this envelope."""
-        return await self.llm_client.execute(req, save_payload=save_payload)
+        return await self.llm_client.execute(req)
 
     @task(description="Turns text into a search vector")
     async def get_embeddings(self, texts: list[str]) -> EmbeddingsResult:
@@ -196,11 +192,7 @@ class AppWorkflow(Workflow[OutputT], ABC):
     async def execute_tool_call(
         self, tool_call: ParsedFunctionToolCall, **kwargs
     ) -> ToolMessage:
-        """Run one parsed tool call and wrap what it returns as a ToolMessage.
-
-        Moved off `ToolMessage.execute` so the message class stays pure shape
-        and clients/ carries no instrumentation.
-        """
+        """Run one parsed tool call and wrap what it returns as a ToolMessage."""
         tool_name = tool_call.function.name
         # parsed_arguments is typed `object | None` by the openai lib; the
         # parser validated it into a callable node instance
@@ -223,19 +215,17 @@ class AppWorkflow(Workflow[OutputT], ABC):
 
     # ---- LLM helpers over those steps -----------------------------------
 
-    async def run_llm_call(
-        self, req: BaseLLMRequest, save_payload: bool = False
-    ) -> AssistantMessage:
+    async def run_llm_call(self, req: BaseLLMRequest) -> AssistantMessage:
         # unwrap, not a bare await: a node that asked for a completion cannot
         # continue without one, so a failed call stops this workflow rather than
         # feeding None downstream.
-        step = await self.llm_execute(req, save_payload=save_payload)
+        step = await self.llm_execute(req)
         msg = step.unwrap()
         self.messages.append(msg)
         return msg
 
     async def run_llm_tool_calls(
-        self, req: BaseLLMRequest, save_payload: bool = False
+        self, req: BaseLLMRequest
     ) -> list[ParsedFunctionToolCall]:
         """The tool calls themselves, unprocessed.
 
@@ -244,26 +234,22 @@ class AppWorkflow(Workflow[OutputT], ABC):
         `run_tool_call`. `run_llm_args_parse` is the shorthand for everyone
         else.
         """
-        assistant_msg = await self.run_llm_call(req, save_payload=save_payload)
+        assistant_msg = await self.run_llm_call(req)
         tool_calls = assistant_msg.tool_calls
         if not tool_calls:
-            # previously an unguarded [0] on None — same failure semantics
-            # (runtime error caught by the workflow), clearer message
             raise ValueError("LLM response contained no tool calls")
         return tool_calls
 
-    async def run_llm_args_parse(
-        self, req: BaseLLMRequest, save_payload: bool = False
-    ) -> Any:
+    async def run_llm_args_parse(self, req: BaseLLMRequest) -> Any:
         """The first tool call's parsed arguments, with the tool result
         recorded.
 
         NOTE: recorded too early — the tool result should be appended *after*
         processing, as a [tool_call, tool result] pair, so the whole thing can
         be wrapped in a retry. A node that cares takes `run_llm_tool_calls` and
-        records the pair itself; `PlanJaneExecutor` is the first to do so.
+        records the pair itself.
         """
-        tool_calls = await self.run_llm_tool_calls(req, save_payload=save_payload)
+        tool_calls = await self.run_llm_tool_calls(req)
         self.record_tool_call(tool_call=tool_calls[0])
         return tool_calls[0].function.parsed_arguments
 

@@ -1,19 +1,17 @@
-"""Tests for BaseRequest validators.
+"""Tests for the `ReasoningStr` and `ConfidenceFloat` field types."""
+from pydantic import BaseModel, model_validator
 
-BaseRequest currently carries only `node_type`, `confidence` and `reasoning`
-as public fields — `id`, `description`, `target_goal` and `depends_on` were
-cut back to private attrs on `minimal_end_to_end_v1`. Tests for those
-validators were removed with them.
-"""
-from pydantic import model_validator
-
-from app.domains.base_request import BaseRequest
-from app.common.field_types import MAX_STRING_LENGTH, REASONING_FALLBACK
-from app.registry import UnknownNodeTypeEnum
+from app.common.field_types import (
+    MAX_STRING_LENGTH,
+    REASONING_FALLBACK,
+    ConfidenceFloat,
+    ReasoningStr,
+)
 
 
-class _FakeDomain(BaseRequest):
-    node_type: UnknownNodeTypeEnum = UnknownNodeTypeEnum.UNKNOWN
+class _FakeDomain(BaseModel):
+    reasoning: ReasoningStr
+    confidence: ConfidenceFloat
 
 
 def _make_domain(**overrides):

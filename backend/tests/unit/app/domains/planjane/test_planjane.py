@@ -28,7 +28,7 @@ from app.domains.planjane import (
     MAX_SYSTEM_GOALS,
 )
 from app.domains.planjane.executor import build_goal_parse_request
-from app.domains.base_request import MAX_STRING_LENGTH, MIN_CONFIDENCE
+from app.common.field_types import MAX_STRING_LENGTH, MIN_CONFIDENCE
 from app.common.field_types import (
     INSTRUCTION_FALLBACK,
     MAX_INSTRUCTION_LENGTH,

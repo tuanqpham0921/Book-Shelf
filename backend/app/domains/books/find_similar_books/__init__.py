@@ -1,3 +1,5 @@
+"""Analyze_Similar_Books slice: exports the node's `SPEC`."""
+
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindSimilarBooksExecutor

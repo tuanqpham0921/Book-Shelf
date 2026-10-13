@@ -4,9 +4,9 @@ Analyze_Similar_Books searches by vector, not keyword, so everything it depends
 on has to collapse into one block of prose reading like the description of the
 book the user wants next. `render_documents` builds the document block, and
 `build_analysis_request` asks the LLM to fold it into `IdealBookDescription` —
-the one string that gets embedded, and now the *only* thing that does. The step
-that *runs* the request is `FindSimilarBooksExecutor.analyze_references`, next
-door, and it is the slice's one remaining LLM call.
+the one string that gets embedded. The step that *runs* the request is
+`FindSimilarBooksExecutor.analyze_references`, next door, and it is the slice's
+one LLM call.
 
 Two things stay out of the prompt. The reference books are excluded from the
 search by isbn13 afterwards — a metadata filter, not something to ask prose to

@@ -45,15 +45,14 @@ class NodeInput(WorkflowInput):
 
     For a node it is the *only* thing it is told about the ask — no node reads
     `ctx.user_message`, which is why the goal text is shipped to an argument
-    parser as an `AssistantMessage` rather than as a user turn. The one
-    exception is the generation node, which reads the user's message
-    deliberately, as the untrusted half of a trust split.
+    parser as an `AssistantMessage` rather than as a user turn.
 
-    Named for what it is rather than `query`, which in this codebase already
-    means a `DeferredBookQuery` on every book-shaped output.
+    NOTE: not `query`, which already means a `DeferredBookQuery` on every
+    book-shaped output.
     """
 
     instruction: str
+
 
 ParsedT = TypeVar("ParsedT", bound=BaseModel)
 
@@ -69,6 +68,7 @@ class ParsedInput(WorkflowInput, Generic[ParsedT]):
     """
 
     parsed_result: ParsedT
+
 
 def _resolve(annotation: Any, available: list[Any]) -> tuple[bool, Any]:
     """`(filled, value)` for one field, matched against the artifacts by type.

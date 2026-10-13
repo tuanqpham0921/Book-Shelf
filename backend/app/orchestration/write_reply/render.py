@@ -43,7 +43,7 @@ a plan by `MAX_SYSTEM_GOALS`, so the report needs no cap of its own.
 One typed read reaches into a sibling slice: a source that is a
 `SimilarBooksOutput` carries the anchor books it was built from and the
 description it embedded, which are the actual "why these fit" material.
-Interpretation of upstream shapes is the consuming stage's own job (rule 4 in
+Interpretation of upstream shapes is the consuming stage's own job (rule 6 in
 domains/README.md), and widening `BookCandidateOutput` so this stays
 import-free would put two fields on a shared shape for one reader.
 """

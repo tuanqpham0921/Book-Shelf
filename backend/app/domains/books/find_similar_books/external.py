@@ -1,3 +1,5 @@
+"""Analyze_Similar_Books' request, input and output schemas."""
+
 from typing import Literal, Any
 
 from pydantic import BaseModel, Field
@@ -71,9 +73,6 @@ class SimilarBooksInput(NodeInput):
 
     There is no fallback to fall back to. A similarity search with nothing to be
     similar to is a different question — one no registered node answers today.
-
-    No `documents` field: `AnalyzeBooksOutput` is a reserved name with no class,
-    and a field can only select by type against a type that exists.
     """
 
     anchors: list[BookAnchorOutput] = Field(..., min_length=1)
@@ -89,9 +88,8 @@ class ScoreStats(BaseModel):
     chose the whole pool; a `min` well above it means the floor did the cutting
     and the pool is smaller than its ceiling.
 
-    It is also the record `Book.similarity_score` used to keep. Per-book, that
-    field only survived as far as the browser, where `BookOut` dropped it; the
-    spread reaches `chat_runs` and is what "why these books" is answered from.
+    The spread reaches `chat_runs`, and is what "why these books" is answered
+    from.
     """
 
     count: int
@@ -120,16 +118,12 @@ class SimilarBooksOutput(BookCandidateOutput):
     be fed back in as an anchor to another similarity search, and a later node
     that re-ranks or picks from it declares `list[BookCandidateOutput]`.
 
-    Shaped like every other retrieval — a count and a query, no rows — which it
-    was not until 2026-08-24. `embedding_search_stmt` carries an ORDER BY and a
-    LIMIT, and this node used to hand on 50 fetched rows because
-    `DeferredBookQuery` forbids both by invariant. It now takes that invariant's
-    one documented exception instead, because the rows cost more than the
-    exception does: with a query, `Combine_Intersect` bounds the pool in SQL
-    and `score` carries cosine order through the narrowing, so a bound on a
-    similarity ask is expressible without this node parsing one.
+    Shaped like every other retrieval — a count and a query, no rows — though
+    its query is `DeferredBookQuery`'s one documented exception: it carries an
+    ORDER BY and a LIMIT. With a query, `Combine_Intersect` bounds the pool in
+    SQL and `score` carries cosine order through the narrowing.
 
-    Counting, intersecting and materializing `query` are all safe — the count
+    NOTE: counting, intersecting and materializing `query` are all safe — the count
     after an intersect means "of the 250 nearest, N also match". **Pooling it
     with `"or"` is not** — the LIMIT applies before the union, so it changes
     which books qualify, and `compose()` then drops the `score` that chose

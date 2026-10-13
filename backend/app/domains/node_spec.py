@@ -26,13 +26,8 @@ class NodeTier(str, Enum):
     reads in `Registry.format_catalog()`, so it is prompt text."""
 
     RETRIEVAL = "Retrieval — lookup or fetch data"
-    # NOTE: combine is different wording from eval (might be okay)
     COMBINE = "Combine — narrow or merge what earlier goals found, without searching again"
     ANALYZE = "Analyze — interpret, compare, or recommend using retrieved data"
-    # GENERATE removed 2026-09-08 with its one member. Writing the reply is no
-    # longer a capability the planner picks, so a tier for it would be a
-    # heading over an empty section — the stage runs after every plan instead
-    # (app/orchestration/write_reply/).
 
 
 @dataclass(frozen=True)
