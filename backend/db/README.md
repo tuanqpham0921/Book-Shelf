@@ -145,7 +145,7 @@ Async SQLAlchemy database layer for PostgreSQL + pgvector.
 
 ```bash
 make postgres-start     # Docker Compose PostgreSQL
-make postgres-restore   # load data/backup.sql
+make postgres-restore-books   # seed books from data/backup/books.sql (see data/README.md)
 make postgres-cli       # psql shell
 make postgres-stop
 ```

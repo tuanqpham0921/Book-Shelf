@@ -93,13 +93,18 @@ postgres-dump:
 		pg_dump -U $$POSTGRES_USER -d $$POSTGRES_DB > $(MAKEFILE_DIR)data/backup.sql
 	@echo "PostgreSQL data dumped to $(MAKEFILE_DIR)data/backup.sql"
 
-# restore the postgres books data from a file
+# load data/backup/books.sql (postgres-dump-books) into a fresh container's
+# empty books table — the local twin of neon-bootstrap's books step. The
+# container ran db/init (indexes included) on an empty table, so the ivfflat
+# index is rebuilt after the load, or similarity recall degrades silently.
 .PHONY: postgres-restore-books
 postgres-restore-books:
 	set -a && . $(ENV_FILE) && set +a && \
 	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
-		psql -U $$POSTGRES_USER -d $$POSTGRES_DB < $(MAKEFILE_DIR)data/backup/backup.sql
-	@echo "PostgreSQL data restored from $(MAKEFILE_DIR)data/backup/backup.sql
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB -v ON_ERROR_STOP=1 < $(MAKEFILE_DIR)data/backup/books.sql && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB -c "REINDEX INDEX books_embedding_idx;"
+	@echo "books restored from $(MAKEFILE_DIR)data/backup/books.sql"
 
 # dump chat_runs data to a timestamped .sql file (data only, restorable via psql <)
 .PHONY: postgres-dump-chat-runs

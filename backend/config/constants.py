@@ -69,18 +69,12 @@ class FilesLocationConstants:
     """Repository paths resolved from the backend package root."""
 
     PROJECT_ROOT = PROJECT_ROOT
-    DATA_DIR = PROJECT_ROOT / "data"
-    # CSV_FILE = "books.csv"
-    CSV_FILE = "test_books.csv"
-    
     ENV_FILE = PROJECT_ROOT / "config" / ".env"
-    
-    EXAMPLE_PROMPT_DIR = DATA_DIR / "prompt_example"
+
     PROMPTS_DIR = PROJECT_ROOT / "app"
     EXPORT_DIR = PROJECT_ROOT / "logs"
     PAYLOAD_DIR = EXPORT_DIR / "payloads"
-    
-    BACKUP_DIR = DATA_DIR / "backup"
+
     # the SQL a fresh database is built from — never read by the app, and not
     # in the image; compose mounts it, make neon-bootstrap applies it to Neon
     DB_INIT_DIR = PROJECT_ROOT / "db" / "init"
