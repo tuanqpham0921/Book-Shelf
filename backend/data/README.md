@@ -30,6 +30,6 @@ flowchart LR
 
 **Local:** `make postgres-start` on an empty volume runs `db/init/`, then `make postgres-restore-books` loads the dump and rebuilds the ivfflat index.
 
-**Neon:** `make neon-bootstrap`; see [docs/deployment-neon.md](../../docs/temp_docs/deployment-neon.md).
+**Neon:** `make neon-bootstrap`; see [db/](../db/README.md#neon).
 
 Both need `backup/books.sql` on disk. A fresh clone does not have it.

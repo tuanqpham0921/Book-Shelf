@@ -50,6 +50,6 @@ flowchart LR
 **The one exception is `embedding_search_stmt`.** It keeps its ORDER BY and LIMIT, because a vector search orders the whole table and truncates, so the cap is the pool. `score_stats()` is how to count it, since `count()` would only report the LIMIT. Nothing on the class marks the exception, and `compose()` does not refuse it:
 
 - **`compose(op="and")` is safe.** It carries the `score` through, so `Combine_Intersect` can narrow a similarity pool and keep cosine order. The count means "of the 250 nearest, N also match".
-- **`compose(op="or")` is lossy.** The LIMIT changes which books qualify, and the score is dropped. Nothing registered pools a query yet. Before `Combine_Union` is registered, tune the similarity floor so the pool needs no LIMIT, or add a guard. See [docs/design/execution-pipeline-v1.md](../../../docs/temp_docs/design/execution-pipeline-v1.md).
+- **`compose(op="or")` is lossy.** The LIMIT changes which books qualify, and the score is dropped. Nothing registered pools a query yet. Before `Combine_Union` is registered, tune the similarity floor so the pool needs no LIMIT, or add a guard. See [decision 005](../../../docs/decisions/005-counts-first-retrieval.md).
 
 `compile_sql` renders a statement for the record, collapsing a pgvector literal (43KB of floats) to a label.

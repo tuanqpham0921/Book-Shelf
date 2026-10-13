@@ -1,13 +1,13 @@
 # evals
 
-BookShelf's evals grade the LLM calls that decide what a turn does: the planner, triage's router and the message check. Each has a folder of versioned case suites, a script that runs them, and a report. Why it is built this way and where it is headed: [eval-strategy.md](../../docs/temp_docs/eval-strategy.md).
+BookShelf's evals grade the LLM calls that decide what a turn does: the planner, triage's router and the message check. Each has a folder of versioned case suites, a script that runs them, and a report. Why it is built this way and where it is headed: [docs/strategies/evals.md](../../docs/strategies/evals.md).
 
 | Folder | Grades | Needs |
 |---|---|---|
 | `planjane/` | the planner, through the whole running app: which nodes it planned for each case | a running backend and the database |
 | `triage/` | triage's router alone: which tool it picked | an OpenAI key only |
 | `validation/` | the message check alone: which reply the user would get | an OpenAI key only |
-| `app_docs/` | not an eval: notebooks sizing and building the project-docs vector store, plus past campaign results ([README](app_docs/README.md)) | |
+| `app_docs/` | not an eval: notebooks sizing and building the project-docs vector store, plus past campaign results | |
 
 ## Layout
 

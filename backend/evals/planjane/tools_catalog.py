@@ -52,7 +52,7 @@ CATALOG_CONSUMERS = (
 )
 
 # Prompt engineering, not style: "Do not use" and "Example queries" are the
-# levers for the discrimination failures tracked in docs/temp_docs/eval-strategy.md.
+# levers against misroutes; see docs/strategies/nodes.md.
 EXPECTED_SECTIONS = (
     "Purpose:",
     "Args:",
@@ -324,7 +324,7 @@ def build_audit(tools: list[dict], stats: dict) -> list[str]:
             "- ⚠️ **Incomplete descriptions.** These docstrings are the planner's "
             "only instructions for when to pick a node; a missing `Do not use:` or "
             "`Example queries:` is a known source of misroutes "
-            "(docs/temp_docs/eval-strategy.md).",
+            "(docs/strategies/nodes.md).",
             "",
             "| node type | missing |",
             "|---|---|",

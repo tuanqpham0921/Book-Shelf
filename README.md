@@ -1,6 +1,6 @@
 # BookShelf
 
-BookShelf is a chat assistant for a fixed book sehlf. Ask it for books by an author, books on a subject, books like one you liked, or books under some page count, and it answers only from that shelf.
+BookShelf is a chat assistant for a fixed book shelf. Ask it for books by an author, books on a subject, books like one you liked, or books under some page count, and it answers only from that shelf.
 
 **Try it:** [tuanqpham0921.web.app](https://tuanqpham0921.web.app)
 
@@ -32,9 +32,10 @@ flowchart LR
 | learn where the books come from | [the dataset](backend/data/README.md) |
 | learn about the database and its schema | [db/](backend/db/README.md) |
 | run or read the evals | [evals/](backend/evals/README.md) |
-| deploy for the first time (Cloud Run, Neon) | [deployment](docs/temp_docs/deployment.md), [Neon](docs/temp_docs/deployment-neon.md) |
-| see why things are built the way they are | [design records](docs/temp_docs/design/), [decisions](docs/decisions/) |
-| see what's next | [roadmap](docs/temp_docs/roadmap.md), [backlog](docs/backlog.md) |
+| read what V1 does, its limits and what comes next | [V1 release](docs/v1_release.md) |
+| see why things are built the way they are | [decisions](docs/decisions/README.md) |
+| see how evals, deployment, the database and new nodes are approached | [strategies](docs/strategies/README.md) |
+| find known bugs and small follow-ups | [backlog](docs/backlog.md) |
 | write or edit docs here | [documentation strategy](docs/strategies/documentation.md) |
 
 ## Built with

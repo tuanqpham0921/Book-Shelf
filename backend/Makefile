@@ -256,7 +256,7 @@ GCP_PROJECT       = $(call deploy_var,DEPLOY_PROJECT)
 # POSTGRES_PASSWORD and OPENAI_API_KEY reach the service only through Secret
 # Manager, which keeps them out of the revision's env (revisions are immutable
 # and readable forever). Rotating one is a new secret version — see
-# docs/deployment.md — not an edit here.
+# README.md — not an edit here.
 .PHONY: deploy
 deploy:
 	ENV_VARS=$$(grep -E '^(APP|POSTGRES|OPENAI)_[A-Z_]*=' $(DEPLOY_ENV) | grep -vE '^(POSTGRES_PASSWORD|OPENAI_API_KEY)=' | paste -sd@ -) && \

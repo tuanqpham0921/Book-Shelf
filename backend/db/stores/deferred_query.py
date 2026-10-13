@@ -2,7 +2,7 @@
 
 Retrieval nodes hand one of these downstream instead of a book list: the node
 runs only a COUNT, and whichever node is last in the plan turns the query into
-rows. See docs/design/execution-pipeline-v1.md.
+rows. See docs/decisions/005-counts-first-retrieval.md.
 
 Everything that can be *derived* from a built query lives here as a method —
 the counting statement, the materializing statement, pooling several into one —
@@ -83,7 +83,7 @@ class DeferredBookQuery:
       Nothing registered reaches it: `Combine_Union` does not exist. Before it
       does, tune the similarity floor so the pool needs no LIMIT — which
       dissolves the exception rather than policing it — or restore the guard.
-      See docs/design/execution-pipeline-v1.md.
+      See docs/decisions/005-counts-first-retrieval.md.
 
     Deliberately not a Pydantic model or a dataclass: it rides on a Pydantic
     output field, and nothing should try to walk into `stmt`.
@@ -133,7 +133,7 @@ class DeferredBookQuery:
         union contains rows the scored input never matched, so the column would
         be undefined for some of them. `Combine_Union`'s hazards are untouched
         by this — see the class docstring and
-        docs/design/execution-pipeline-v1.md.
+        docs/decisions/005-counts-first-retrieval.md.
         """
         if not queries:
             raise ValueError("compose() needs at least one query")

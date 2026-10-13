@@ -61,4 +61,24 @@ make deploy-off    # kill switch: revoke public access; nothing is deleted
 make deploy-on     # restore access without a rebuild
 ```
 
-`config/.env.deployment` (git-ignored) describes the whole service: its `DEPLOY_*` lines set where it runs and its size, and its `APP_*`, `POSTGRES_*` and `OPENAI_*` lines become its env. The two secrets, `POSTGRES_PASSWORD` and `OPENAI_API_KEY`, come from Secret Manager instead. Change a setting in that file, not in the console. First-time setup: [deployment.md](../docs/temp_docs/deployment.md) and [deployment-neon.md](../docs/temp_docs/deployment-neon.md).
+`config/.env.deployment` (git-ignored) describes the whole service: its `DEPLOY_*` lines set where it runs and its size, and its `APP_*`, `POSTGRES_*` and `OPENAI_*` lines become its env. The two secrets, `POSTGRES_PASSWORD` and `OPENAI_API_KEY`, come from Secret Manager instead. Change a setting in that file, not in the console. You need the gcloud CLI, logged in to the project.
+
+**Rotating a secret:**
+
+```bash
+printf '%s' "$K" | gcloud secrets versions add openai-api-key --data-file=-   # or postgres-password
+make deploy        # `latest` is read when an instance starts
+```
+
+Use `printf '%s'`, not `echo`: a trailing newline breaks auth in a way that looks exactly like a wrong credential. Update `config/.env.deployment` too, so `make dev-neon` keeps working.
+
+**Testing the image locally:**
+
+```bash
+docker build -t book-shelf-api .
+docker run --rm --network host -e PORT=8080 \
+  --env-file config/.env -e APP_ENVIRONMENT=production book-shelf-api
+curl localhost:8080/ready
+```
+
+The image boots only as production. Why it is deployed this way: [deployment strategy](../docs/strategies/deployment.md).
