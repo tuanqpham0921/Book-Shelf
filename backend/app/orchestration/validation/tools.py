@@ -1,23 +1,18 @@
-"""The message check's tool-call schema — what the LLM fills in.
-
-Split from `validate.py` to match the slice layout: `tools.py` is what the
-LLM fills in, `validate.py` is what runs.
-"""
+"""`UserMsgValidation`, the tool the message check's model fills in."""
 
 from pydantic import BaseModel, Field
 
 
-# Mirrors the `content_check` JSON schema the prompt was written against
-# (2026-09-26); the tool's name stays the class name. Field order is the order
-# the model writes in, so `reasoning` comes before the flags it justifies.
+# NOTE: field order is the order the model writes in, so `reasoning` comes
+# before the flags it justifies. The docstring and descriptions are prompt text.
 class UserMsgValidation(BaseModel):
-    """Check the user's message for harmful, security and incoherence
-    before anything else in the app reads it.
+    """Check the user's message for security threats, harmful content and
+    gibberish before anything else in the app reads it.
     """
 
     reasoning: str = Field(
         ...,
-        description="Concise justification describing how the content was evaluated for security and harmfulness, and how the language was identified.",
+        description="Concise justification describing how the content was evaluated for security, harmfulness and gibberish.",
     )
     security_issue: bool = Field(
         ...,
