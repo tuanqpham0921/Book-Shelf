@@ -40,7 +40,7 @@ class NodeSpec:
             `tools.py` that its own parse call ships, so the planner is given
             a capability to pick rather than fields to guess at. The request
             stays a model because it carries the `node_type` Literal
-            everything discriminates on — and so a field the planner really
+            that names it, and so a field the planner really
             should fill has somewhere to go.
         input: What this node is invoked with — declares which upstream shapes
             it can consume. The default accepts the goal text and nothing else,
@@ -64,7 +64,6 @@ class NodeSpec:
         if value != self.node_type:
             raise ValueError(
                 f"NodeSpec({self.node_type!r}) disagrees with "
-                f"{self.request.__name__}.node_type default ({value!r}) — the "
-                "planner emits the spec's name but pydantic discriminates on "
-                "the schema's, so a mismatch makes the node unreachable"
+                f"{self.request.__name__}.node_type default ({value!r}): "
+                "two names for one node, and nothing would say which is right"
             )

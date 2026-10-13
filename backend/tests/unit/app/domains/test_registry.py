@@ -80,14 +80,10 @@ class TestRegistryLookups:
         # so an unregistered name has to be answerable rather than raise
         assert "Not_A_Node" not in REGISTRY
         assert REGISTRY.spec("Not_A_Node") is None
-        assert REGISTRY.request("Not_A_Node") is None
-        assert REGISTRY.executor("Not_A_Node") is None
 
     def test_every_spec_is_reachable_by_its_node_type(self):
         for spec in REGISTRY:
             assert REGISTRY.spec(spec.node_type) is spec
-            assert REGISTRY.request(spec.node_type) is spec.request
-            assert REGISTRY.executor(spec.node_type) is spec.executor
         assert len(REGISTRY) == len(REGISTRY.node_types)
 
     def test_tiers_partition_the_specs(self):
@@ -95,11 +91,6 @@ class TestRegistryLookups:
         tiered = [spec for tier in NodeTier for spec in REGISTRY.in_tier(tier)]
 
         assert sorted(s.node_type for s in tiered) == sorted(REGISTRY.node_types)
-
-    def test_executors_lists_only_runnable_nodes(self):
-        assert set(REGISTRY.executors()) == {
-            s.executor for s in REGISTRY if s.executor is not None
-        }
 
     def test_node_type_enum_has_one_identity(self):
         # SystemGoal.target_node_type is annotated with it at class-definition

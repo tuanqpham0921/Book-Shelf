@@ -78,7 +78,7 @@ class TestRenderCatalogEntry:
         from app.registry import REGISTRY, class_docstring
 
         name = REGISTRY.node_types[0]
-        entry = render_catalog_entry(name, class_docstring(REGISTRY.request(name)))
+        entry = render_catalog_entry(name, class_docstring(REGISTRY.spec(name).request))
 
         assert entry in REGISTRY.format_catalog()
 

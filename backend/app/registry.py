@@ -8,9 +8,6 @@ import inspect
 import logging
 from collections.abc import Iterable, Iterator
 from enum import Enum
-from typing import Annotated, Union
-
-from pydantic import Field
 
 from app.domains.books.guide import BOOK_SPECS
 from app.domains.node_spec import NodeSpec, NodeTier
@@ -92,21 +89,6 @@ class Registry:
         answer callers branch on."""
         return self._by_node_type.get(self.key(node_type))
 
-    def request(self, node_type: NodeTypeKey) -> type | None:
-        """The request schema class, or None if the node type is unregistered."""
-        spec = self.spec(node_type)
-        return spec.request if spec else None
-
-    def executor(self, node_type: NodeTypeKey) -> type | None:
-        """The workflow that runs this node. None covers both "not registered"
-        and "not yet runnable"; read `spec()` to tell those apart."""
-        spec = self.spec(node_type)
-        return spec.executor if spec else None
-
-    def executors(self) -> tuple[type, ...]:
-        """Every runnable executor class, deduplicated by registration order."""
-        return tuple(s.executor for s in self.specs if s.executor is not None)
-
     def in_tier(self, tier: NodeTier) -> tuple[NodeSpec, ...]:
         return tuple(s for s in self.specs if s.tier is tier)
 
@@ -133,17 +115,6 @@ class Registry:
             type=str,
             module=__name__,
         )
-
-    def request_union(self):
-        """The registered request schemas as one discriminated union, for
-        validating a tool call (or rehydrating a recorded plan) back into typed
-        requests. Discriminated on `node_type`, whose Literal default `NodeSpec`
-        already checked. Derived on demand so it cannot drift from the specs.
-        """
-        return Annotated[
-            Union[tuple(s.request for s in self.specs)],  # type: ignore[valid-type]
-            Field(discriminator="node_type"),
-        ]
 
     # ------------------------------------------------------------------
     # The capability catalog the planner reads
