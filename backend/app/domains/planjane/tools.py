@@ -1,10 +1,4 @@
-"""The planner's tool-call schema — what the LLM fills in.
-
-Split from `executor.py` to match the slice layout used elsewhere: `tools.py`
-is what the LLM fills in, `executor.py` is what runs. The goals it produces are
-in `external.py`, because they outlive the tool call — the task runner and
-triage read them long after the parse is over.
-"""
+"""`GoalParseRequest`, the planner's tool call — what the LLM fills in."""
 
 from typing import TYPE_CHECKING, Literal
 

@@ -1,16 +1,5 @@
-"""Interpret what this node's dependencies handed it — step 1 of the flow.
-
-`SimilarBooksInput.anchors` already did *selection* (by type, in `build_input`);
-this is the *interpretation* half the input contract deliberately leaves to the
-executor (domains/README.md, executor rule 6): sorting each anchor by what the
-node can do with it — rows, or the query that would fetch them — and totalling
-how many books that comes to. Nothing here renders prompts or touches the LLM;
-that starts in `analyze_references.py`, which reads this module's output.
-
-The total is the reason this module earns its place. Every anchor counted
-itself before handing on its query, so the size of the pooled anchor is knowable
-without a round trip.
-"""
+"""Step 1 of the similarity flow: sort the anchors by what the node can do with
+each (rows or a query) and total them without a round trip."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field

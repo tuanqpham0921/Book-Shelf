@@ -1,10 +1,5 @@
-"""Retrieve_Project_Info's executor: search BookShelf's docs for the
-instruction, answer from the closest chunks or reject, finalize.
-
-The chunks come from an OpenAI vector store over BookShelf's own markdown docs
-(`settings.openai.VECTOR_STORE_ID`), so there is no parse and no store: the
-instruction is already a self-contained question.
-"""
+"""Retrieve_Project_Info's executor: search BookShelf's docs, answer from the
+closest chunks or reject."""
 
 from airglider import task
 from app.domains.base_workflow import AppWorkflow
@@ -23,7 +18,8 @@ class ProjectInfoExecutor(AppWorkflow[ProjectInfoOutput]):
         """Answer the instruction from the docs, or leave `answer` empty."""
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
 
-        # 1. the closest chunks of the docs
+        # 1. the closest chunks of the docs — no arg parse, the instruction is
+        # already a self-contained question
         question = node_input.instruction
         self.result.question = question
         sources = (await self.search_project_docs(question)).unwrap()

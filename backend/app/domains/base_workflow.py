@@ -1,22 +1,5 @@
-"""`AppWorkflow` — the base class behind every unit of work in the app.
-
-Pins one call shape, `run(node_input)`, where `node_input` is the workflow's own
-`WorkflowInput` subclass. The input is assembled and validated by whoever
-dispatches (`build_input`), so a missing dependency is one validation at the
-boundary rather than a guard in every node body.
-
-Services are not constructor arguments and not on the input — they are
-properties off `RequestContext`. Context and input split on lifetime: services
-per request, an input per dispatch.
-
-Declare the output in the class header (`AppWorkflow[FindByTitleOutput]`); it is
-resolved from the generic parameter, so a subclass needs no `__init__`.
-
-Domain-specific behaviour belongs in that domain's own base (`BookWorkflow`),
-which is what keeps this module free of book models and wire schemas. Building
-LLM requests is likewise a slice's job, so one node can use a different model or
-prompt without a flag on a base class.
-"""
+"""`AppWorkflow`, the base of every unit of work in the app, and the output
+bases (`NodeWorkflowOutput`, `FailedGoalOutput`)."""
 
 import inspect
 from pydantic import BaseModel
@@ -135,6 +118,7 @@ class AppWorkflow(Workflow[OutputT], ABC):
 
     # ---- services, read off the request context -------------------------
     # Properties rather than assignments, so none can be accidentally rebound.
+    # Services live per request; an input is built per dispatch.
 
     @property
     def sse_stream(self) -> SSEStream:

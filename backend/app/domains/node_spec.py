@@ -1,14 +1,5 @@
-"""One descriptor per node — the single source `app/registry.py` derives from.
-
-A node is a vertical slice exporting one `SPEC`; the registry derives every
-lookup from the collected specs, so adding a capability means adding a folder
-and listing its `SPEC`, not editing parallel dicts that can drift apart.
-
-`node_type` is the name the planner LLM emits, and must match the `Literal`
-default on the request schema — pydantic's discriminator for picking the class
-back out of a tool call. `__post_init__` enforces that; a mismatch would
-otherwise only show up as a failed eval.
-"""
+"""`NodeSpec`, one per node and the only thing `app/registry.py` reads, and
+`NodeTier`, the catalog's sections."""
 
 from dataclasses import dataclass
 from enum import Enum

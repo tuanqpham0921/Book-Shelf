@@ -1,9 +1,5 @@
-"""The answer call's pure half: question and chunks in, request out.
-
-`format_sources` renders the retrieved chunks, and `build_answer_request` asks
-the LLM to fill `ProjectDocsAnswer` from them alone — or reject. The step that
-*runs* the request is `ProjectInfoExecutor.run`, next door.
-"""
+"""Retrieve_Project_Info's answer call, pure half: render the chunks and build
+the request that answers from them alone, or rejects."""
 
 from pydantic import BaseModel, Field
 

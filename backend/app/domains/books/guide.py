@@ -1,8 +1,5 @@
-"""The books domain's registered nodes, one `SPEC` per line.
-
-`Registry` (app/registry.py) answers every lookup from these. To hide a node
-from the planner without deleting it, drop its `SPEC` here.
-"""
+"""The books domain's registered nodes, one `SPEC` per line. Drop a `SPEC` to
+hide its node from the planner."""
 
 from app.domains.books import (
     find_by_author,

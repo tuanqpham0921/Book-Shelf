@@ -1,10 +1,4 @@
-"""PlanJane's executor: parse the message into goals, sort them, show the plan.
-
-`run` is the flow, with every step after it in the order `run` reaches it and
-the request builder as a module-level pure function below. `tools.py` is what
-the LLM fills in, `external.py` is what the plan *is*, `dial/` is how the plan
-is shown.
-"""
+"""PlanJane's executor: parse the message into goals, sort them, draw the plan."""
 
 import logging
 

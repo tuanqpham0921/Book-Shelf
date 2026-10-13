@@ -1,12 +1,5 @@
-"""Base workflows for the books domain: count, fetch and stream books.
-
-`BookReaderWorkflow` reads and shows books; `BookWorkflow` adds `count_books`
-and is what every book-producing node subclasses.
-
-NOTE: each call opens its own session through `ctx.store(BookStore)` and closes
-it after the round trip. The turn runs after the HTTP handler returns, so a
-store held for the whole request would be on a closed session.
-"""
+"""Books-domain bases: `BookReaderWorkflow` fetches and streams books, and
+`BookWorkflow` adds `count_books` for every book-producing node."""
 
 import asyncio
 from abc import ABC
@@ -41,6 +34,8 @@ class BookReaderWorkflow(AppWorkflow[ReaderOutputT], ABC):
         Ranked by the query's `score` when it has one, by rating otherwise
         (see `materialize_stmt`), so a smaller `limit` takes the best rows.
         """
+        # a session per round trip: the turn outlives the request, so a
+        # request-held session would already be closed
         async with self.ctx.store(BookStore) as store:
             rows = await store.materialize(query, limit=limit)
         return [Book.model_validate(row) for row in rows]

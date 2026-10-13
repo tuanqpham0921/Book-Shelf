@@ -1,17 +1,5 @@
 """Analyze_Similar_Books' executor: fold the named books into a description,
-embed it, and hand on the nearest pool as a query.
-
-`run` is the flow, with every step after it in the order `run` reaches it.
-`analyze_references.py` is the one LLM call's pure half and `dependents.py`
-interprets the anchors (the slice rule is in `domains/README.md`).
-
-The node does one thing: fold the books the user named into a description of
-what to look for next, and hand back a query for the pool nearest that
-description. It does not rank the pool, drop books from it, or write the reply —
-those are a later node's, and none of them exists yet. Handing on the *query*
-rather than the rows is what leaves room for them: `Combine_Intersect` can bound
-the pool in SQL and cosine order survives the narrowing.
-"""
+embed it, and hand on the nearest pool as a query."""
 
 from app.domains.books.base_workflow import BookWorkflow
 from app.domains.books.schemas import Book
@@ -88,7 +76,8 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
 
         # 4. embed + build. The named books are excluded from their own results
         # in SQL, so the excluded rows do not eat pool slots. Nothing is fetched
-        # here — what comes back is the query, like every other retrieval.
+        # here — what comes back is the query, like every other retrieval, so
+        # Combine_Intersect can bound the pool in SQL and keep cosine order.
         pool = (
             await self.build_pool(
                 analyzed, exclude_isbns=[book.isbn13 for book in references]

@@ -1,8 +1,5 @@
 """Combine_Intersect's executor: AND the upstream queries, count, preview a few.
-
-The one node with no LLM call — what it does is decided by which goals it
-depends on.
-"""
+No LLM call — what it does is decided by the goals it depends on."""
 
 from app.domains.books.base_workflow import BookWorkflow
 from app.domains.books.external import BookRetrievalOutput
