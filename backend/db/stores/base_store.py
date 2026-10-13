@@ -1,3 +1,5 @@
+"""`BaseStore`: the one execute path every store goes through."""
+
 import logging
 from typing import TypeVar, Generic
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,9 +30,9 @@ class BaseStore(Generic[T], ABC):
         whoever opened the session. `AppConfig.DATABASE_TIMEOUT` is enforced by
         the engine (`db/async_engine.py`) as Postgres' `statement_timeout`, so a
         long query is cancelled by the server and the connection comes back
-        usable; the `asyncio.wait_for` that used to be here cancelled
-        mid-execute instead, which left the connection in a state SQLAlchemy no
-        longer knew and the server still running the query. The transaction
+        usable. NOTE: don't wrap the await in `asyncio.wait_for` — cancelling
+        mid-execute leaves the connection in a state SQLAlchemy doesn't know,
+        with the server still running the query. The transaction
         boundary is the `session_factory.begin()` block a store is built inside
         (`RequestContext.store`) — a store that commits for itself closes that
         transaction early, and the next statement in the block raises.

@@ -1,3 +1,5 @@
+"""The `books` query builders (pure functions) and `BookStore`, which runs them."""
+
 from typing import List, Any, Dict
 
 from sqlalchemy import func, literal_column, or_, select, text
@@ -228,11 +230,10 @@ def author_query(author: str, similarity_threshold: float = 0.7) -> DeferredBook
 def numeric_traits_query(filters: BookMetadataFilter) -> DeferredBookQuery:
     """Build the metadata search over the whole catalog, without running it.
 
-    **The only reading of a bound there is**, since 2026-08-24: a bound
-    that narrows someone else's search ("Murakami books after 2005") is this
-    same query composed with theirs by `Combine_Intersect`, rather than a
-    second parse of `BookMetadataFilter` inside a filter node. That is what
-    retired `filter_query` and the numbers-only rule together.
+    **The only reading of a bound there is**: a bound that narrows someone
+    else's search ("Murakami books after 2005") is this same query composed
+    with theirs by `Combine_Intersect`, never a second parse of
+    `BookMetadataFilter` inside a filter node.
 
     No `score` column, unlike `title_query`/`author_query`: a bound is not a
     degree of match, so there is nothing to rank by. `materialize_stmt`

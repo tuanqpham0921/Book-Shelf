@@ -1,4 +1,6 @@
-# SQLAlchemy models (shared by stores / DB layers)
+"""The SQLAlchemy models, one per table. The tables themselves come from
+`db/init/`, not from these."""
+
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Float, Text, Boolean, func
 from sqlalchemy.dialects.postgresql import JSONB
@@ -8,7 +10,6 @@ from config import settings
 
 Base = declarative_base()
 
-# TODO: this is an ORM file, we should avoid confusion with dataclasses
 class BookModel(Base):
     """SQLAlchemy model for books table."""
 
@@ -43,7 +44,6 @@ class BookModel(Base):
     genre = Column(String(100), nullable=True, index=True)
 
     thumbnail = Column(String, nullable=True)
-    # large_thumbnail = Column(String, nullable=True)
 
     ratings_count = Column(Integer, nullable=True)
 
@@ -132,14 +132,6 @@ class SessionModel(Base):
             f"remaining_tokens={self.remaining_tokens})>"
         )
 
-    def to_dict(self) -> dict:
-        """Convert model to dictionary (table columns only)."""
-        row = {c.name: getattr(self, c.name) for c in SessionModel.__table__.columns}
-        for ts in ("created_at", "last_updated"):
-            if row.get(ts) is not None:
-                row[ts] = row[ts].isoformat()
-        return row
-
 
 class FeedbackModel(Base):
     """One review of a chat run from the internal /review page: an overall
@@ -187,8 +179,8 @@ class FeedbackModel(Base):
 
 class TestRunModel(Base):
     """Links an eval-suite case to the chat run it produced: suite file stem
-    plus the entry id inside it. Written by evals/run_suites.py; evals/report.py
-    joins it with chat_runs. CASCADE so wiping chat_runs auto-cleans these."""
+    plus the entry id inside it. Written by evals/planjane/run_suites.py;
+    evals/common.py joins it with chat_runs. CASCADE so wiping chat_runs auto-cleans these."""
 
     __tablename__ = "test_runs"
 
@@ -206,10 +198,3 @@ class TestRunModel(Base):
             f"<TestRunModel(chat_id='{self.chat_id}', "
             f"suite='{self.suite_name}#{self.suite_case_id}')>"
         )
-
-    def to_dict(self) -> dict:
-        """Convert model to dictionary (table columns only)."""
-        row = {c.name: getattr(self, c.name) for c in TestRunModel.__table__.columns}
-        if row.get("created_at") is not None:
-            row["created_at"] = row["created_at"].isoformat()
-        return row

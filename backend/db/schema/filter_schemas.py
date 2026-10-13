@@ -1,3 +1,9 @@
+"""The value vocabularies and bounds that book searches take: `GenreEnum`,
+`AudienceEnum`, `BookMetadataFilter`, and the parked `BooksFilter`.
+
+NOTE: docstrings and field descriptions here ship to the LLM inside tool
+schemas, so an edit is a prompt change."""
+
 from typing import Optional, Literal
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 from config import BookConstraints
@@ -38,7 +44,6 @@ class ExclusionBookFilter(BaseModel):
     book_titles: Optional[list[str]] = Field(default=None, description="Titles to exclude.")
     authors: Optional[list[str]] = Field(default=None, description="Authors to exclude.")
     categories: Optional[list[str]] = Field(default=None, description="Categories or subgenres to exclude.")
-    # keywords: Optional[list[str]] = Field(default=None, description="Keywords for semantic or fuzzy matching.")
 
     def model_post_init(self, __context) -> None:
         if self.book_titles:
@@ -211,20 +216,15 @@ class BookMetadataFilter(BaseModel):
 
 
 class BooksFilter(BookMetadataFilter):
-    # TODO: make sure the list are safe with max items
     authors: Optional[list[str]] = Field(default=None, description="Authors to include.")
     categories: Optional[list[str]] = Field(default=None, description="List of categories or subgenres.")
     keywords: Optional[list[str]] = Field(default=None, description="Keywords for semantic or fuzzy matching.")
-    # fuzzy_priority: Optional[Literal["authors", "categories"]] = Field(default=None, description="Fuzzy match priority of genere or author")
 
     genre: Optional[GenreEnum] = Field(default=None, description="Main genre of the book.")
-    # language: Optional[str] = Field(default=None, description="Language code (e.g., 'en').")
-    # edition_type: Optional[str] = Field(default=None, description="Edition type (paperback, hardcover, ebook).")
 
     sort_by: Optional[Literal["rating", "page_count", "published_year"]] = None
     sort_order: Literal["asc", "desc"] = "desc"
 
-    # limit: int = Field(default=BookConstraints.default_limit)
     exclusion: Optional[ExclusionBookFilter] = None
 
     def model_post_init(self, __context) -> None:

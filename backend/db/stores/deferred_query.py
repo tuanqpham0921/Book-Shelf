@@ -70,14 +70,12 @@ class DeferredBookQuery:
     order, and `count_stmt`/`materialize_stmt` work unchanged.
 
     **Nothing on this class marks that exception, and `compose()` does not
-    refuse it.** A tracked `capped` attribute and a guard on composition were
-    both tried and removed on 2026-08-24. What that left unprotected has since
-    split in two (2026-08-24, `Combine_Intersect`):
+    refuse it.** What that leaves unprotected depends on the op:
 
     - **`"and"` is as safe as a narrowing ever was.** The LIMIT applies before
       the membership test, so the count means "of the 250 nearest, N also
       match" rather than "N in the catalog" — the same lossiness a metadata
-      bound on a pool always had, and the caller's to phrase. The ranking now
+      bound on a pool always had, and the caller's to phrase. The ranking
       survives it, which is the whole point of the score column.
     - **`"or"` is still wrong and still unguarded.** The LIMIT applies before
       the union, so it changes which books qualify, and 250 of ~1,200 similar

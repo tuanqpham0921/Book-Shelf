@@ -32,7 +32,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # runs db/init/*.sql in name order, and only when the data directory is
-      # empty — an existing volume needs the dated migration instead
+      # empty — an existing volume needs the DDL applied by hand (db/README.md)
       - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]

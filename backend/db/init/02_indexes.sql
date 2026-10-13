@@ -14,9 +14,6 @@ CREATE INDEX IF NOT EXISTS chat_runs_session_idx
 -- 520ms sequential scan. tests/unit/db/stores/test_lexical_query.py compares
 -- the two. (Index expressions cannot qualify columns with the table name, which
 -- is the only difference from what SQLAlchemy emits.)
---
--- This file only runs at container init; apply to a live database with
---   make postgres-query FILE=db/commands/migrations/2026_08_21_books_search_idx.sql
 CREATE INDEX IF NOT EXISTS books_search_idx
     ON books USING gin (
         to_tsvector('english', coalesce(title, '') || ' ' || coalesce(categories, '') || ' ' || coalesce(description, ''))

@@ -1,3 +1,5 @@
+"""db.stores — the stores and the deferred-query builders; see README.md."""
+
 from .book_store import (
     BookStore,
     author_query,

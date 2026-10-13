@@ -1,3 +1,5 @@
+"""`SessionStore`: the per-session token budget."""
+
 from datetime import timedelta
 
 from sqlalchemy import func, select, update

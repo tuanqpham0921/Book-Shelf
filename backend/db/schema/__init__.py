@@ -1,4 +1,5 @@
-from .extensions import REQUIRED_EXTENSIONS
+"""db.schema — the ORM models and the filter models stores read; see README.md."""
+
 from .models import (
     BookModel,
     ChatRunModel,
@@ -20,7 +21,6 @@ __all__ = [
     "FeedbackModel",
     "SessionModel",
     "TestRunModel",
-    "REQUIRED_EXTENSIONS",
     "AudienceEnum",
     "BookMetadataFilter",
     "BooksFilter",
