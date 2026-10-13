@@ -1,100 +1,126 @@
 # Domains
 
-The domains package holds everything BookShelf's planner can plan with: each capability is a **node**, and nodes are grouped into domains. [books/](books/README.md) finds books in the catalog, and [project/](project/README.md) answers questions about BookShelf from its own docs. [planjane/](planjane/README.md), the planner itself, lives here too.
+The domains package holds everything BookShelf's planner can plan with. Each capability is a **node**, and nodes are grouped into domains: [books/](books/README.md) finds books in the catalog, and [project/](project/README.md) answers questions about BookShelf from its own docs. [planjane/](planjane/README.md), the planner itself, lives here too.
 
-## A node is a slice
+## Flow
 
-Each node is one folder holding everything about it:
+How one planned goal reaches a node and back:
+
+```mermaid
+flowchart LR
+    A[PlanJane: goal<br/>node type + instruction] --> B[REGISTRY.spec]
+    B --> C[build_input<br/>instruction + upstream outputs]
+    C --> D[spec.executor.run]
+    D -->|parse| E[run_llm_args_parse]
+    E -->|work| F[count, fetch, search ...]
+    F -->|finalize| G[output]
+    G -.->|feeds a later goal| C
+```
+
+1. **Look up:** the task runner finds the goal's `NodeSpec` in the [registry](../README.md#registry). A name with no spec is refused.
+2. **Build the input:** `build_input` fills the node's declared input from the planner's instruction and the outputs of the goals it depends on. A required field nothing fills skips the goal.
+3. **Run:** the executor parses its arguments from the instruction, does its work, and finalizes its output, which can feed a later goal's input.
+
+## Node spec
+
+Each node is one folder (a slice), and it exports one `NodeSpec` tying its parts together:
+
+```
+NodeSpec
+├── node_type   the name the planner emits, e.g. "Retrieve_by_Title"
+├── tier        RETRIEVAL → COMBINE → ANALYZE, the catalog's sections
+├── request     fieldless; its docstring is the planner's catalog entry
+├── input       what the task runner hands it (default: just the instruction)
+├── output      what the executor fills in
+└── executor    the workflow that runs it
+```
+
+The slice lays these out as files:
 
 ```
 books/find_by_title/
-├── labels.py     # the planner-facing name, as a one-member str Enum
-├── external.py   # what other layers read: the request (its docstring is the catalog entry), input, output
-├── tools.py      # what the node's own parse call ships to an LLM: its *Args
-├── executor.py   # the workflow that runs it
-└── __init__.py   # SPEC = NodeSpec(...) tying them together
+├── labels.py     the node's name
+├── external.py   request, input, output: what other layers read
+├── tools.py      the *Args model its own parse call fills (absent if it parses nothing)
+├── executor.py   the workflow
+└── __init__.py   SPEC = NodeSpec(...)
 ```
 
-A node that parses no arguments (`find_similar_books/`, `intersect_books/`) has no `tools.py`.
+A domain's `guide.py` lists its specs, and the registry collects them. Removing a spec from `guide.py` parks the node: the code stays, and the planner can no longer pick it. Fields: [node_spec.py](node_spec.py).
 
-Two folders are the templates, and a new node starts as a copy of one of them:
+Two slices are the templates every node is copied from:
 
-- **[find_by_title/](books/find_by_title/)** for a single-call node: parse args → build the query → count → preview → finalize.
-- **[find_similar_books/](books/find_similar_books/)** for a multi-step node. `executor.py` stays the flow: `run()` plus every step, as methods in the order `run` calls them. Each **satellite module is one LLM call's pure half** (the rendering, the tool model, the request builder — nothing that runs), and the interpretation of the node's input gets its own module when it outgrows `run` (`dependents.py`). A request builder with nothing to render (`build_arg_parser_request`) stays in `executor.py`. Never a `utils.py`: a helper belongs to the flow, to one call's pure half, or to the input, and the file is named for which.
+- **[find_by_title/](books/find_by_title/)**, a single-call node: parse args → build the query → count → preview → finalize.
+- **[find_similar_books/](books/find_similar_books/)**, a multi-step node: `executor.py` holds the flow, and each satellite module is one LLM call's pure half (rendering, tool model, request builder). Never a `utils.py`.
 
-## Shared pieces
+## Inheritance
 
-- **`node_spec.py`** — `NodeSpec`, the one thing a slice exports (node type, tier, request, input, output, executor), and `NodeTier` (`RETRIEVAL` → `COMBINE` → `ANALYZE`, the order the catalog lists them). The spec checks its name against the request's `node_type` default, so the two can't drift apart.
-- **`<domain>/guide.py`** — that domain's specs, one line per node. [app/registry.py](../registry.py) collects them into `REGISTRY`, which answers every node lookup.
-- **`base_request.py`** — `BaseRequest`. A request carries only its `node_type`; its docstring is what the planner reads.
-- **`node_input.py`** — the input classes (`NodeInput`, `ParsedInput`) and `build_input`, which fills a node's declared input from the planner's instruction and its dependencies' outputs.
-- **`base_workflow.py`** — `AppWorkflow`, the base under every unit of work, with the LLM helpers (`run_llm_args_parse`, `run_llm_tool_calls`); and `NodeWorkflowOutput` / `FailedGoalOutput`, the base output and what a goal that didn't run leaves behind.
-- **`<domain>/base_workflow.py`** — what every node in one domain repeats. For books that is counting, fetching and streaming books; see [books/](books/README.md#shared-base).
+Workflows and outputs each form one ladder. A node picks the lowest rung its work needs:
 
-## One call shape: `run(node_input)`
-
-The planner, the task runner and every node take one argument: their own `WorkflowInput` subclass. A node declares that class on its `NodeSpec`, and the task runner assembles it.
-
-**The declaration is the point.** A named, empty field says which input is missing and what shape would fill it. Default a field whenever the node has a real fallback; make it required only when the node can't proceed without it.
-
-**Fields are filled by type, never by key.** `build_input` matches each field's annotation against the dependency outputs: `X` takes the first match, `X | None` takes it or None, `list[X]` takes all of them. A required field that matches nothing raises a `ValidationError` naming the field, and the task runner skips that one goal.
-
-**A required list needs `min_length`.** An empty list is still a filled field, so `Field(...)` alone never fires. `SimilarBooksInput.anchors` is `min_length=1` (nothing to be similar to is a different question) and `CombineIntersectInput.anchors` is `min_length=2` (an intersection of one isn't one).
-
-**Narrow a field with a subclass.** Matching is `isinstance`, so `BookAnchorOutput` and `BookCandidateOutput` add no fields — the type is the payload — and `list[BookAnchorOutput]` can't be handed a subject search. To accept two subclasses but not their base, write the union: `list[A | B]`.
-
-**Don't use a pydantic discriminated union here.** `isinstance` against `Annotated[A | B, Field(discriminator=...)]` raises `TypeError`. Outputs arrive already built, so the class already is the discriminator.
-
-**Services come off the context, not the input.** `AppWorkflow.__init__(ctx, messages)` is the only `__init__` in the app layer; `sse_stream`, `llm_client`, `app_env`, `session_id` and `user_message` are properties off the `RequestContext`. Services are built once per request, an input once per dispatch.
-
-**A node opens its own database session.** `RequestContext` carries only the session factory, and `ctx.store(...)` opens a session for one block, then commits and closes it:
-
-```python
-async with self.ctx.store(BookStore) as store:
-    total = await store.count(query)
+```mermaid
+flowchart TD
+    W[airglider.Workflow] --> AW[AppWorkflow<br/>context, SSE, LLM helpers]
+    AW --> BR[BookReaderWorkflow<br/>fetch and stream books]
+    BR --> BW[BookWorkflow<br/>count_books: stamps the query]
+    AW -.-> PI[ProjectInfoExecutor, PlanJaneExecutor]
+    BR -.-> GE[GenerationExecutor]
+    BW -.-> BN[every book node]
 ```
 
-The turn runs after the HTTP handler has returned, so a session held for the whole request would already be closed. Two rules follow: **keep the block around the round trip and nothing else** (building a query needs no store — the builders are functions in `db/stores/book_store.py`), and **no store commits for itself** (the block owns the transaction).
+```mermaid
+flowchart TD
+    NO[NodeWorkflowOutput] --> FG[FailedGoalOutput<br/>a goal that didn't run]
+    NO --> BRO[BookRetrievalOutput<br/>num_books, query, preview]
+    BRO --> BA[BookAnchorOutput<br/>books the user named]
+    BRO --> BC[BookCandidateOutput<br/>books matching a description]
+```
 
-## Naming: Workflow and Executor
+- **`Executor`** marks a workflow the planner can dispatch, one with a `NodeSpec`. Other units of work are named `*Workflow`.
+- **The output type is the payload.** `BookAnchorOutput` and `BookCandidateOutput` add no fields: inputs are filled by `isinstance`, so a node taking `list[BookAnchorOutput]` can't be handed a subject search. Write `list[A | B]` to take both but not the base.
 
-The ladder is `airglider.Workflow` → `AppWorkflow` → `BookReaderWorkflow` → `BookWorkflow`. Concrete units of work are `*Workflow` too (`TriageWorkflow`, `TaskRunnerWorkflow`).
+Shapes: [base_workflow.py](base_workflow.py), [books/external.py](books/external.py).
 
-**`Executor` marks the ones the planner can dispatch.** `FindByTitleExecutor` is a workflow, but it is also a node: it has a request schema, a `NodeSpec` and a catalog entry, and the task runner reaches it through the registry. So a slice has `<node>/executor.py` holding `<Node>Executor`, and `base_workflow.py` holds the bases.
+## Inputs
 
-## Writing an executor — the rules
+Every unit of work takes one argument, `run(node_input)`, of its own `WorkflowInput` subclass ([node_input.py](node_input.py)).
 
-What `ok` means, when to raise, and the two ways to run a step are airglider's rules: [airglider's README](../../airglider/README.md#the-rules). Read it first; they are not restated here.
+- **Fields are filled by type, never by key.** `X` takes the first match, `X | None` takes it or None, `list[X]` takes all.
+- **Default a field when the node has a fallback;** require it only when it can't proceed. A required list needs `min_length`, since an empty list still counts as filled.
+- **No pydantic discriminated unions:** `isinstance` against one raises.
+- **Services come off the context, not the input:** `sse_stream`, `llm_client` and `session_id` are properties of `RequestContext`. The database is reached through `self.ctx.store(...)`, one block per round trip ([common/README.md](../common/README.md#request-context-schema)).
 
-1. **One request schema, one executor.** New behavior is a new slice with its own `SPEC`, never a flag on an existing executor.
-2. **The request declares the capability; a separate `*Args` model carries the arguments.** The request (in `external.py`) is a docstring and a `node_type` Literal — no fields, because the planner picks a capability and writes an instruction, and a field would be one more thing for it to guess. The `*Args` model (in `tools.py`) is an internal tool the planner never sees: no `node_type`, `confidence` or `reasoning`, just what the node's own parse fills, plus a one-line docstring the model reads.
-3. **The body runs parse → work → finalize.**
-   - *Parse*: fill the `*Args` from the instruction (`build_arg_parser_request` → `run_llm_args_parse`) and keep it on the output's `args`. Not every node parses: `Analyze_Similar_Books` builds its search from its anchors, and `Combine_Intersect` makes no LLM call at all.
-   - *Work*: whatever the node is for.
-   - *Finalize*: `self.finalize_result()` last. Each slice overrides it to compute its **claim**: did it do what it promised ("the query got built"). Raise when the node can't proceed; never set `ok=False` by hand and return.
-4. **An empty result is not a failure.** Zero matches or an empty pool is an answer the node reports; raising would turn it into a generic error message.
-5. **Every async call is a step.** Each database round trip, LLM call and embedding gets its own duration, failure and spend. Use the smallest rung that fits:
-   - a **pure function** for building a request (`build_*_request`): sync, no I/O, testable alone;
-   - the **`run_llm_*` helpers** for LLM calls. `clients/` itself never grows a `@task`; the app decides what is a step;
-   - a **`@task` method** for an async unit that returns a payload (`count_books`, `fetch_books`);
-   - a **`Workflow`** only when the sub-work needs its own output type and envelope, as triage running the planner does.
-6. **Nodes hear an instruction and typed outputs, nothing else.** `node_input.instruction` is the only thing a node is told about the ask; no node reads `ctx.user_message`. Upstream outputs arrive only through declared input fields.
-7. **Book nodes go counts-first:** build the query → `count_books()` → `fetch_books()` for the preview cards → hand the *query* on, not the rows. A node that needs an upstream count reads it off the upstream output instead of counting again.
-8. **Two traps:** every output field needs a default (the output is built empty before `run`), and a workflow instance runs once — make a new one per execution, retries included.
-9. **Reuse before adding.** Most of what a node needs is already on `BookWorkflow`, `DeferredBookQuery`, `REGISTRY` or airglider. Each slice still writes its own `build_arg_parser_request`, on purpose, so one node can change its model or prompt alone.
+## Writing an executor
 
-**Known gap:** a dead end that raises and a genuine bug both land in `runtime_error`, so the record can't yet tell "could not proceed" from "crashed". Don't build logic that branches on `runtime_error.type`.
+What `ok` means, when to raise and how to run a step are [airglider's rules](../../airglider/README.md#the-rules).
+
+1. **One request, one executor.** New behavior is a new slice, never a flag.
+2. **The request declares the capability; `*Args` carries the arguments.** The planner picks a capability and writes an instruction, and never sees `*Args`.
+3. **The body runs parse → work → finalize.** `finalize_result()` comes last and states the node's claim. Raise when the node can't proceed; never set `ok=False` by hand.
+4. **An empty result is an answer, not a failure.**
+5. **Every async call is a step.** Pick the smallest rung: a pure `build_*_request` function → the `run_llm_*` helpers → a `@task` method → a `Workflow` with its own output.
+6. **A node hears only its instruction and typed inputs.** No node reads `ctx.user_message`.
+7. **Book nodes go counts-first:** build the query → `count_books()` → `fetch_books()` for the preview → hand the query on, not the rows.
+8. **Every output field has a default** (the output is built empty), and a workflow instance runs once.
+9. **Don't branch on `runtime_error.type`:** a dead end and a crash both land there.
 
 ## Adding a node
 
-1. **Copy the matching template** to `<domain>/<node>/`. A book node's executor subclasses `BookWorkflow[TheOutput]` and implements `run(node_input)`.
-2. **Declare the arguments**, if the node parses any: the `*Args` model in `tools.py`, and a module-level `build_arg_parser_request(instruction)` in `executor.py`. Call it as `await self.run_llm_args_parse(build_arg_parser_request(node_input.instruction))` and set `self.result.args` yourself.
-3. **Declare the input** in `external.py` as a `NodeInput` subclass. A node with no dependencies adds nothing, which means it can't take upstream output. A node that consumes books adds a field such as `anchors: list[BookRetrievalOutput] = Field(default_factory=list)`.
-4. **Write the request's docstring for the planner.** It is prompt text, with these sections: `Purpose:`, `Args:`, `Returns:`, `depends_on:`, `Use when:`, `Do not use:`, `Constraints:`, and examples (`Example queries:`). `Returns:` and `depends_on:` name **output shapes** (`BookRetrievalOutput`, `BookAnchorOutput`, `BookCandidateOutput`, or a node-specific name), which is how the planner knows which nodes can feed which.
-5. **Subclass the output** from the shape the docstring claims, and give every field a default.
-6. **Export `SPEC = NodeSpec(...)`** from the slice's `__init__.py`, and add it to the domain's `guide.py` — the only file outside the slice you touch.
-7. **Add eval cases** with `expected_nodes` in `backend/evals/planjane/suites/` (see [eval strategy](../../../docs/temp_docs/eval-strategy.md)).
+```mermaid
+flowchart LR
+    A[copy a template] --> B[tools.py: *Args]
+    B --> C[external.py: input, output,<br/>request docstring]
+    C --> D[__init__.py: SPEC]
+    D --> E[guide.py: one line]
+    E --> F[eval cases]
+    F --> G[make tools-catalog]
+```
 
-Then run `make tools-catalog`: it reads the live registry, so it confirms the node reached the planner's catalog and flags a missing executor or docstring section. The planner picks a registered node up with no other change.
+1. **Copy the matching template** to `<domain>/<node>/`. A book node subclasses `BookWorkflow[TheOutput]`.
+2. **Declare the arguments**, if it parses any: `*Args` in `tools.py`, and a module-level `build_arg_parser_request(instruction)` in `executor.py`.
+3. **Declare the input** as a `NodeInput` subclass, adding a field per upstream shape it consumes.
+4. **Write the request's docstring for the planner.** It is prompt text, with `Purpose:`, `Args:`, `Returns:`, `depends_on:`, `Use when:`, `Do not use:`, `Constraints:` and `Example queries:`. `Returns:` and `depends_on:` name output shapes, which is how the planner knows which nodes feed which.
+5. **Subclass the output** from the shape `Returns:` claims.
+6. **Export `SPEC`** and add it to the domain's `guide.py`, the only file outside the slice you touch.
+7. **Add eval cases** with `expected_nodes` in `backend/evals/planjane/suites/`.
 
-**Parking a node** — keeping the code but hiding it from the planner — is removing its `SPEC` from `guide.py`. The planner then refuses any goal that targets it.
+`make tools-catalog` then confirms the node reached the planner's catalog, and flags a missing executor or docstring section.
