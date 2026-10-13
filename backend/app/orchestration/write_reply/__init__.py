@@ -1,10 +1,6 @@
-"""The turn's reply-writer — one stage, not a node.
-
-Exports no `SPEC` and no request schema (2026-09-08): the planner cannot pick
-this, so there is nothing for the registry to index and nothing for a catalog
-entry to describe. `Orchestrator` constructs the executor directly, once, after
-the task runner. See `executor.py` for why.
-"""
+"""Write_reply is the stage that writes the turn's reply. Not a node: no `SPEC`
+and no request schema, since the planner cannot pick it; the orchestrator runs
+it once, after the task runner. Import from this package root."""
 
 from .executor import GenerationExecutor
 from .external import (

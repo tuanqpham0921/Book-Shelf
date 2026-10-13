@@ -1,51 +1,24 @@
-"""The writing call's pure half: the turn's task results in, a request out.
+"""The writing call's pure half: `render_report` turns the turn's task results
+into the one block the writer reads, `build_recommendations_request` wraps it,
+and `books_by_handle` resolves the reply's refs back to books.
 
-`render_report` turns what the plan produced into the one block of text the
-writer reads, and `build_recommendations_request` wraps it. Nothing here runs —
-the step that executes the request is
-`GenerationExecutor.write_recommendations`, next door.
+Each goal is one section: a header (its instruction), an `<info>` block (how
+it ended and how it was done), and a `<books>` block (the preview it kept) or,
+for project facts, a `<project>` block. Two lines are held:
 
-The rendering is where the writer's whole world is decided. Each section is one
-goal's `TaskResult` in three parts: a header (the goal's instruction), an
-`<info>` block (how that part of the work ended and how it was done), and a
-`<books>` block (the preview the node kept) — or, for `Retrieve_Project_Info`,
-a `<project>` block of the answer the project docs gave. Two lines are held:
+- **No identifiers in the books.** A model that sees an isbn13 will eventually
+  print one, so each book carries a handle instead (`1.2`: section 1, book 2),
+  which the reply's `refs` name it by.
+- **Internals are grounding, not vocabulary.** `<info>` carries the search
+  arguments, cost and SQL because they say exactly what was searched for; the
+  prompt says to read them and never repeat them. NOTE: a known leak —
+  `compile_sql` inlines literals, so a similarity search's SQL carries the
+  anchor ISBNs. SQL renders last, so the info cap usually cuts it, and the
+  prompt's no-identifiers rule covers the rest.
 
-- **No identifiers in the books.** An isbn13 is not something to say in a
-  sentence, and a model that sees one will eventually print it, so
-  `render_book` never renders one. Each book carries a *handle* instead
-  (`1.2`: section 1, book 2) — a label for the reply's `refs`, which
-  `books_by_handle` resolves back to the book. The prompt keeps it out of the
-  text.
-- **Internals are grounding, not vocabulary.** The `<info>` block deliberately
-  carries the search arguments, what the goal cost and its SQL (2026-09-11):
-  they say exactly what was searched for, which the instruction only
-  paraphrases. The prompt tells the model to read them and never repeat them,
-  and never to call anything a goal, node or query. Known leak: `compile_sql`
-  inlines literals, so a similarity search's SQL carries the anchor ISBNs.
-  SQL renders last, so the info cap usually cuts it, and the prompt's
-  no-identifiers rule covers the rest. A goal that crashed adds its exception's
-  message — the message only, never the type name or traceback — and the prompt
-  turns it into a plain cause ("that isn't something I can do yet").
-
-The report is evidence and nothing else. It used to open with a `What to write:`
-brief — this stage's own goal instruction, the one line in the block the model
-was told to obey — and that line went away with the goal (2026-09-08): an
-unregistered stage has no planner text, so the *user's* message is the brief and
-it travels as the `UserMessage` in `build_recommendations_request`.
-
-**Each section is capped, not the report.** Truncating the joined block cut
-from the end, and the end is where failures render. A section is bounded by its
-parts — the instruction (`MAX_INSTRUCTION_LENGTH`), one `MAX_INFO_CHARS` block
-and at most `BookConstraints.default_limit` books of `MAX_BOOK_CHARS` each — and
-a plan by `MAX_SYSTEM_GOALS`, so the report needs no cap of its own.
-
-One typed read reaches into a sibling slice: a source that is a
-`SimilarBooksOutput` carries the anchor books it was built from and the
-description it embedded, which are the actual "why these fit" material.
-Interpretation of upstream shapes is the consuming stage's own job (rule 6 in
-domains/README.md), and widening `BookCandidateOutput` so this stays
-import-free would put two fields on a shared shape for one reader.
+Each section is capped, not the report: truncating the whole block would cut
+the end, which is where failures render. A plan is bounded by
+`MAX_SYSTEM_GOALS`, so the report needs no cap of its own.
 """
 
 import json
@@ -84,65 +57,90 @@ FALLBACK_HEADER = "part of the search"
 FINDINGS_HEADER = "What I found:"
 
 
-def _handle(section: int, position: int) -> str:
-    """A book's label in the report, and what a `SourceBlock` names it by."""
-    return f"{section}.{position}"
+def render_report(results: list[TaskResult]) -> str:
+    """Everything the plan produced as one block, a section per result, in the
+    order given. All of it is evidence: no line in it is an instruction."""
+    blocks = [FINDINGS_HEADER]
+    blocks += [render_section(i, result) for i, result in enumerate(results, start=1)]
+    return "\n\n".join(blocks)
 
 
-def _preview(result: TaskResult) -> list[Book]:
-    """The books one goal kept — what its section lists, and what its handles
-    resolve to."""
+def books_by_handle(results: list[TaskResult]) -> dict[str, Book]:
+    """Every book `render_report` listed, keyed by the handle it printed —
+    what a `SourceBlock`'s refs resolve against.
+
+    Same list, same numbering: pass it exactly what the report was rendered
+    from, and a handle the model copies is always the book it read.
+    """
+    return {
+        _handle(section, position): book
+        for section, result in enumerate(results, start=1)
+        for position, book in enumerate(_preview(result), start=1)
+    }
+
+
+def build_recommendations_request(
+    rendered: str, user_message: str
+) -> OpenAIParserRequest:
+    """Ask the LLM to write the reply as `GenerationResult` blocks.
+
+    Structured rather than streamed: each text is followed by the cards it
+    talks about, and the executor sends them in that order once the reply is
+    whole. The tool description is left off — `tool_choice` already pins the
+    one tool, and the prompt carries the format.
+
+    Two messages, and the split is the trust boundary. The report is an
+    `AssistantMessage`, prior system work the prompt says to read as data. The
+    user's own text is the `UserMessage`: the question being answered and the
+    only direction the call carries. It goes last so the model replies to it
+    rather than continuing its own turn.
+
+    A cheap model on purpose: this call writes prose from facts it was handed.
+    """
+    if not rendered.strip():
+        raise ValueError("Nothing to write recommendations from")
+
+    return OpenAIParserRequest(
+        prompt=load_prompt(prompt_path=PROMPT_PATH),
+        prompt_path=PROMPT_PATH,
+        model="gpt-5-mini",
+        reasoning_effort="low",
+        messages=[
+            AssistantMessage(content=rendered),
+            UserMessage(content=user_message),
+        ],
+        tool_models=[GenerationResult],
+        include_tool_description=False,
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
+    )
+
+
+def render_section(index: int, result: TaskResult) -> str:
+    """One goal: what was asked, how it went, and the books or project facts
+    it kept.
+
+    No `<books>` block when there are none — nothing matched, or the goal
+    failed — rather than an empty one the model has to interpret.
+    """
     output = result.output
-    return output.preview if isinstance(output, BookRetrievalOutput) else []
+    parts = [
+        f"[{index}] {output.goal_instruction or FALLBACK_HEADER}",
+        f"<info>\n{render_info(result)}\n</info>",
+    ]
 
+    books = _preview(result)
+    if books:
+        rendered = "\n".join(
+            render_book(_handle(index, position), book)
+            for position, book in enumerate(books, start=1)
+        )
+        parts.append(f"<books>\n{rendered}\n</books>")
 
-def render_book(handle: str, book: Book) -> str:
-    """One book as the writer sees it, at most `MAX_BOOK_CHARS`, labelled with
-    the handle the reply's `refs` point at it by.
+    if isinstance(output, ProjectInfoOutput) and output.answer:
+        cited = f"\nSources: {', '.join(output.sources)}" if output.sources else ""
+        parts.append(f"<project>\n{output.answer}{cited}\n</project>")
 
-    Fields picked by hand, which is what `Book`'s docstring asks for instead of
-    a narrower model. No isbn13 and no thumbnail: the first is an identifier the
-    prose must never contain, the second only travels to the browser on the
-    card. The cap is on the whole entry, so the description gets whatever room
-    the fact line leaves.
-    """
-    facts = [book.authors or "author unknown"]
-    if book.published_year:
-        facts.append(str(book.published_year))
-    if book.num_pages:
-        facts.append(f"{book.num_pages} pages")
-    if book.average_rating:
-        facts.append(f"rated {book.average_rating}")
-
-    line = f"- [{handle}] {book.title} — {', '.join(facts)}"
-    # the newline, the two-space indent and `truncate_str`'s ellipsis
-    room = MAX_BOOK_CHARS - len(line) - 4
-    if book.description and room > 0:
-        line += f"\n  {truncate_str(book.description, room)}"
-    return line
-
-
-def render_outcome(output: NodeWorkflowOutput) -> str:
-    """How one part of the work ended — the first line of its info block.
-
-    Three endings, kept apart because they mean different things to the reply:
-    "found nothing" is an answer about the catalog, rendered as a sentence
-    because a blank relays it to nobody; "could not be completed" is about the
-    plan, with the runner's reason relayed verbatim — it is already prose, and
-    the only place a two-hop cause is stated.
-    """
-    if isinstance(output, FailedGoalOutput):
-        line = "could not be completed"
-        if output.reason:
-            line += f" — {output.reason}"
-        return line
-
-    # a finished project lookup always has an answer: an empty one fails its claim
-    if isinstance(output, ProjectInfoOutput):
-        return "found facts about BookShelf"
-
-    num_books = output.num_books if isinstance(output, BookRetrievalOutput) else 0
-    return f"found {num_books} book(s)" if num_books else "found nothing"
+    return "\n".join(parts)
 
 
 def render_info(result: TaskResult) -> str:
@@ -154,11 +152,12 @@ def render_info(result: TaskResult) -> str:
     The similarity pool gets two extra lines. Its books match a description the
     *system* wrote from the books the user named, and a reply explaining "why
     these fit" is only honest against that: what it was built from, and what
-    was actually searched for.
+    was actually searched for. NOTE: the one typed read into a sibling slice —
+    interpreting an upstream shape is the consumer's job (rule 6 in
+    domains/README.md).
 
     Read off the fields rather than `output.to_summary()`: that is the trace's
-    view (`has_query`, a reference *count*), and changing it would change every
-    `chat_runs` summary.
+    view, and changing it would change every `chat_runs` summary.
     """
     output = result.output
     lines = [render_outcome(output)]
@@ -197,96 +196,61 @@ def render_info(result: TaskResult) -> str:
     return truncate_str("\n".join(lines), MAX_INFO_CHARS, collapse=False)
 
 
-def render_section(index: int, result: TaskResult) -> str:
-    """One goal: what was asked, how it went, and the books or project facts
-    it kept.
+def render_outcome(output: NodeWorkflowOutput) -> str:
+    """How one part of the work ended — the first line of its info block.
 
-    No `<books>` block when there are none — nothing matched, or the goal
-    failed — rather than an empty one the model has to interpret.
+    Kept apart because they mean different things to the reply: "found
+    nothing" is an answer about the catalog, rendered as a sentence because a
+    blank relays it to nobody; "could not be completed" is about the plan, with
+    the runner's reason relayed verbatim — it is already prose, and the only
+    place a two-hop cause is stated.
     """
+    if isinstance(output, FailedGoalOutput):
+        line = "could not be completed"
+        if output.reason:
+            line += f" — {output.reason}"
+        return line
+
+    # a finished project lookup always has an answer: an empty one fails its claim
+    if isinstance(output, ProjectInfoOutput):
+        return "found facts about BookShelf"
+
+    num_books = output.num_books if isinstance(output, BookRetrievalOutput) else 0
+    return f"found {num_books} book(s)" if num_books else "found nothing"
+
+
+def render_book(handle: str, book: Book) -> str:
+    """One book as the writer sees it, at most `MAX_BOOK_CHARS`, labelled with
+    the handle the reply's `refs` point at it by.
+
+    No isbn13 and no thumbnail: the first is an identifier the prose must never
+    contain, the second only travels to the browser on the card. The cap is on
+    the whole entry, so the description gets whatever room the fact line
+    leaves.
+    """
+    facts = [book.authors or "author unknown"]
+    if book.published_year:
+        facts.append(str(book.published_year))
+    if book.num_pages:
+        facts.append(f"{book.num_pages} pages")
+    if book.average_rating:
+        facts.append(f"rated {book.average_rating}")
+
+    line = f"- [{handle}] {book.title} — {', '.join(facts)}"
+    # the newline, the two-space indent and `truncate_str`'s ellipsis
+    room = MAX_BOOK_CHARS - len(line) - 4
+    if book.description and room > 0:
+        line += f"\n  {truncate_str(book.description, room)}"
+    return line
+
+
+def _preview(result: TaskResult) -> list[Book]:
+    """The books one goal kept — what its section lists, and what its handles
+    resolve to."""
     output = result.output
-    parts = [
-        f"[{index}] {output.goal_instruction or FALLBACK_HEADER}",
-        f"<info>\n{render_info(result)}\n</info>",
-    ]
-
-    books = _preview(result)
-    if books:
-        rendered = "\n".join(
-            render_book(_handle(index, position), book)
-            for position, book in enumerate(books, start=1)
-        )
-        parts.append(f"<books>\n{rendered}\n</books>")
-
-    if isinstance(output, ProjectInfoOutput) and output.answer:
-        cited = f"\nSources: {', '.join(output.sources)}" if output.sources else ""
-        parts.append(f"<project>\n{output.answer}{cited}\n</project>")
-
-    return "\n".join(parts)
+    return output.preview if isinstance(output, BookRetrievalOutput) else []
 
 
-def render_report(results: list[TaskResult]) -> str:
-    """Everything the plan produced as one block, a section per result, in the
-    order given.
-
-    Every section is evidence — there is no brief at the top, so nothing in
-    this block is an instruction and the prompt can say so without an
-    exception (see the module docstring).
-    """
-    blocks = [FINDINGS_HEADER]
-    blocks += [render_section(i, result) for i, result in enumerate(results, start=1)]
-    return "\n\n".join(blocks)
-
-
-def books_by_handle(results: list[TaskResult]) -> dict[str, Book]:
-    """Every book `render_report` listed, keyed by the handle it printed —
-    what a `SourceBlock`'s refs resolve against.
-
-    Same list, same numbering: pass it exactly what the report was rendered
-    from, and a handle the model copies is always the book it read.
-    """
-    return {
-        _handle(section, position): book
-        for section, result in enumerate(results, start=1)
-        for position, book in enumerate(_preview(result), start=1)
-    }
-
-
-def build_recommendations_request(
-    rendered: str, user_message: str
-) -> OpenAIParserRequest:
-    """Ask the LLM to write the reply as `GenerationResult` blocks.
-
-    Structured rather than streamed: each text is followed by the cards it
-    talks about, and the executor sends them in that order once the reply is
-    whole. The tool description is left off — `tool_choice` already pins the
-    one tool, and the prompt carries the format.
-
-    Two messages, and the split is the trust boundary. The rendered report is an
-    `AssistantMessage` because it is prior system work — matching what
-    `find_similar_books` does with its documents — and the prompt tells the
-    model to read it as data, all of it, with no line exempted. The user's own
-    text is the `UserMessage`: it is both the question being answered and, since
-    this stage was deregistered and has no planner brief, the only direction the
-    call carries. It goes last so the model is replying to it rather than
-    continuing its own turn.
-
-    A cheap model on purpose: this call writes prose from facts it was handed,
-    which is not the job accuracy was bought for on the planner.
-    """
-    if not rendered.strip():
-        raise ValueError("Nothing to write recommendations from")
-
-    return OpenAIParserRequest(
-        prompt=load_prompt(prompt_path=PROMPT_PATH),
-        prompt_path=PROMPT_PATH,
-        model="gpt-5-mini",
-        reasoning_effort="low",
-        messages=[
-            AssistantMessage(content=rendered),
-            UserMessage(content=user_message),
-        ],
-        tool_models=[GenerationResult],
-        include_tool_description=False,
-        max_completion_tokens=MAX_COMPLETION_TOKENS,
-    )
+def _handle(section: int, position: int) -> str:
+    """A book's label in the report, and what a `SourceBlock` names it by."""
+    return f"{section}.{position}"

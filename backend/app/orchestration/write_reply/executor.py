@@ -1,35 +1,6 @@
-"""The generation stage's flow. `run` is the table of contents; everything else
-sits where the flow reaches it.
-
-Same reading rule as a slice (domains/README.md): this file is the flow —
-`run()` plus every step, in the order `run` reaches them — and `render.py` is
-the one LLM call's pure half.
-
-**Not a node** (2026-09-08). It was `Generate_Recommendations`, a registered
-`NodeTier.GENERATE` slice the planner ended a recommendation chain with; it is
-now one unregistered stage the orchestrator runs once, after the task runner,
-over everything the plan produced. That is the sink-shaped alternative in
-docs/design/execution-pipeline-v1.md, collapsed to a single sink per turn.
-Three things follow from it and are why the code below looks the way it does:
-
-- There is no goal, so no planner brief. The user's own message is the brief,
-  read off `ctx.user_message` — legitimate here in a way it never was for a
-  node, because this is the only stage that answers the *turn*.
-- There is no `depends_on`, so nothing pre-selects what it writes about. It
-  partitions the whole results map itself, in `_partition`.
-- It is planned for every turn, so it can no longer be scoped to
-  recommendation asks. A plain lookup now gets prose too, which closes the gap
-  named in CLAUDE.md — and costs the golden check that a *planned* generation
-  goal gave, since a stage that always runs can never be missing from a plan.
-
-**It no longer fetches** (2026-09-11). Every book node keeps the preview it
-streamed on its output, and the runner hands each goal on as a `TaskResult` —
-the output plus a summary of what it cost — so the rows the reply names were
-fetched where each goal ran. The round trips this stage used to spend are gone,
-and with them their cap, which dropped the *last* sources in execution order —
-the final answers first. It still subclasses `BookReaderWorkflow`, for
-`stream_books`.
-"""
+"""The reply stage's flow: write the turn's reply from everything triage and
+the plan produced, then send it as text and cards. `run` is the table of
+contents; `render.py` is the one LLM call's pure half."""
 
 from app.domains.base_workflow import FailedGoalOutput
 from app.domains.books.base_workflow import BookReaderWorkflow
@@ -38,6 +9,7 @@ from app.domains.books.schemas import Book
 from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.task_runner import TaskResult
 from airglider import task
+from clients.messages import AssistantMessage
 
 from .external import (
     GenerationResult,
@@ -53,6 +25,11 @@ from .render import books_by_handle, build_recommendations_request, render_repor
 CARD_DELAY = 0.03
 
 
+# A stage, not a node: the planner cannot pick it, and the orchestrator runs it
+# once per turn, after the task runner. So there is no goal — the user's own
+# message is the brief — and nothing pre-selects its sources: it partitions
+# every result itself. A reader workflow only for `stream_books`; it fetches
+# nothing, since every node kept its preview on its output.
 class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
     description = "Writes the reply"
 
@@ -63,11 +40,9 @@ class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
     async def run(self, node_input: RecommendationsInput) -> None:
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
 
+        # 1. split what to write from. NOTE: the orchestrator never runs this
+        # over nothing, so an empty split is a caller bug, raised as one
         sources, failures = self._partition(node_input.results)
-        # The orchestrator does not run this stage over an empty results map,
-        # so reaching here with nothing is a caller bug rather than a plan that
-        # went badly — raising surfaces it as this stage's failure instead of
-        # an empty reply.
         if not sources and not failures:
             raise ValueError("Nothing to write from: the plan produced no results")
         self.add_details(
@@ -79,15 +54,15 @@ class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
         # handle the model copies resolves to the book it read.
         ordered = [*sources, *failures]
 
-        # 1. the reply, as blocks — nothing reaches the browser until it is
+        # 2. the reply, as blocks — nothing reaches the browser until it is
         # whole, because each text decides which cards follow it
         reply = (await self.write_recommendations(ordered)).unwrap()
         self.result.blocks = reply.blocks
 
-        # 2. each text, then the cards it talks about
+        # 3. each text, then the cards it talks about
         await self._deliver(reply.blocks, books_by_handle(ordered))
 
-        # 3. the docs any project facts came from, for the Sources button
+        # 4. the docs any project facts came from, for the Sources button
         docs = [
             doc
             for result in sources
@@ -97,7 +72,7 @@ class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
         if docs:
             await self.sse_stream.send_sources(list(dict.fromkeys(docs)))
 
-        # 4. last: ok is read off the output
+        # 5. last: ok is read off the output
         self.finalize_result()
 
     def _partition(
@@ -106,18 +81,9 @@ class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
         """The run split into what produced something to report and what did
         not.
 
-        What `build_input` used to do from the planner's `depends_on`, done
-        here from the whole map instead — the same `isinstance` matching, just
-        no longer able to miss a goal because nothing declared a dependency on
-        it. That is the actual behaviour change of deregistering: a title
-        lookup running alongside a recommendation chain used to be invisible to
-        the reply unless the planner wired it in, and is now always in scope.
-
         A source is a shape `render.py` has a rendering for: books, or the
-        project facts. Anything else is deliberately dropped rather than
-        guessed at, and logged as a detail — until 2026-09-26 that silently
-        swallowed a project lookup, and a plan with nothing else in it then
-        raised below.
+        project facts. Anything else is dropped rather than guessed at, and
+        logged as a detail.
         """
         sources: list[TaskResult] = []
         failures: list[TaskResult] = []
@@ -141,18 +107,14 @@ class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
         """The reply, as text blocks and the cards each one talks about.
 
         A `@task` so the call's spend and duration are attributed to the
-        writing rather than to the sending after it. Not a `Workflow`: the
-        payload is the tool's parsed arguments, with no output of its own to
-        carry.
+        writing rather than to the sending after it.
         """
         rendered = render_report(results)
         self.result.render_evidence = rendered
 
         req = build_recommendations_request(rendered, self.user_message.content)
-
-        # TODO: add the assistant message into here
-        from clients.messages import AssistantMessage
-
+        # the report on the turn's conversation, so its trace shows what the
+        # writer read
         self.messages.append(AssistantMessage(content=rendered))
 
         return await self.run_llm_args_parse(req)
@@ -193,11 +155,10 @@ class GenerationExecutor(BookReaderWorkflow[RecommendationsOutput]):
     def finalize_result(self) -> None:
         """ok means the turn was reported on, not that books were found.
 
-        A reply over empty sources — or over nothing but failures — is a
-        correct answer: "I don't have that, so I couldn't look for anything
-        like it" is the reply, and marking it failed would surface the generic
-        error message instead and tell the user nothing. A reply with no words
-        — no blocks, or only cards — has not answered anything.
+        A reply over empty sources, or over nothing but failures, is a correct
+        answer ("I don't have that, so I couldn't look for anything like it"),
+        and failing it would show the generic error instead. A reply with no
+        words (no blocks, or only cards) has not answered anything.
         """
         super().finalize_result(
             ok=any(
