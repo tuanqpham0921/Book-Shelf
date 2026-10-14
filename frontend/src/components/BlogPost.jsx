@@ -2,13 +2,6 @@ import { useState, useEffect } from 'react';
 import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-// One entry per about page; each file lives at public/about/<page>/README.md
-const PAGES = {
-    bookshelf: { title: "An AI System for Book Discovery", date: "November 5, 2025" },
-    airglider: { title: "Airglider" },
-    planjane: { title: "PlanJane" },
-};
-
 const BlogPost = ({ page }) => {
     const [post, setPost] = useState(null);
     const [content, setContent] = useState('');
@@ -18,7 +11,8 @@ const BlogPost = ({ page }) => {
     useEffect(() => {
         const loadBlogPost = async () => {
             try {
-                const postMeta = { ...PAGES[page], contentFile: `/about/${page}/README.md` };
+                // each about page lives at public/about/<page>/README.md
+                const postMeta = { contentFile: `/about/${page}/README.md` };
 
                 // Load markdown content from public folder
                 const response = await fetch(postMeta.contentFile);
@@ -63,17 +57,6 @@ const BlogPost = ({ page }) => {
     return (
         <div className="blog-container">
             <article className="blog-article">
-                <header className="blog-header">
-                    <h1 className="blog-title">
-                        {post.title}
-                    </h1>
-
-                    <div className="blog-meta">
-                        <span>By Tuan Pham</span>
-                        {post.date && <span>{post.date}</span>}
-                    </div>
-                </header>
-
                 <div className="markdown-body">
                     {/* Image paths resolve against the .md file, as they do on GitHub */}
                     <Markdown

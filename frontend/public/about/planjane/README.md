@@ -70,3 +70,5 @@ PlanJane is meant to get a project to a working MVP fast. You don't need to know
 ---
 
 > _Feedback and suggestions are always welcome at_ **tuanqpham0921@gmail.com**
+>
+> _For more technical details, visit the_ [GitHub repository](https://github.com/tuanqpham0921/Book-Recommender).

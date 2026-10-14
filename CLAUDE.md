@@ -192,7 +192,7 @@ The app's own layer on top is `AppWorkflow` (`app/domains/base_workflow.py`), wh
 - `src/api.js` — all backend calls; uses `VITE_API_URL`; SSE streaming handled in the chat component
 - State management uses `use-immer` for complex nested state
 - Mermaid diagrams rendered client-side with pan/zoom via `@panzoom/panzoom`
-- About pages are static markdown at `public/about/<page>/README.md`, images beside it (`BlogPost.jsx` resolves image paths against the file, as GitHub does); titles live in `PAGES` there
+- About pages are static markdown at `public/about/<page>/README.md`, images beside it (`BlogPost.jsx` resolves image paths against the file, as GitHub does); the page renders the markdown with no title, author or date header
 
 ### Infrastructure
 

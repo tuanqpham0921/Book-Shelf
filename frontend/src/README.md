@@ -11,7 +11,7 @@
 | `components/book/` | book cards, covers, the detail modal and the grid |
 | `components/DisplayPanel.jsx` | picks the view for the path, loads it lazily and keeps it mounted |
 | `components/MermaidDiagram.jsx` | the plan diagram, shared with the review page |
-| `components/BlogPost.jsx` | the about pages: markdown from `public/about/<page>/README.md`, titles in its `PAGES` |
+| `components/BlogPost.jsx` | the about pages: markdown from `public/about/<page>/README.md`, with no header of its own |
 | `pages/ChatReviewPage.jsx` | the review queue over recorded turns, one review per turn |
 | `design-system/` | buttons, badges, modals, dropdowns, the color-mode toggle and `CodeBlock` |
 | `data/` | the chat's suggested prompts and the feedback categories |
