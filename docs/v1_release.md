@@ -4,7 +4,6 @@ BookShelf V1 is a small, polished set of book-finding capabilities built to show
 
 **Live at** [tuanqpham0921.web.app](https://tuanqpham0921.web.app).
 
-The site's version menu calls this "Version 3": versions 1 and 2 were earlier filter-based book apps, and V1 here is the first release of the planner-based BookShelf.
 
 ## Scope
 

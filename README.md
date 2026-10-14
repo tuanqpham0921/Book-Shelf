@@ -4,7 +4,7 @@ BookShelf is a chat assistant for a fixed book shelf. Ask it for books by an aut
 
 **Try it:** [tuanqpham0921.web.app](https://tuanqpham0921.web.app). 
 
-Besides finding books, the chatbot answers questions about BookShelf's own docs and design.
+> 💡 The chat can also answer questions about BookShelf itself, drawing on the project's own docs.
 
 ## Why it is built this way
 

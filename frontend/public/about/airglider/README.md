@@ -113,4 +113,4 @@ These are the next additions, made only when BookShelf needs them.
 
 > _Feedback and suggestions are always welcome at_ **tuanqpham0921@gmail.com**
 >
-> _For more technical details, visit the_ [GitHub repository](https://github.com/tuanqpham0921/Book-Recommender).
+> _For more technical details, visit the_ [GitHub repository](https://github.com/tuanqpham0921/Book-Shelf).

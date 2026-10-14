@@ -4,19 +4,19 @@ import Dropdown from '@/design-system/Dropdown';
 import DropdownItem from '@/design-system/DropdownItem';
 
 const VersionDropdown = () => {
-    const [selectedVersion, setSelectedVersion] = useState('3');
+    const [selectedVersion, setSelectedVersion] = useState('v1');
 
     const versions = [
-        { id: '1', name: 'V1.0.0', description: 'Pre-defined filters and limited', url: 'https://tuanqpham0921.com/book-recommender-v1' },
-        { id: '2', name: 'V2.1.0', description: 'Smart filters to parse query', url: 'https://tuanqpham0921.com/book-recommender-v2' },
-        { id: '3', name: 'V3.0.0', description: 'Conversational recommender', url: null } // Current page
+        { id: 'v1', name: 'V1.0.0', description: 'Planner-based BookShelf', url: null }, // Current page
+        { id: 'legacy-2', name: 'Legacy 2', description: 'Smart filters to parse query', url: 'https://tuanqpham0921.com/book-recommender-v2' },
+        { id: 'legacy-1', name: 'Legacy 1', description: 'Pre-defined filters and limited', url: 'https://tuanqpham0921.com/book-recommender-v1' },
     ];
 
     const handleVersionSelect = (version, close) => {
         setSelectedVersion(version.id);
         close();
 
-        // Navigate to different URLs for v1 and v2, stay on current page for v3
+        // Navigate to the legacy apps, stay on the current page for V1
         if (version.url) {
             window.location.href = version.url;
         }
@@ -30,7 +30,7 @@ const VersionDropdown = () => {
                     onClick={toggle}
                     className="underline-animated underline-button flex items-center"
                 >
-                    Versions 3
+                    Version 1
                     <ChevronDown size={16} className="text-[var(--text-inactive)] ml-1 mt-1" />
                 </button>
             )}

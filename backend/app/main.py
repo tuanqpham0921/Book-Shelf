@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="BookShelf API",
     description="AI assistant for finding books",
-    version="3.0.0",
+    version="1.0.0",
     lifespan=lifespan,
 )
 

@@ -1,6 +1,6 @@
 [tool.poetry]
-name = "book-rec"
-version = "0.2.0"
+name = "book-shelf"
+version = "1.0.0"
 description = ""
 authors = ["Tuan Pham <tuanqpham0921@gmail.com>"]
 packages = [
