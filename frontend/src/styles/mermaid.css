@@ -1,0 +1,76 @@
+/* ============================================================
+   Mermaid diagram frame (MermaidDiagram.jsx). The SVG itself is
+   colored via mermaid.initialize's themeVariables in JS, not
+   here — these rules only handle layout/framing.
+   ============================================================ */
+
+/* Frame — a fixed height whatever the plan's shape, so a wide plan shrunk to
+   fit doesn't collapse it into a thin strip; panzoom zooms in inside it */
+.mermaid-container {
+  width: 90%;
+  height: min(20rem, 45vh);
+  overflow: hidden;
+  /* clip panned/zoomed content to the frame */
+  border: 0.5px solid var(--text-active);
+  border-radius: 0.5rem;
+  background: var(--bg-primary);
+  padding: 10px;
+  box-sizing: border-box;
+  min-width: 0;
+  /* critical in flex/grid ancestors */
+  min-height: 0;
+  box-shadow: var(--shadow-md);
+}
+
+/* The chat's plan, which sits inside a task section (chat.css): set like that
+   section's details box — the section's width, a light border, no shadow —
+   since the step already frames it. Here rather than in chat.css because these
+   rules are unlayered and would beat a Tailwind @utility override. */
+.task-section-body .mermaid-container {
+  width: 100%;
+  margin: 4px 0 8px;
+  border: 1px solid var(--border-light);
+  box-shadow: none;
+}
+
+/* Injected SVG wrapper. The box labels are HTML, so they inherit text rules
+   from wherever the diagram sits — a chat bubble's `hyphens: auto` split
+   words mid-line ("similar-ity") in boxes this narrow. */
+.mermaid-svg {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  hyphens: manual;
+  overflow-wrap: normal;
+}
+
+/* Natural size, scale DOWN only — width/height auto keep the SVG at its
+   rendered size (no more stretched text on small diagrams), max-* shrink
+   large diagrams proportionally so the whole map shows; panzoom zooms in */
+.mermaid-svg>svg {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: auto;
+  /* center the diagram in the frame, both ways */
+}
+
+/* Error / loading area keeps consistent spacing */
+.mermaid-status {
+  padding: 8px 0;
+}
+
+/* Show source nicely on error */
+.mermaid-code {
+  margin-top: 8px;
+  overflow: auto;
+  white-space: pre;
+  /* preserve formatting */
+  background: transparent;
+  /* keep your monochrome look */
+  font-size: 12px;
+}

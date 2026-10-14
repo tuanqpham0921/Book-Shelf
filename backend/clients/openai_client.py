@@ -1,0 +1,248 @@
+"""`OpenAIClient`: completions, embeddings and vector-store search, all behind
+one semaphore. Raises on failure; tracing is the app's job."""
+
+import asyncio
+import json
+import logging
+from typing import Any, Optional
+
+from openai import AsyncOpenAI
+from pydantic import BaseModel, Field
+
+from .base import BaseLLMClient, BaseLLMRequest
+from clients.messages import AssistantMessage, TokenUsage
+from app.common.sse_stream import SSEStream
+from common.utils import save_file
+from config.constants import FilesLocationConstants, OpenAIConstants
+from config.settings import OpenAISettings
+
+logger = logging.getLogger(__name__)
+
+
+class EmbeddingsResult(BaseModel):
+    """What one embeddings call produced.
+
+    A model rather than bare vectors so the app's wrapping `@task`
+    (`AppWorkflow.get_embeddings`) can promote `token_usage` — the same hook
+    `AssistantMessage` rides — and embedding spend lands in the run record.
+
+    `embeddings` is excluded from serialization: ~1KB of floats per text that
+    no reader of a `chat_runs` row can use. Callers read it live.
+    """
+
+    embeddings: list[list[float]] = Field(default_factory=list, exclude=True)
+    token_usage: TokenUsage | None = None
+
+    def to_summary(self) -> dict[str, Any]:
+        return {"num_texts": len(self.embeddings)}
+
+
+class FileSource(BaseModel):
+    """One chunk a vector store search returned, with the file it came from.
+
+    The client's own shape rather than the SDK's `VectorStoreSearchResponse`,
+    so callers get the chunk as one string and never import from `openai`."""
+
+    file_id: str
+    file_name: str
+    score: float
+    content: str
+
+
+class OpenAIClient(BaseLLMClient):
+    def __init__(self, openai_settings: OpenAISettings):
+        """Initialize the OpenAIClient."""
+        if not openai_settings.API_KEY:
+            raise ValueError("OpenAI API key not set")
+        
+        self.client               = AsyncOpenAI(api_key=openai_settings.API_KEY)
+        self.embedding_model      = openai_settings.EMBEDDING_MODEL
+        self.embedding_dimensions = openai_settings.EMBEDDING_DIMENSIONS
+        self.max_input_tokens     = openai_settings.MAX_INPUT_TOKENS
+        
+        self.semaphore = asyncio.Semaphore(openai_settings.MAX_CONCURRENCY)
+        self.vector_store_id = openai_settings.VECTOR_STORE_ID
+    
+    async def get_embeddings(self, input: list[str]) -> EmbeddingsResult:
+        """Embed `input`. Raises through the caller on failure — no tracing
+        here (see `BaseLLMClient`): the step envelope and the usage promotion
+        happen on the app's wrapper, `AppWorkflow.get_embeddings`."""
+        input_tokens = self.token_count(input)
+        if input_tokens > self.max_input_tokens:
+            # the cap goes to the log, not the message: an error message can
+            # reach the browser through the turn's trace
+            logger.warning(
+                "Embedding input of %s tokens is over the %s-token cap",
+                input_tokens,
+                self.max_input_tokens,
+            )
+            raise ValueError("Input is too long")
+
+        async with self.semaphore:
+            response = await self.client.embeddings.create(
+                input=input,
+                model=self.embedding_model,
+                dimensions=self.embedding_dimensions,
+            )
+
+        return EmbeddingsResult(
+            embeddings=[data.embedding for data in response.data],
+            # embeddings bill input only, so completion stays 0
+            token_usage=TokenUsage(
+                model=response.model,
+                total=response.usage.total_tokens,
+                prompt=response.usage.prompt_tokens,
+            ),
+        )
+
+    async def search_vector_store(
+        self,
+        query: str,
+        max_num_results: int = OpenAIConstants.VECTOR_STORE_MAX_RESULTS,
+    ) -> list[FileSource]:
+        """The chunks of the vector store closest to `query`, closest first.
+        Raises through the caller on failure, like `get_embeddings`."""
+        if not self.vector_store_id:
+            raise RuntimeError("No vector store is configured")
+
+        async with self.semaphore:
+            page = await self.client.vector_stores.search(
+                self.vector_store_id,
+                query=query,
+                max_num_results=max_num_results,
+            )
+        return [
+            FileSource(
+                file_id=r.file_id,
+                file_name=r.filename,
+                score=r.score,
+                content="".join(c.text for c in r.content),
+            )
+            for r in page.data
+        ]
+
+
+    async def execute(self, req: BaseLLMRequest, save_payload: bool = False) -> AssistantMessage:
+        """Execute the chat completion.
+
+        Typed at the base request, matching `BaseLLMClient.execute`: the body
+        only touches `to_payload()` and `sse_stream`, which the base declares.
+        """
+        payload = req.to_payload()
+
+        # NOTE: count the serialized payload, because the bill is messages *and*
+        # tool schemas (a numeric-traits parse is 74% tool schema). JSON syntax
+        # overcounts by ~5%, the safe direction for a ceiling.
+        prompt_tokens = self.token_count(json.dumps(payload, default=str))
+        if prompt_tokens > self.max_input_tokens:
+            # the cap goes to the log, not the message (see get_embeddings)
+            logger.warning(
+                "Payload of %s tokens is over the %s-token cap",
+                prompt_tokens,
+                self.max_input_tokens,
+            )
+            raise ValueError("Input is too long")
+
+        async with self.semaphore:
+            final_completion = await self._chat_stream(payload, req.sse_stream)
+
+        choice = final_completion.choices[0]
+        # The cap bounds reasoning + output together on gpt-5, so a call that
+        # hits it returns a truncated tool call — which reaches the app as an
+        # empty `tool_calls` and gets reported as "no tool calls", naming the
+        # symptom rather than the cause. This is the only layer that can see
+        # both the finish reason and the cap that produced it.
+        if choice.finish_reason == "length":
+            logger.warning(
+                "Hit max_completion_tokens (%s) before finishing",
+                payload.get("max_completion_tokens"),
+            )
+            raise ValueError(
+                "hit max_completion_tokens before finishing — the response is truncated"
+            )
+
+        response_message = choice.message
+        assistant_msg = AssistantMessage(
+            id=final_completion.id,
+            content=response_message.content,
+            tool_calls=response_message.tool_calls,
+            refusal=response_message.refusal,
+            token_usage=self._extract_token_usage(final_completion.usage, payload['model']),
+        )
+        
+        if save_payload:
+            payload["id"] = assistant_msg.id
+            save_file(payload, 
+                  path=FilesLocationConstants.PAYLOAD_DIR, 
+                  file_name=f"openai_payload_{payload['id']}")
+            
+        return assistant_msg
+        
+    @staticmethod
+    def _extract_token_usage(usage, model) -> TokenUsage:
+        """Map a CompletionUsage onto TokenUsage. `prompt_tokens_details` and
+        its `cached_tokens` are both Optional on the OpenAI side — absent on
+        models/endpoints without prompt caching — so default them to 0."""
+        if usage is None:
+            # zero usage, not "no usage": the model still ran, and an empty
+            # TokenUsage sums and strips exactly like one with counts
+            return TokenUsage(model=model)
+
+        prompt_details = usage.prompt_tokens_details
+        completion_details = usage.completion_tokens_details
+
+        # `or 0` on the inner reads too: the details object can be present
+        # with its count still None
+        return TokenUsage(
+            model = model,
+            total=usage.total_tokens,
+            prompt=usage.prompt_tokens,
+            completion=usage.completion_tokens,
+            cached=(prompt_details.cached_tokens or 0) if prompt_details else 0,
+            reasoning_tokens=(
+                (completion_details.reasoning_tokens or 0)
+                if completion_details
+                else 0
+            ),
+        )
+
+    async def _chat_stream(self, payload: dict, sse_stream: Optional[SSEStream]):
+        """Stream the chat completion."""
+        async with self.client.beta.chat.completions.stream(**payload) as stream:
+            async for event in stream:
+                if event.type == "content.delta" and sse_stream:
+                    await sse_stream.send_chars(data=event.delta)
+
+            final_completion = await stream.get_final_completion()
+
+        return final_completion
+
+    async def close(self):
+        """Close the OpenAIClient."""
+        await self.client._client.aclose()
+        logger.info("OpenAI client closed")
+
+    def token_count(self, text: str | list[str]) -> int:
+        import tiktoken
+
+        # a dict iterates as its keys, so the list branch below would happily
+        # "count" a payload and return a handful of tokens. Anything that is
+        # not the declared type is a caller bug, not an empty count.
+        if not isinstance(text, (str, list)):
+            raise TypeError(
+                f"token_count takes a string or list of strings, "
+                f"not {type(text).__name__}"
+            )
+
+        # Always the embedding model's encoding, including when counting a
+        # chat prompt: `encoding_for_model` raises KeyError for every chat
+        # model in use here (gpt-5*, gpt-4.1*), so there is no per-model
+        # encoding to pick. Approximate by design — this feeds a ceiling.
+        encoding = tiktoken.encoding_for_model(self.embedding_model)
+
+        # single string
+        if isinstance(text, str):
+            return len(encoding.encode(text))
+
+        # list of strings
+        return sum(len(encoding.encode(item)) for item in text)

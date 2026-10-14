@@ -1,58 +1,25 @@
+"""`POST /session/new` mints a session id. It writes nothing: the first message
+creates the session's row."""
+
 import logging
 
-from uuid import uuid4
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Depends, Request
 
-from app.api.dependencies import get_redis, get_state_manager
 from app.api.schemas import SessionOut
-from app.common.utils import now_iso
+from app.api.dependencies import get_app_env
+from common.utils import now_iso, uuid_8
 
 logger = logging.getLogger(__name__)
-# Store assistant instances to access book results
 router = APIRouter(tags=["Session"])
+
+# The id carries its environment, so chat_runs can be filtered by origin
+ENV_PREFIXES = {"development": "dev", "production": "prod", "test": "test"}
 
 
 @router.post("/session/new", response_model=SessionOut)
-async def create_new_session(request: Request):
-    """Create a new session, initialize metadata."""
-    try:
-        session_id = str(uuid4())[:8]
-        logger.info(f"🆕 Created new session {session_id}")
-        return SessionOut(id=session_id, created_at=now_iso())
-
-    except Exception:
-        logger.exception("❌ Failed to create session")
-        raise HTTPException(status_code=500, detail="Failed to create session")
-
-
-@router.get("/cache/stats")
-async def get_cache_stats(redis=Depends(get_redis)):
-    """Example Redis operations."""
-    try:
-        info = await redis.info("memory")
-        return {
-            "used_memory": info.get("used_memory_human", "unknown"),
-            "connected_clients": await redis.client_list(),
-            "total_keys": await redis.dbsize(),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Cache stats failed: {str(e)}")
-
-
-@router.get("/session/{session_id}/recommended_books")
-async def get_session_recommended_books(
-    session_id: str, state_manager=Depends(get_state_manager)
-):
-    """Get recommended books for a session."""
-    try:
-        recommendations = await state_manager.load_recommendations(session_id)
-        return {
-            "books": recommendations,
-            "session_id": session_id,
-            "count": len(recommendations),
-        }
-    except Exception as e:
-        logger.exception(f"❌ Failed to get recommendations for session {session_id}")
-        raise HTTPException(
-            status_code=500, detail="Failed to retrieve recommendations"
-        )
+async def create_new_session(request: Request, app_env: str = Depends(get_app_env)):
+    """Mint an id like `dev_1a2b3c4d`; nothing is stored."""
+    prefix = ENV_PREFIXES.get(app_env, app_env)
+    session_id = f"{prefix}_{uuid_8()}"
+    logger.info(f"🆕 Created new session {session_id}")
+    return SessionOut(id=session_id, created_at=now_iso())

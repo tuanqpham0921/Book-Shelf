@@ -1,0 +1,258 @@
+"""`AppWorkflow`, the base of every unit of work in the app, and the output
+bases (`NodeWorkflowOutput`, `FailedGoalOutput`)."""
+
+import inspect
+from pydantic import BaseModel
+from abc import ABC, abstractmethod
+from typing import Any, TypeVar, cast, get_args
+
+from clients.messages import (
+    APIMessage,
+    AssistantMessage,
+    ToolMessage,
+    UserMessage,
+)
+from app.common.sse_stream import SSEStream
+from app.domains.node_input import WorkflowInput
+from app.common.request_context import RequestContext
+from clients.base import BaseLLMRequest
+from clients.openai_client import EmbeddingsResult, OpenAIClient
+from openai.types.chat import ParsedFunctionToolCall
+from airglider import OperationResult, Workflow, task
+
+
+class NodeWorkflowOutput(BaseModel, ABC):
+    """Domain payload stored on OperationResult.response.result, exposed via
+    the `.result` property (OperationResult.result).
+
+    `goal_instruction` is stamped by the task runner when the output lands in
+    its results map — what the plan told this step to do, in the planner's
+    words. It lives here rather than on each shape because it is provenance,
+    not payload: the reply stage renders "what was asked → what came of it"
+    from the outputs alone, without knowing the planner's types. None on
+    outputs that never travelled through the runner (triage, the planner's own).
+    """
+
+    goal_instruction: str | None = None
+
+    @abstractmethod
+    def to_summary(self) -> dict[str, Any]: ...
+
+
+class FailedGoalOutput(NodeWorkflowOutput):
+    """What the runner records for a goal that produced no output — failed,
+    skipped in `_prepare`, or never reachable.
+
+    A typed artifact, not a sentinel: the reply stage picks it out of the
+    results by type to say why a goal didn't run, and no node's typed input
+    fields match it, so the goals depending on it are skipped.
+    `reason` is prose for a writer to relay, already composed with the failed
+    dependencies' instructions where the cause sits upstream.
+    """
+
+    reason: str = ""
+
+    def to_summary(self) -> dict[str, Any]:
+        return {"goal_instruction": self.goal_instruction, "reason": self.reason}
+
+
+OutputT = TypeVar("OutputT", bound=NodeWorkflowOutput)
+
+
+class AppWorkflow(Workflow[OutputT], ABC):
+    """One call shape for every unit of work: `run(node_input)`.
+
+    A subclass declares its own `WorkflowInput` and narrows the parameter
+    annotation to it; `NodeSpec.input` records which one, so the runner builds
+    it without knowing the class. Services come off `self.ctx`; a subclass
+    needing a narrower view re-annotates `ctx` (see `BookWorkflow`).
+    """
+
+    ctx: RequestContext
+
+    ui_loading_message = "working..."
+
+    # A node's section is folded away: its cards are working material, and
+    # the reply written from them is what the user reads (the reply stage sets
+    # False). NOTE: a plain class attribute on purpose — task_runner.py reads
+    # it off the *class*, and a @property there is always truthy.
+    ui_section_collapsible: bool = True
+
+    @classmethod
+    def _generic_output_type(cls) -> type | None:
+        """The OutputT a subclass pinned in `AppWorkflow[SomeOutput]`. Walks
+        the MRO so a subclass of a subclass still resolves."""
+        for klass in cls.__mro__:
+            for base in getattr(klass, "__orig_bases__", ()):
+                for arg in get_args(base):
+                    # a still-generic base parameterizes with a TypeVar, and
+                    # NodeWorkflowOutput is abstract — skip both, keep walking
+                    if (
+                        isinstance(arg, type)
+                        and issubclass(arg, NodeWorkflowOutput)
+                        and not inspect.isabstract(arg)
+                    ):
+                        return arg
+        return None
+
+    def __init__(
+        self,
+        ctx: RequestContext,
+        messages: list[APIMessage] | None = None,
+    ):
+        output_type = self._generic_output_type()
+        if output_type is None:
+            # otherwise the payload is left None and this surfaces much later
+            # as "output was not initialized", from somewhere inside run()
+            raise TypeError(
+                f"{type(self).__name__} pinned no output type — declare it in "
+                f"the class header, e.g. "
+                f"class {type(self).__name__}(AppWorkflow[SomeOutput])"
+            )
+        super().__init__(output_type)
+        self.ctx = ctx
+        # Rebound, never copied: parent and children share one list so a whole
+        # turn lands on one conversation trace. `list(messages)` would split it
+        # silently — nothing fails, the trace just loses the children's turns.
+        self.messages: list[APIMessage] = messages if messages is not None else []
+
+    # ---- services, read off the request context -------------------------
+    # Properties rather than assignments, so none can be accidentally rebound.
+    # Services live per request; an input is built per dispatch.
+
+    @property
+    def sse_stream(self) -> SSEStream:
+        return self.ctx.sse_stream
+
+    @property
+    def llm_client(self) -> OpenAIClient:
+        return self.ctx.llm_client
+
+    @property
+    def app_env(self) -> str:
+        return self.ctx.app_env
+
+    @property
+    def session_id(self) -> str:
+        return self.ctx.session_id
+
+    @property
+    def user_message(self) -> UserMessage:
+        return self.ctx.user_message
+
+    # ---- the one call shape ---------------------------------------------
+
+    @abstractmethod
+    async def run(self, node_input: WorkflowInput) -> None:
+        """Fill in `self.result` and call `self.finalize_result(ok=…)`.
+
+        Narrow the annotation to this workflow's own input class in the
+        override. What the workflow works on arrives here; what it can reach is
+        on `self.ctx`. The input is already validated, so an empty optional
+        field is a state to handle, not an error to raise.
+        """
+
+    # ---- the client boundary: thin @task wrappers -----------------------
+    # clients/ is tracing-free (see BaseLLMClient) — a client method raises on
+    # failure and returns its payload. These wrappers are where a client call
+    # becomes a *step*: the envelope, the failure capture, the request summary
+    # in `record.input`, and the token-usage promotion all happen here. Keep
+    # them one line of body each; anything more belongs in the client (I/O) or
+    # in the caller (policy).
+
+    @task(description="Calls the language model")
+    async def llm_execute(self, req: BaseLLMRequest) -> AssistantMessage:
+        """One completion call as a step. `AssistantMessage.token_usage` rides
+        the promotion hook onto this envelope."""
+        return await self.llm_client.execute(req)
+
+    @task(description="Turns text into a search vector")
+    async def get_embeddings(self, texts: list[str]) -> EmbeddingsResult:
+        """One embeddings call as a step; `EmbeddingsResult.token_usage` is
+        promoted the same way, so embedding spend lands in the trace."""
+        return await self.llm_client.get_embeddings(texts)
+
+    @task(description="Runs a tool the model picked")
+    async def execute_tool_call(
+        self, tool_call: ParsedFunctionToolCall, **kwargs
+    ) -> ToolMessage:
+        """Run one parsed tool call and wrap what it returns as a ToolMessage."""
+        tool_name = tool_call.function.name
+        # parsed_arguments is typed `object | None` by the openai lib; the
+        # parser validated it into a callable node instance
+        tool_instance = cast(Any, tool_call.function.parsed_arguments)
+        output = await tool_instance(**kwargs)
+
+        # A tool that is itself a Workflow or a @task hands back an envelope,
+        # and that is the useful case rather than a mistake: it ran inside this
+        # task's `parent_scope`, so its record — with its own duration, steps
+        # and token usage — has already attached itself under this one. Only the
+        # payload belongs in the message going back to the model, so unwrap it.
+        if isinstance(output, OperationResult):
+            output = output.result
+
+        return ToolMessage(
+            name=tool_name,
+            tool_call_id=tool_call.id,
+            content=output,
+        )
+
+    # ---- LLM helpers over those steps -----------------------------------
+
+    async def run_llm_call(self, req: BaseLLMRequest) -> AssistantMessage:
+        # unwrap, not a bare await: a node that asked for a completion cannot
+        # continue without one, so a failed call stops this workflow rather than
+        # feeding None downstream.
+        step = await self.llm_execute(req)
+        msg = step.unwrap()
+        self.messages.append(msg)
+        return msg
+
+    async def run_llm_tool_calls(
+        self, req: BaseLLMRequest
+    ) -> list[ParsedFunctionToolCall]:
+        """The tool calls themselves, unprocessed.
+
+        For a caller that needs the call and not just its arguments — to pair
+        the tool result with it after processing, or to dispatch it through
+        `run_tool_call`. `run_llm_args_parse` is the shorthand for everyone
+        else.
+        """
+        assistant_msg = await self.run_llm_call(req)
+        tool_calls = assistant_msg.tool_calls
+        if not tool_calls:
+            raise ValueError("LLM response contained no tool calls")
+        return tool_calls
+
+    async def run_llm_args_parse(self, req: BaseLLMRequest) -> Any:
+        """The first tool call's parsed arguments, with the tool result
+        recorded.
+
+        NOTE: recorded too early — the tool result should be appended *after*
+        processing, as a [tool_call, tool result] pair, so the whole thing can
+        be wrapped in a retry. A node that cares takes `run_llm_tool_calls` and
+        records the pair itself.
+        """
+        tool_calls = await self.run_llm_tool_calls(req)
+        self.record_tool_call(tool_call=tool_calls[0])
+        return tool_calls[0].function.parsed_arguments
+
+    def record_tool_call(self, tool_call: ParsedFunctionToolCall) -> None:
+        self.messages.append(
+            ToolMessage(
+                name=tool_call.function.name,
+                tool_call_id=tool_call.id,
+                content=self.result,
+            )
+        )
+
+    async def run_tool_call(
+        self, tool_call: ParsedFunctionToolCall, **kwargs
+    ) -> ToolMessage:
+        step = await self.execute_tool_call(tool_call, **kwargs)
+        tool_msg = step.unwrap()
+        self.messages.append(tool_msg)
+        return tool_msg
+
+    def finalize_result(self, *, ok: bool) -> None:
+        self.record.ok = ok

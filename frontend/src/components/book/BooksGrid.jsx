@@ -7,7 +7,7 @@ export const BooksGrid = ({ books }) => {
     return (
       <div className="h-full flex flex-col">
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-gray-500 space-y-2">
+          <div className="text-center text-[var(--text-inactive)] space-y-2">
             <h3 className="text-xl font-medium">No books to display</h3>
           </div>
         </div>
@@ -17,7 +17,7 @@ export const BooksGrid = ({ books }) => {
 
   return (
     <div className="h-full w-full flex flex-col overflow-y-auto min-h-0 min-w-0">
-      {books.map((book, index) => (
+      {books.map((book) => (
         <BookCardDetailed book={book} key={book.isbn13} />
       ))}
     </div>
@@ -32,9 +32,9 @@ export const BookGridStack = ({ books }) => {
 
   return (
     <div className="w-full flex flex-row p-4 bg-transparent rounded-lg min-w-0 h-full">
-      <div className="flex gap-4 overflow-x-auto pb-2 min-w-0">
+      <div className="flex gap-4 overflow-x-auto pb-4 min-w-0">
         {books.map((book, index) => (
-          <div key={index} className="flex-shrink-0 w-64">
+          <div key={index} className="flex-shrink-0 w-32 sm:w-40 animate-slide-down">
             <BookCard book={book} key={book.isbn13} />
           </div>
         ))}

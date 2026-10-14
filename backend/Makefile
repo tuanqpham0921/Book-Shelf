@@ -1,288 +1,354 @@
 # Variables
-REDIS_CONTAINER = book-rec-redis
-POSTGRES_CONTAINER = book-rec-postgres
-CADDY_CONTAINER = book-rec-caddy
-GCP_INSTANCE = book-rec-dev
-GCP_ZONE = us-central1-c
+MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+ENV_FILE := $(MAKEFILE_DIR)/config/.env
+DOCKER_COMPOSE_FILE := $(MAKEFILE_DIR)/docker-compose.yml
+POSTGRES_SERVICE := postgres
+# Must match container_name for the postgres service in docker-compose.yml
+POSTGRES_CONTAINER := book-rec-postgres
+
+# -------------------
+# General commands
+# -------------------
 
 # Poetry commands
+.PHONY: install
 install:
 	poetry install
 
-# always clear the Redis cache before loading
-load:
-	make redis-clear 
-	poetry run load
-
-# Load books into PostgreSQL
-load-postgres:
-	poetry run load-postgres
-
-# Development server
-dev-debug:
-	LOG_LEVEL=DEBUG poetry run fastapi dev app/main.py
-
-activate:
-	poetry env activate
-
+# Local development (native FastAPI)
+.PHONY: dev
 dev:
-	poetry run fastapi dev app/main.py
+	LOG_LEVEL=INFO poetry run uvicorn app.main:app --reload --reload-include "*.py" --reload-include "*.env"
 
-# Local development (databases + native FastAPI)
-dev-local-db:
-	docker compose up postgres redis -d
-	@echo "Databases started. Run 'poetry run fastapi dev app/main.py' to start API"
+# The deployed service, locally: APP_ENVIRONMENT=production (the same value the
+# deploy recipe sets) and no --reload, so the production-only paths are live:
+# the site-wide token cap, the per-IP rate limit and chat_runs recording.
+# Against the compose Postgres; for the deployed database use local-prod-neon.
+.PHONY: local-prod
+local-prod:
+	APP_ENVIRONMENT=production LOG_LEVEL=INFO poetry run uvicorn app.main:app
 
-# Development with Caddy proxy
-dev-caddy:
-	docker compose up caddy app -d
-	@echo "Server running at http://localhost"
-	@echo "Caddy admin at http://localhost:2019"
+# local-prod against Neon — the same override dev-neon uses: the POSTGRES_*
+# lines of config/.env.deployment, and process env beats config/.env in
+# pydantic-settings. As close to the deployed service as this machine gets.
+.PHONY: local-prod-neon
+local-prod-neon:
+	set -a && eval "$$(grep '^POSTGRES_' $(DEPLOY_ENV))" && set +a && $(MAKE) local-prod
 
-# Environment management
-activate:
-	poetry env activate
-
-clear-pycache:
+# clear the pycache
+.PHONY: clean
+clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
 	find . -name "*.pyo" -delete
 	find . -name "*.pyc" -delete
-	
-# ---------------
-# Caddy commands
-#---------------
-
-# Start Caddy service
-caddy-start:
-	docker compose up caddy -d
-
-# Stop Caddy service  
-caddy-stop:
-	docker compose stop caddy
-
-# Restart Caddy (reload config)
-caddy-reload:
-	docker exec $(CADDY_CONTAINER) caddy reload --config /etc/caddy/Caddyfile
-
-# View Caddy logs
-caddy-logs:
-	docker compose logs caddy -f
-
-# Check Caddy config
-caddy-validate:
-	docker exec $(CADDY_CONTAINER) caddy validate --config /etc/caddy/Caddyfile
-
-# Caddy admin API status
-caddy-status:
-	@echo "=== Caddy Status ==="
-	@curl -s http://localhost:2019/config/ | head -50
-	@echo ""
-
-# Switch to production config
-caddy-prod:
-	@echo "Switching to production Caddyfile..."
-	@cp Caddyfile.prod Caddyfile
-	@make caddy-reload
-
-# --------------
-# Redis commands
-#---------------
-
-# KEYS *
-# KEYS chat*
-# JSON.GET chat:<chat_id>
-
-# start the redis docker ps
-redis-start:
-	docker compose up redis -d
-
-# enter redis CLI
-redis-cli:
-	docker exec -it $(REDIS_CONTAINER) redis-cli
-
-# clear the cache only
-redis-clear:
-	docker exec -it $(REDIS_CONTAINER) redis-cli FLUSHALL
-
-# clear only session data
-redis-clear-sessions:
-	@echo "Clearing all sessions (session:* keys)..."
-	@docker exec $(REDIS_CONTAINER) redis-cli --scan --pattern "session:*" | xargs -r docker exec -i $(REDIS_CONTAINER) redis-cli DEL
-	@echo "Sessions cleared successfully"
-
-# stop and start again (doesn't clear the cache)
-redis-restart:
-	docker compose restart redis
-
-# get the Redis memory usage
-redis-memory:
-	@echo "=== Redis Memory Usage ==="
-	@docker exec -it $(REDIS_CONTAINER) redis-cli INFO memory | grep -E "(used_memory_human|used_memory_peak_human|used_memory_rss_human|maxmemory_human)"
-	@echo ""
-
-# export all sessions to JSON
-redis-export-sessions:
-	@echo "Exporting all sessions to JSON..."
-	poetry run python export.py all
-
-# export specific session ID to JSON (usage: make redis-export-session SESSION_ID=abc12345)
-redis-export-session:
-	@if [ -z "$(SESSION_ID)" ]; then \
-		echo "Error: SESSION_ID is required. Usage: make redis-export-session SESSION_ID=your_session_id"; \
-		echo "Available session IDs:"; \
-		poetry run python export.py list; \
-	else \
-		echo "Exporting session ID: $(SESSION_ID)"; \
-		poetry run python export.py $(SESSION_ID); \
-	fi
-
-# list all available chat IDs
-redis-list-chats:
-	@echo "Listing all available chat IDs..."
-	poetry run python export.py list
+	find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null
+	find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null
 
 # -------------------
 # PostgreSQL commands
-#--------------------
+# -------------------
 
-# start postgres docker container
+# Local development (databases + native FastAPI)
+.PHONY: postgres-start
 postgres-start:
-	docker compose up postgres -d
+	docker compose --env-file $(ENV_FILE) -f $(DOCKER_COMPOSE_FILE) up $(POSTGRES_SERVICE) -d
+	@echo "Databases started. Run 'make dev' to start API"
 
-# enter postgres CLI
+# stop the postgres container
+.PHONY: postgres-stop
+postgres-stop:
+	docker compose -f $(DOCKER_COMPOSE_FILE) down $(POSTGRES_SERVICE)
+	@echo "PostgreSQL container stopped (does not remove volumes)"
+
+# enter postgres CLI (loads POSTGRES_USER / POSTGRES_DB from config/.env)
+.PHONY: postgres-cli
 postgres-cli:
-	docker exec -it $(POSTGRES_CONTAINER) psql -U postgres -d book_recommender
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -it -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB
 
-# check postgres status
-postgres-status:
-	@echo "=== PostgreSQL Status ==="
-	@docker exec $(POSTGRES_CONTAINER) pg_isready -U postgres
-	@echo ""
+# run a SQL file against the dev postgres container
+# usage: make postgres-query FILE=path/relative/to/backend.sql
+.PHONY: postgres-query
+postgres-query:
+	@test -n "$(FILE)" || { echo "usage: make postgres-query FILE=<file.sql>"; exit 1; }
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB < $(MAKEFILE_DIR)$(FILE)
 
-# show postgres database info
-postgres-info:
-	@echo "=== PostgreSQL Database Info ==="
-	@docker exec $(POSTGRES_CONTAINER) psql -U postgres -d book_recommender -c "\l"
-	@echo ""
-	@docker exec $(POSTGRES_CONTAINER) psql -U postgres -d book_recommender -c "\dt"
-	@echo ""
+BACKUP_FILE ?= $(MAKEFILE_DIR)data/backup.sql
+# restore a whole-database dump (postgres-dump) into the compose postgres container.
+# NOTE: the dump has its own CREATE TABLEs, so restore into an empty database;
+# a container that ran db/init already has the tables and the restore errors.
+.PHONY: postgres-restore
+postgres-restore:
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB < $(BACKUP_FILE)
 
-# -----------------
-# Docker management
-#------------------
-docker-reset:
-	docker compose down
-	docker compose up -d
+# dump the whole database, schema included, to data/backup.sql (overwrites it)
+.PHONY: postgres-dump
+postgres-dump:
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		pg_dump -U $$POSTGRES_USER -d $$POSTGRES_DB > $(MAKEFILE_DIR)data/backup.sql
+	@echo "PostgreSQL data dumped to $(MAKEFILE_DIR)data/backup.sql"
 
-docker-clean:
-	docker compose down -v
-	docker compose up -d
+# load data/backup/books.sql (postgres-dump-books) into a fresh container's
+# empty books table — the local twin of neon-bootstrap's books step. The
+# container ran db/init (indexes included) on an empty table, so the ivfflat
+# index is rebuilt after the load, or similarity recall degrades silently.
+.PHONY: postgres-restore-books
+postgres-restore-books:
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB -v ON_ERROR_STOP=1 < $(MAKEFILE_DIR)data/backup/books.sql && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB -c "REINDEX INDEX books_embedding_idx;"
+	@echo "books restored from $(MAKEFILE_DIR)data/backup/books.sql"
 
-# ---------------------
-# Google Cloud Platform
-#-----------------------
+# dump chat_runs data to a timestamped .sql file (data only, restorable via psql <)
+.PHONY: postgres-dump-chat-runs
+postgres-dump-chat-runs:
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		pg_dump -U $$POSTGRES_USER -d $$POSTGRES_DB --table=chat_runs --data-only --column-inserts \
+		> $(MAKEFILE_DIR)data/chat_runs_$$(date +%Y%m%d_%H%M%S).sql
+	@echo "chat_runs dumped to $(MAKEFILE_DIR)data/"
 
-# SSH into GCP instance
-ssh-gcp:
-	gcloud compute ssh $(GCP_INSTANCE) \
-		--zone=$(GCP_ZONE)
+# dump feedback data to a timestamped .sql file (data only, restorable via psql <)
+.PHONY: postgres-dump-feedback
+postgres-dump-feedback:
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		pg_dump -U $$POSTGRES_USER -d $$POSTGRES_DB --table=feedback --data-only --column-inserts \
+		> $(MAKEFILE_DIR)data/feedback_$$(date +%Y%m%d_%H%M%S).sql
+	@echo "feedback dumped to $(MAKEFILE_DIR)data/"
 
-# Stop GCP instance
-stop-gcp:
-	gcloud compute instances stop $(GCP_INSTANCE) \
-		--zone=$(GCP_ZONE)
+# dump test_runs data to a timestamped .sql file (data only, restorable via psql <)
+# — the suite/case links written by evals/planjane/run_suites.py, keyed by chat_id
+.PHONY: postgres-dump-test-runs
+postgres-dump-test-runs:
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		pg_dump -U $$POSTGRES_USER -d $$POSTGRES_DB --table=test_runs --data-only --column-inserts \
+		> $(MAKEFILE_DIR)data/test_runs_$$(date +%Y%m%d_%H%M%S).sql
+	@echo "test_runs dumped to $(MAKEFILE_DIR)data/"
 
-# List all GCP compute instances
-gcp-instances-list:
-	gcloud compute instances list
+# dump chat_runs plus every table FK'd to it (feedback, test_runs) into ONE
+# timestamped .sql file, so the set is restored/moved together. pg_dump
+# topo-sorts data-only dumps by FK dependency, so chat_runs's INSERTs land
+# before feedback's/test_runs's in the file — required since these are plain
+# (non-deferred) constraints: a referencing row inserted before its chat_runs
+# row would fail. Restore with: make postgres-query FILE=data/<this file>
+.PHONY: postgres-dump-chat-runs-cascade
+postgres-dump-chat-runs-cascade:
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		pg_dump -U $$POSTGRES_USER -d $$POSTGRES_DB \
+			--table=chat_runs --table=feedback --table=test_runs \
+			--data-only --column-inserts \
+		> $(MAKEFILE_DIR)data/chat_runs_cascade_$$(date +%Y%m%d_%H%M%S).sql
+	@echo "chat_runs + feedback + test_runs dumped to $(MAKEFILE_DIR)data/"
 
-# Create GCP instance directly (without template)
-# TODO: Need to make a new service account for book recommender (no Admin)
-gcp-create-instance:
-	@echo "Creating GCP instance $(GCP_INSTANCE)..."
-	@echo "Using Secret Manager for sensitive data..."
-	@SCRIPT_PATH=$$(pwd)/infra/scripts/startup.sh; \
-	gcloud compute instances create $(GCP_INSTANCE) \
-		--zone=$(GCP_ZONE) \
-		--machine-type=e2-medium \
-		--image-family=ubuntu-2204-lts \
-		--image-project=ubuntu-os-cloud \
-		--boot-disk-size=10GB \
-		--tags=http-server,https-server,web-server \
-		--metadata=enable-oslogin=TRUE,ENV_SECRET_NAME="OPENAI_API_KEY" \
-		--metadata-from-file=startup-script=$$SCRIPT_PATH \
-		--scopes="https://www.googleapis.com/auth/cloud-platform"
-	@echo "✓ Instance created successfully!"
-	@echo "Waiting for instance to be fully ready..."
-	@while [ "$$(gcloud compute instances describe $(GCP_INSTANCE) --zone=$(GCP_ZONE) --format='value(status)' 2>/dev/null)" != "RUNNING" ]; do \
-		echo "  Instance status: $$(gcloud compute instances describe $(GCP_INSTANCE) --zone=$(GCP_ZONE) --format='value(status)' 2>/dev/null || echo 'CREATING')"; \
-		sleep 5; \
-	done
-	@echo "✓ Instance is now RUNNING!"
-	@VM_IP=$$(gcloud compute instances describe $(GCP_INSTANCE) --zone=$(GCP_ZONE) --format="get(networkInterfaces[0].accessConfigs[0].natIP)"); \
-	echo ""; \
-	echo "=== Instance Ready ==="; \
-	echo "Name: $(GCP_INSTANCE)"; \
-	echo "Zone: $(GCP_ZONE)"; \
-	echo "External IP: $$VM_IP"; \
-	echo ""; \
-	echo "Waiting for startup script to complete..."; \
-	echo "(This may take 2-5 minutes for Docker setup)"; \
-	for i in {1..60}; do \
-		if curl -s http://$$VM_IP:8000/health > /dev/null 2>&1; then \
-			echo "✓ Application is ready at http://$$VM_IP:8000"; \
-			echo "✓ Health check: http://$$VM_IP:8000/health"; \
-			echo "✓ Through Caddy: http://$$VM_IP"; \
-			break; \
-		else \
-			printf "."; \
-			sleep 5; \
-		fi; \
-		if [ $$i -eq 60 ]; then \
-			echo ""; \
-			echo "⚠️  Startup script still running. Check logs with:"; \
-			echo "   gcloud compute instances get-serial-port-output $(GCP_INSTANCE) --zone=$(GCP_ZONE)"; \
-		fi; \
-	done
-	@echo ""; \
-	echo "Next steps:"; \
-	echo "1. Set environment variables: make gcp-set-env"; \
-	echo "2. SSH into instance: make ssh-gcp"
+# wipe all recorded chat runs (dev convenience — irreversible)
+# CASCADE: feedback.chat_id and test_runs.chat_id both reference chat_runs,
+# and TRUNCATE refuses a table with incoming FK references (even empty ones)
+# unless told to cascade — this also empties feedback and test_runs.
+# NOTE: for dev
+.PHONY: postgres-clear-chat-runs
+postgres-clear-chat-runs:
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB -c "TRUNCATE TABLE chat_runs CASCADE;"
+	@echo "chat_runs table cleared (feedback, test_runs cascaded)"
 
-# Add environment variables to instance
-gcp-set-env:
-	@echo "Setting environment variables for $(GCP_INSTANCE)..."
-	@read -p "Enter OpenAI API Key: " OPENAI_KEY; \
-	VM_IP=$$(gcloud compute instances describe $(GCP_INSTANCE) --zone=$(GCP_ZONE) --format="get(networkInterfaces[0].accessConfigs[0].natIP)"); \
-	gcloud compute instances add-metadata $(GCP_INSTANCE) \
-		--metadata=OPENAI_API_KEY="$$OPENAI_KEY",POSTGRES_PASSWORD="1234",ENVIRONMENT="development",DEBUG="true",CORS_ORIGINS="http://$$VM_IP:3000,http://$$VM_IP,https://$$VM_IP" \
-		--zone=$(GCP_ZONE)
+# wipe all recorded feedback (dev convenience — irreversible)
+# NOTE: for dev
+.PHONY: postgres-clear-feedback
+postgres-clear-feedback:
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB -c "TRUNCATE TABLE feedback;"
+	@echo "feedback table cleared"
 
-# export OPENAI_API_KEY=""
-# curl -v http://localhost:8000/ready
-ping-openai:
-	curl -w "time_total: %{time_total}\n" -o /dev/null -s https://api.openai.com/v1/models
+# wipe all recorded suite/case links (dev convenience — irreversible).
+# Standalone use only — postgres-clear-chat-runs already cascades into this
+# table, so postgres-logs-clear doesn't need to call it too.
+# NOTE: for dev
+.PHONY: postgres-clear-test-runs
+postgres-clear-test-runs:
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB -c "TRUNCATE TABLE test_runs;"
+	@echo "test_runs table cleared"
 
+# dump the local container's books table (data only, COPY format) — the seed
+# for neon-bootstrap. No --column-inserts: 5,197 rows x 1024 floats as
+# individual INSERTs would be enormous and slow to replay.
+.PHONY: postgres-dump-books
+postgres-dump-books:
+	@mkdir -p $(MAKEFILE_DIR)data/backup
+	set -a && . $(ENV_FILE) && set +a && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		pg_dump -U $$POSTGRES_USER -d $$POSTGRES_DB --table=books --data-only \
+		> $(MAKEFILE_DIR)data/backup/books.sql
+	@echo "books dumped to $(MAKEFILE_DIR)data/backup/books.sql"
+
+# -------------------
+# Neon (managed Postgres)
+# -------------------
+
+# Every target goes through the Neon CLI: `neon psql` resolves the project from
+# the .neon file `neon link` wrote in this folder and fetches the password from
+# your Neon login, so no operator credential sits in config/.env and a mistyped
+# host can never point these at the local container. Direct endpoint, not the
+# -pooler one, which is what dumps and schema changes need.
+
+# psql shell on Neon:   make neon-cli
+# one file or command:  make neon-cli ARGS='-c "SELECT count(*) FROM books;"'
+.PHONY: neon-cli
+neon-cli:
+	neon psql -- $(ARGS)
+
+# seed a fresh Neon database (make postgres-dump-books first). The order is
+# load-bearing: the books load needs the vector type from 00_extensions, and
+# ivfflat builds its centroids from the rows present when the index is created,
+# so 02_indexes runs last — built on an empty table, recall degrades silently.
+.PHONY: neon-bootstrap
+neon-bootstrap:
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/00_extensions.sql
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/01_tables.sql
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)data/backup/books.sql
+	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/02_indexes.sql
+	@echo "Neon bootstrapped."
+
+# the API against Neon instead of the compose container: only the POSTGRES_*
+# lines of config/.env.deployment, so the OpenAI key stays the dev one, and
+# process env beats config/.env in pydantic-settings
+.PHONY: dev-neon
+dev-neon:
+	set -a && eval "$$(grep '^POSTGRES_' $(DEPLOY_ENV))" && set +a && $(MAKE) dev
+
+# -------------------
+# Deploy (Cloud Run)
+# -------------------
+
+# config/.env.deployment is the one place production is adjusted: the
+# DEPLOY_* lines say where the service runs and how big it is, and the APP_ /
+# POSTGRES_ / OPENAI_ lines are its env. It is git-ignored, so the endpoint host
+# and the keys stay out of version control. `dev-neon` and `local-prod-neon`
+# read its POSTGRES_* lines, so the deployed database and your local Neon runs
+# cannot drift.
+DEPLOY_ENV := $(MAKEFILE_DIR)config/.env.deployment
+# One value off DEPLOY_ENV. Recursive (`=`), so only deploy targets read it.
+deploy_var = $(shell sed -n 's/^$(1)=//p' $(DEPLOY_ENV))
+
+CLOUD_RUN_SERVICE = $(call deploy_var,DEPLOY_SERVICE)
+CLOUD_RUN_REGION  = $(call deploy_var,DEPLOY_REGION)
+GCP_PROJECT       = $(call deploy_var,DEPLOY_PROJECT)
+
+# Deploy the backend. Builds from source via Cloud Build (no cloudbuild.yaml:
+# the Dockerfile and these flags already say everything one would contain),
+# pushes to Artifact Registry, and rolls out a new revision.
+#
+# The env is every APP_ / POSTGRES_ / OPENAI_ line except the two secrets:
+# POSTGRES_PASSWORD and OPENAI_API_KEY reach the service only through Secret
+# Manager, which keeps them out of the revision's env (revisions are immutable
+# and readable forever). Rotating one is a new secret version — see
+# README.md — not an edit here.
+.PHONY: deploy
+deploy:
+	ENV_VARS=$$(grep -E '^(APP|POSTGRES|OPENAI)_[A-Z_]*=' $(DEPLOY_ENV) | grep -vE '^(POSTGRES_PASSWORD|OPENAI_API_KEY)=' | paste -sd@ -) && \
+	gcloud run deploy $(CLOUD_RUN_SERVICE) \
+		--source=$(MAKEFILE_DIR) \
+		--project=$(GCP_PROJECT) \
+		--region=$(CLOUD_RUN_REGION) \
+		--service-account=$(call deploy_var,DEPLOY_SERVICE_ACCOUNT) \
+		--allow-unauthenticated \
+		--cpu=$(call deploy_var,DEPLOY_CPU) --memory=$(call deploy_var,DEPLOY_MEMORY) --cpu-boost \
+		--timeout=$(call deploy_var,DEPLOY_TIMEOUT) \
+		--min-instances=$(call deploy_var,DEPLOY_MIN_INSTANCES) \
+		--max-instances=$(call deploy_var,DEPLOY_MAX_INSTANCES) \
+		--concurrency=$(call deploy_var,DEPLOY_CONCURRENCY) \
+		--startup-probe=httpGet.path=/ready,initialDelaySeconds=5,periodSeconds=5,timeoutSeconds=5,failureThreshold=6 \
+		--set-env-vars="^@^$$ENV_VARS" \
+		--set-secrets=POSTGRES_PASSWORD=postgres-password:latest,OPENAI_API_KEY=openai-api-key:latest
+	@$(MAKE) deploy-check
+
+# `^@^` is load-bearing above: it switches gcloud's list delimiter from `,` to
+# `@`, so the commas inside APP_ALLOW_ORIGINS don't split into malformed vars.
+
+# prove the live revision is serving: /ready runs a real query against Neon,
+# so a 200 here means image, env, secrets and database are all wired up.
+.PHONY: deploy-check
+deploy-check:
+	@URL=$$(gcloud run services describe $(CLOUD_RUN_SERVICE) \
+		--project=$(GCP_PROJECT) --region=$(CLOUD_RUN_REGION) \
+		--format='value(status.url)'); \
+	echo "$$URL"; \
+	curl -fsS -w '\n' "$$URL/ready" || (echo "NOT READY"; exit 1)
+
+# kill switch: drop public access so every request gets a 403 and nothing runs
+# (min-instances=0) or reaches OpenAI. The service and its URL stay; `deploy-on`
+# restores access without a rebuild (`make deploy` also does, since
+# --allow-unauthenticated re-adds this binding).
+.PHONY: deploy-off
+deploy-off:
+	gcloud run services remove-iam-policy-binding $(CLOUD_RUN_SERVICE) \
+		--member=allUsers --role=roles/run.invoker \
+		--region=$(CLOUD_RUN_REGION) --project=$(GCP_PROJECT)
+
+.PHONY: deploy-on
+deploy-on:
+	gcloud run services add-iam-policy-binding $(CLOUD_RUN_SERVICE) \
+		--member=allUsers --role=roles/run.invoker \
+		--region=$(CLOUD_RUN_REGION) --project=$(GCP_PROJECT)
+	@$(MAKE) deploy-check
+
+# -------------------
+# Docker commands
+# -------------------
+
+# clean the docker containers and volumes
+.PHONY: docker-clean-all
+docker-clean-all:
+	docker compose --env-file $(ENV_FILE) -f $(DOCKER_COMPOSE_FILE) down -v
+	@echo "Docker containers and volumes cleaned"
+
+# -------------------
 # Testing commands
-test:
-	poetry run pytest tests/ -v
+# -------------------
 
-test-verbose:
-	poetry run pytest tests/ -v
+.PHONY: tests
+tests:
+	poetry run pytest -s tests/unit/
 
-test-unit:
-	poetry run pytest tests/unit/ -v
+# in-process API tests: real FastAPI app over httpx ASGI transport, stores
+# faked via dependency_overrides — no DB or LLM needed, safe to run anywhere
+.PHONY: tests-integration
+tests-integration:
+	poetry run pytest -s tests/integration/
 
-test-utils:
-	poetry run pytest tests/unit/test_common_utils.py -v
+# the airglider library's own suite — no app imports, runs standalone
+.PHONY: tests-airglider
+tests-airglider:
+	poetry run pytest -s airglider/tests/
 
-test-coverage:
-	poetry run pytest tests/ --cov=app --cov-report=html --cov-report=term
+.PHONY: tests-all
+tests-all:
+	poetry run pytest -s tests/unit/ tests/integration/ airglider/tests/
 
-.PHONY: install load load-postgres dev activate redis-start redis-cli redis-clear redis-clear-chats redis-restart redis-memory redis-export-chats redis-export-chat redis-list-chats postgres-start postgres-cli postgres-status postgres-info docker-reset docker-clean ssh-gcp stop-gcp gcp-instances-list gcp-create-instance gcp-set-env ping-openai test test-verbose test-unit test-utils test-coverage
+.PHONY: typecheck
+typecheck:
+	poetry run pyright
 
-# NOTE: adding to poetry
-# poetry add --group dev pytest pytest-asyncio pytest-cov
+.PHONY: local-end-to-end-test
+local-end-to-end-test:
+	./tests/scripts/local_end_to_end_test.sh
 
-prototype: prototype/db_query.py
-	./prototype/db_query.py
+# Query-suite / eval-run commands (query-suite, query-suite-all, ...) live in
+# evals/makefile, next to the suite JSONs and runner they drive. Pulled in here
+# so they still run as `make query-suite-all` from backend/ (cwd stays backend/,
+# so the relative suite/log paths in those recipes resolve).
+include $(MAKEFILE_DIR)evals/makefile

@@ -1,0 +1,50 @@
+services:
+  # The production image against the compose postgres — `docker compose up app`.
+  # Local development is `make dev`; this is only for exercising the container.
+  app:
+    build: .
+    container_name: book-rec-app
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    env_file:
+      - config/.env
+    environment:
+      # Reach the postgres service from the app container
+      POSTGRES_HOST: postgres
+      # The image only boots as production: /app is read-only, and
+      # development's log file needs /app/logs (see the Dockerfile)
+      APP_ENVIRONMENT: production
+    ports:
+      - "8080:8080"
+    networks:
+      - book-rec-network
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: book-rec-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # runs db/init/*.sql in name order, and only when the data directory is
+      # empty — an existing volume needs the DDL applied by hand (db/README.md)
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - book-rec-network
+
+networks:
+  book-rec-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

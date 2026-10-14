@@ -2,23 +2,37 @@
 __pycache__/
 venv/
 .venv/
+.pytest_cache/
+.ruff_cache/
 
 # Environment & Config
-config/.env
-config/.env.*
+config/.env*
 !config/.env.example
-!config/.env.production
-config/*.yaml
-!config/env-vars.yaml.example
 
-infra/scripts/
+# Backup Data
+*backup.sql
+# Database dumps — books.sql is well over 100MB of text-format vectors
+data/backup/
 
 # Data & Exports
 *.csv
-examples/
 
-# Docker volumes
-caddy_data/
-caddy_config/
-postgres_data/
-redis_data/
+# Logs
+logs/
+*.log
+
+# Test coverage
+.coverage*
+
+# Evals
+chat_runs*.sql
+chat*.json
+feedback_*.sql
+chat_run*
+log.txt
+
+# Neon project link — written by `neon link`
+.neon
+
+# local files
+TODO.md

@@ -1,35 +1,51 @@
 [tool.poetry]
-name = "book-recommender"
-version = "0.1.0"
+name = "book-shelf"
+version = "1.0.0"
 description = ""
 authors = ["Tuan Pham <tuanqpham0921@gmail.com>"]
-packages = [{ include = "app" }]
+packages = [
+    { include = "airglider" },
+    { include = "app" },
+    { include = "clients" },
+    { include = "common" },
+    { include = "db" },
+    { include = "config" }
+]
+
+[tool.pyright]
+include = ["airglider", "app", "common", "clients", "config", "db"]
+exclude = ["**/__pycache__"]
+typeCheckingMode = "basic"
+pythonVersion = "3.12"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+log_cli_level = "INFO"
+log_cli = true
+# airglider ships its tests beside its source (they move with the package when
+# it is extracted); the app's own suites stay under tests/
+testpaths = ["tests", "airglider/tests"]
+markers = [
+    "unit: fast, no I/O",
+    "integration: cross-layer tests (whole API routes in-process; faked stores, no services)",
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-pdfminer-six = "^20250506"
-tqdm = "^4.67.1"
 tiktoken = "^0.9.0"
-nltk = "^3.9.1"
 pydantic-settings = "^2.9.1"
-redis = "^6.2.0"
-numpy = "^2.2.6"
 pydantic = "^2.11.5"
 rich = "^14.0.0"
 openai = "^1.82.1"
 fastapi = { extras = ["standard"], version = "^0.115.12" }
 sse-starlette = "^2.3.6"
 uvicorn = "^0.35.0"
-pyarrow = "^21.0.0"
 pandas = "^2.3.2"
-psycopg2-binary = ">=2.9.0"
 pgvector = ">=0.2.0"
 asyncpg = "^0.29.0"
 sqlalchemy = ">=2.0.0"
-python-dotenv = "^1.1.1"
-pykakasi = "^2.3.0"
-pypinyin = "^0.55.0"
-pyyaml = "^6.0.3"
+pyjwt = {version = "^2.10", extras = ["crypto"]}
+httpx = "^0.28.1"
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29.5"
@@ -38,15 +54,10 @@ pytest-asyncio = "^0.23.0"
 pytest-cov = "^7.0.0"
 jupyter = "^1.1.1"
 notebook = "^7.4.7"
-langchain-openai = "^0.3.35"
-langchain-core = "^0.3.79"
-langgraph = "^0.6.10"
+ruff = "^0.15.20"
+black = "^26.5.1"
+pyright = "^1.1.411"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
-
-[tool.poetry.scripts]
-load = "app.utils.loader:main"
-get-loader-stats = "app.utils.get_loader_stats:main"
-export = "app.utils.export:main"

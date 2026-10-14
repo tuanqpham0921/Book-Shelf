@@ -1,3 +1,21 @@
-from .external import *
+"""The API's wire models; import them from here."""
 
-__all__ = ["BooksOut", "ChatIn", "SessionOut", "HealthStatus"]
+from .external import (
+    BookOut,
+    ChatIn,
+    FeedbackIn,
+    SessionOut,
+    HealthStatus,
+    ReviewCommentIn,
+    ReviewIn,
+)
+
+__all__ = [
+    "BookOut",
+    "ChatIn",
+    "FeedbackIn",
+    "SessionOut",
+    "HealthStatus",
+    "ReviewCommentIn",
+    "ReviewIn",
+]

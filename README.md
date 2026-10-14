@@ -1,193 +1,94 @@
-# Book Recommender System
+# BookShelf
 
-An AI-powered book recommendation system that combines **Large Language Models (LLMs)** with **embedding-based similarity search** to help users discover books through semantic understanding, mood-based queries, and thematic exploration.
+BookShelf is a chat assistant for a fixed book shelf. Ask it for books by an author, books on a subject, books like one you liked, or books under some page count, and it answers only from that shelf.
 
-**[Video Demo](https://drive.google.com/file/d/1iMLYHvfMU0ECTITtlwgHNjXtJGePy7fE/view?usp=sharing)**
+**Try it:** [tuanqpham0921.web.app](https://tuanqpham0921.web.app). 
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+> 💡 The chat can also answer questions about BookShelf itself, drawing on the project's own docs.
 
----
-## Quick Start
+## Why it is built this way
 
-### Prerequisites
+BookShelf deliberately does not search the internet or rely on what the model already knows about books. Every answer comes from its own catalog, which brings three things:
 
-- **Backend**: Python 3.11+, Poetry, PostgreSQL, Redis
-- **Frontend**: Node.js 18+, npm/yarn
-- **Services**: OpenAI API key
+- **Control:** the model cannot recommend a book that isn't in the inventory or invent facts about one.
+- **A visible plan:** each message becomes a short plan of contained tasks, such as "find books by this author" or "keep the ones under 300 pages".
+- **Something to measure:** each task can be checked on its own, and the planner is graded against expected plans.
 
-### Backend Setup
+## Transparent by design
 
-```bash
-cd backend
+BookShelf tries to hide nothing about how it reached an answer. You can look through the AI rather than at it:
 
-# Install dependencies
-poetry install
+- **The plan comes first,** drawn as a diagram before any task runs.
+- **Every task shows its work:** the arguments the model parsed from your message, the SQL it ran, how many books matched, the time and tokens it took, and a preview of what it found.
+- **The whole trace is yours:** the log button shows every step of the turn, and a project answer lists the docs it came from.
+- **Failures are explained, not hidden:** a step that found nothing or broke says so, and the reply tells you why.
+- **The code and docs are open,** and the chatbot answers questions about BookShelf from those same docs.
 
-# Set up environment variables
-cp config/.env.example config/.env # Create this file with required variables
-
-# Required environment variables:
-# OPENAI_API_KEY=your_openai_api_key
-# POSTGRES_HOST=localhost
-# POSTGRES_PORT=5432
-# POSTGRES_DB=book_recommender
-# POSTGRES_USER=your_user
-# POSTGRES_PASSWORD=your_password
-# REDIS_HOST=localhost
-# REDIS_PORT=6379
-
-# Run the backend
-poetry run uvicorn app.main:app --reload --port 8000
+```mermaid
+flowchart LR
+    M["message"] --> T["Triage<br/>plan it, answer it, or turn it away"]
+    T --> P["PlanJane<br/>the planner"]
+    P --> R["TaskRunner<br/>one contained task per goal"]
+    R --> W["reply<br/>written from the results"]
 ```
 
-### Frontend Setup
+## Vocabulary
 
-```bash
-cd frontend
+**A turn**, in the order it runs:
 
-# Install dependencies
-npm install
+| Term | Meaning |
+|---|---|
+| **Triage** | decides whether a message needs a plan at all |
+| **Promoted tool** | a node triage can call directly, so a common ask skips the planner; an optimization, like triage's plan cache |
+| **PlanJane** | the planner: turns a message into goals, one node each, and draws the plan |
+| **Goal** | one step of a plan: a node, its instruction, and the goals it depends on |
+| **TaskRunner** | runs the goals in dependency order |
+| **Reply stage** | writes the answer from every goal's result, once per turn |
 
-# Set up environment variables
-# Create .env.local with:
-# VITE_API_URL=http://localhost:8000
+**Nodes**, what the planner plans with:
 
-# Run the frontend
-npm run dev
-```
+| Term | Meaning |
+|---|---|
+| **Node** | one capability, run like a small agent: it reads an instruction, calls its own tools and returns a typed output |
+| **Tool** | a schema an LLM fills in one call; the atomic unit of LLM work |
+| **Catalog** | the set of nodes the planner can pick from |
+| **Spec** | a node's entry in the catalog: its name, the description the planner reads, and what goes in and comes out |
+| **Slice** | the folder holding one node: its spec, schemas and executor |
+| **`external.py`** | a slice's schemas for what goes into and out of the node |
+| **Executor** | the code that runs a node |
+| **Anchor / candidate** | books the user named, versus books that match a description |
 
-## Docker Deployment
+**Tracing:**
 
-### Local Development
+| Term | Meaning |
+|---|---|
+| **airglider** | the tracing and execution engine every step runs under |
+| **Envelope** | airglider's record of one step: input, output, ok, timing, tokens and child steps |
 
-```bash
-# Backend
-cd backend
-docker build -t book-recommender-api .
-docker run -p 8000:8000 --env-file .env book-recommender-api
-```
+## Where to go
 
-### Cloud Run Deployment
+| To | Read |
+|---|---|
+| run the backend, or deploy it | [backend/](backend/README.md) |
+| run the frontend, or deploy it | [frontend/](frontend/README.md) |
+| see how a request flows through the app | [backend/app/](backend/app/README.md) |
+| see what the planner is and how it plans | [PlanJane](backend/app/domains/planjane/README.md) |
+| see how every step is traced | [airglider](backend/airglider/README.md) |
+| learn where the books come from | [the dataset](backend/data/README.md) |
+| learn about the database and its schema | [db/](backend/db/README.md) |
+| run or read the evals | [evals/](backend/evals/README.md) |
+| read what V1 does, its limits and what comes next | [V1 release](docs/v1_release.md) |
+| see why things are built the way they are | [decisions](docs/decisions/README.md) |
+| see how evals, deployment, the database and new nodes are approached | [strategies](docs/strategies/README.md) |
+| find known bugs and small follow-ups | [backlog](docs/backlog.md) |
+| write or edit docs here | [documentation strategy](docs/strategies/documentation.md) |
 
-```bash
-cd backend
-gcloud builds submit --config cloudbuild.yaml
-```
+## Built with
 
-The Cloud Run configuration is optimized for:
-- Automatic scaling to zero
-- Health checks and readiness probes
-- Graceful shutdown handling
+Python, FastAPI, PostgreSQL with pgvector and OpenAI on the backend; React and Vite on the frontend. It is deployed on Cloud Run, Neon and Firebase Hosting.
 
----
-
-## Technology Stack
-
-### Backend
-- **Framework**: FastAPI 0.115+
-- **LLM Integration**: OpenAI GPT-4
-- **Database**: PostgreSQL with pgvector
-- **Caching**: Redis
-- **ORM**: SQLAlchemy (async)
-- **Dependencies**: Poetry
-
-### Frontend
-- **Framework**: React 19
-- **Build Tool**: Vite 7
-- **Styling**: TailwindCSS 4
-- **Routing**: React Router 7
-- **Visualization**: Mermaid diagrams
-
-### Infrastructure
-- **Backend Hosting**: Google Cloud Run
-- **Frontend Hosting**: Firebase Hosting
-- **Database**: Cloud SQL (PostgreSQL)
-- **Container Registry**: Google Container Registry
-
----
-
-## Project Structure
-
-```
-Book-Recommender/
-├── backend/
-│   ├── app/                   # Application code
-│   │   ├── api/               # API routes and schemas
-│   │   ├── clients/           # OpenAI and external clients
-│   │   ├── config/            # Settings and logging
-│   │   ├── db/                # Database connections
-│   │   ├── domains/           # Domain models (books, etc.)
-│   │   ├── orchestration/     # Task orchestration engine
-│   │   ├── pipeline/          # Processing pipeline nodes
-│   │   ├── state/             # State management
-│   │   └── stores/            # Data stores and repositories
-│   ├── config/                # Environment files (git-ignored locally)
-│   ├── infra/                 # Infrastructure & deployment
-│   ├── data/                  # Data files and examples
-│   ├── Makefile
-│   └── pyproject.toml
-│
-├── frontend/
-│   ├── src/
-│   │   ├── components/        # React components
-│   │   ├── pages/             # Page components
-│   │   ├── utils/             # Utilities
-│   │   ├── api.js             # API client (uses VITE_BACKEND_URL)
-│   ├── public/
-│   │   └── blog-posts/        # Documentation & diagrams
-│   ├── package.json
-│   ├── vite.config.js
-│   └── Dockerfile
-│
-└── README.md
-```
-
----
-
-## Features
-
-### Current Features
-- Natural language book search
-- Semantic similarity recommendations
-- Mood and theme-based queries
-- Book comparison and analysis
-- Real-time streaming responses
-- Interactive chat interface
-- Task visualization with Mermaid diagrams
-
-### Planned Features
-- User reading history tracking
-- Personalized recommendation tuning
-- Community ratings integration
-- Advanced filtering options
-- Reading list management
-
----
-
-## Example Queries
-
-```
-"Find horror novels similar to It by Stephen King"
-
-"Recommend books with the same vibes as The Great Gatsby"
-
-"Compare Dune and The Iliad based on themes and complexity"
-
-"I want something philosophical but easy to read"
-```
-
----
-
-## Contributing
-
-This is a public release of a personal project. Feedback and suggestions are welcome!
-
-**Contact**: tuanqpham0921@gmail.com
-
----
+Written with the help of Claude Code.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
+MIT, see [LICENSE](LICENSE). Feedback is welcome at tuanqpham0921@gmail.com.

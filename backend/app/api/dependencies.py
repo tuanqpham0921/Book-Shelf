@@ -1,32 +1,25 @@
-import logging
-from typing import Any, AsyncGenerator
+"""The routes' FastAPI dependencies: the app's services off `app.state`, a
+request-scoped database session for the plain routes, the chat's
+`RequestContext` factory, and the two guards (App Check, the per-IP rate limit).
+"""
 
-from fastapi import Request, HTTPException, Depends
+import logging
+import time
+from collections import defaultdict, deque
+from typing import AsyncGenerator
+
+import jwt
+from fastapi import Request, HTTPException, Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.stores.book_store import BookStore
-from app.clients import OpenAIClient
-from app.stores.session_store import SessionStore
-from app.state.state_manager import StateManager
+from config import settings, AppConfig
+from db.stores.chat_run_store import ChatRunStore
+from db.stores.feedback_store import FeedbackStore
+from clients import OpenAIClient
+from app.common.sse_stream import SSEStream
 from app.orchestration.orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
-
-
-def get_postgres_pool(request: Request) -> Any:
-    """Get the asyncpg connection pool"""
-    pool = getattr(request.app.state, "pg_pool", None)
-    if pool is None:
-        raise HTTPException(status_code=503, detail="PostgreSQL pool not available")
-    return pool
-
-
-def get_redis(request: Request) -> Any:
-    """Get the Redis client"""
-    redis_client = getattr(request.app.state, "redis", None)
-    if redis_client is None:
-        raise HTTPException(status_code=503, detail="Redis client not available")
-    return redis_client
 
 
 def get_openai_client(request: Request) -> OpenAIClient:
@@ -45,28 +38,6 @@ def get_orchestrator(request: Request) -> Orchestrator:
     return orchestrator
 
 
-def get_session_store(request: Request) -> SessionStore:
-    """Get the session store"""
-    store = getattr(request.app.state, "session_store", None)
-    if store is None:
-        raise HTTPException(status_code=503, detail="Session store not available")
-    return store
-
-
-def get_state_manager(request: Request) -> StateManager:
-    """Get a state manager instance"""
-    store = get_session_store(request)
-    return StateManager(store)
-
-
-def get_sqlalchemy_engine(request: Request):
-    """Get SQLAlchemy engine from app state"""
-    engine = getattr(request.app.state, "sqlalchemy_engine", None)
-    if engine is None:
-        raise HTTPException(status_code=503, detail="SQLAlchemy engine not available")
-    return engine
-
-
 def get_sqlalchemy_session_factory(request: Request):
     """Get SQLAlchemy session maker"""
     session_factory = getattr(request.app.state, "sqlalchemy_session_factory", None)
@@ -80,63 +51,139 @@ def get_sqlalchemy_session_factory(request: Request):
 async def get_sqlalchemy_session(
     session_factory=Depends(get_sqlalchemy_session_factory),
 ) -> AsyncGenerator[AsyncSession, None]:
-    """Get a SQLAlchemy session"""
-    async with session_factory() as session:
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+    """One session and one transaction for the length of a request, for the
+    plain HTTP routes, where the request is the unit of work.
+
+    `.begin()` commits on a clean exit and rolls back on an error, which is why
+    no store commits for itself. NOTE: the commit lands after the handler has
+    returned, which is fine because `expire_on_commit=False` keeps the rows
+    readable. The chat route streams past this scope, so it uses
+    `RequestContext.store` instead.
+    """
+    async with session_factory.begin() as session:
+        yield session
 
 
-async def get_book_store(
+async def get_chat_run_store(
     session: AsyncSession = Depends(get_sqlalchemy_session),
-) -> BookStore:
-    """Get BookStore instance with injected session."""
-    return BookStore(session)
+) -> ChatRunStore:
+    """Get ChatRunStore instance with injected session."""
+    return ChatRunStore(session)
+
+
+async def get_feedback_store(
+    session: AsyncSession = Depends(get_sqlalchemy_session),
+) -> FeedbackStore:
+    """Get FeedbackStore instance with injected session."""
+    return FeedbackStore(session)
+
+
+def get_app_env(request: Request) -> str:
+    """Get the app environment"""
+    app_env = getattr(request.app.state, "app_env", None)
+    if app_env is None:
+        raise HTTPException(status_code=503, detail="App environment not available")
+    return app_env
+
+
+def get_sse_stream() -> SSEStream:
+    """A fresh stream per request."""
+    return SSEStream()
 
 
 async def get_request_context_factory(
-    # state_manager: StateManager = Depends(get_state_manager),
     llm_client=Depends(get_openai_client),
-    pg_pool=Depends(get_postgres_pool),
-    session=Depends(get_sqlalchemy_session),
-    book_store=Depends(get_book_store),
+    sse_stream=Depends(get_sse_stream),
+    app_env: str = Depends(get_app_env),
+    session_factory=Depends(get_sqlalchemy_session_factory),
 ):
-    """Factory to create request contexts with runtime arguments."""
+    """A function that builds the turn's `RequestContext` once the route has the
+    session id and the message."""
+    from clients.messages import UserMessage
+    from app.common.request_context import RequestContext
 
-    def create_context(session_id: str, user_message, sse_stream=None):
-        from app.orchestration.request_context import RequestContext
-
+    async def create_context(session_id: str, user_message: UserMessage):
+        # the session factory, never a session: the turn runs after the
+        # handler returns (see `RequestContext.store`)
         return RequestContext(
+            app_env=app_env,
             session_id=session_id,
             user_message=user_message,
             llm_client=llm_client,
-            # state_manager=state_manager,
-            pg_pool=pg_pool,
-            session=session,
-            book_store=book_store,
             sse_stream=sse_stream,
+            session_factory=session_factory,
         )
 
     return create_context
 
 
-def get_core_services(request: Request) -> tuple[Any, Any, OpenAIClient, Orchestrator]:
-    """Get all core services at once"""
-    return (
-        get_postgres_pool(request),
-        get_redis(request),
-        get_openai_client(request),
-        get_orchestrator(request),
-    )
+# `PyJWKClient` caches the key set, so it is built once rather than per request.
+_app_check_keys = jwt.PyJWKClient(
+    AppConfig.APP_CHECK_JWKS_URL, lifespan=AppConfig.APP_CHECK_JWKS_LIFESPAN
+)
 
 
-async def get_database_services(
-    pg_pool=Depends(get_postgres_pool),
-    session: AsyncSession = Depends(get_sqlalchemy_session),
-) -> tuple[Any, AsyncSession]:
-    """Get both database services."""
-    return pg_pool, session
+def require_app_check(
+    x_firebase_appcheck: str | None = Header(default=None),
+) -> None:
+    """Refuse a request that doesn't carry a valid Firebase App Check token.
+
+    The token proves the request came from the registered web app on
+    tuanqpham0921.web.app, attested by reCAPTCHA. It is not authentication: a
+    visitor can copy a live token out of their browser and replay it with curl
+    until it expires. What it stops is the scripted caller who has never loaded
+    the page.
+
+    A plain `def`, so FastAPI runs it on the threadpool: fetching the key set
+    is a blocking HTTP call, made once per cache lifespan.
+    """
+    project_number = settings.app.FIREBASE_PROJECT_NUMBER
+    if project_number is None:
+        return
+    if not x_firebase_appcheck:
+        raise HTTPException(status_code=401, detail="Missing App Check token")
+    try:
+        signing_key = _app_check_keys.get_signing_key_from_jwt(x_firebase_appcheck)
+        jwt.decode(
+            x_firebase_appcheck,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=f"projects/{project_number}",
+            issuer=f"https://firebaseappcheck.googleapis.com/{project_number}",
+        )
+    except jwt.PyJWTError as exc:
+        logger.warning("Rejected App Check token: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid App Check token")
+
+
+# Arrival times of each IP's recent messages, per instance. Never swept: it
+# grows by one small entry per distinct caller until the instance recycles,
+# which min-instances=0 does whenever the site goes idle.
+_recent_messages: dict[str, deque[float]] = defaultdict(deque)
+
+
+def limit_messages_per_ip(request: Request) -> None:
+    """Refuse an IP that has sent `MESSAGES_PER_IP` messages this window.
+
+    Production only, like the site-wide token cap: an eval suite fires every
+    case from one address. The IP is the *last* `X-Forwarded-For` entry, the
+    one Cloud Run's front end appends — anything before it the caller wrote.
+    """
+    if settings.app.ENVIRONMENT != "production":
+        return
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        ip = forwarded.split(",")[-1].strip()
+    else:
+        ip = request.client.host if request.client else "unknown"
+
+    now = time.monotonic()
+    arrivals = _recent_messages[ip]
+    while arrivals and now - arrivals[0] > AppConfig.MESSAGES_PER_IP_WINDOW:
+        arrivals.popleft()
+    if len(arrivals) >= AppConfig.MESSAGES_PER_IP:
+        logger.warning("🚫 Rate limited %s", ip)
+        raise HTTPException(
+            status_code=429, detail="Too many messages. Please try again later."
+        )
+    arrivals.append(now)

@@ -1,12 +1,13 @@
-import time
-import logging
-import asyncio
+"""Health checks, open to everyone: `/health` and `/ping` say the process is up,
+`/ready` also checks the orchestrator and the database."""
 
-from sqlalchemy import text
-from fastapi import APIRouter, Request
-from app.config import AppConfig
+import logging
+import time
+
+from fastapi import APIRouter, Request, HTTPException
 
 from app.api.schemas import HealthStatus
+from db.async_engine import check_connection
 
 logger = logging.getLogger(__name__)
 
@@ -14,88 +15,36 @@ router = APIRouter(tags=["System"])
 
 
 @router.get("/health", include_in_schema=False)
-def health_check():
-    """Basic health check - always returns ok if app is running."""
+@router.get("/ping", include_in_schema=False)
+async def ping():
+    """Always ok while the process runs."""
     return {"status": "ok", "timestamp": time.time()}
 
 
-# TODO: use the depend on get core services
-@router.get("/ready", include_in_schema=False, response_model=HealthStatus)
+@router.get("/ready", response_model=HealthStatus)
 async def detailed_health_check(request: Request):
-    """Detailed health check with service status."""
+    """Ok when the orchestrator is built and the database answers; 503 otherwise."""
+    orchestrator = getattr(request.app.state, "orchestrator", None)
+    session_factory = getattr(request.app.state, "sqlalchemy_session_factory", None)
 
-    health = HealthStatus()
+    orchestrator_ok = orchestrator is not None
+    sqlalchemy_ok = False
 
-    # Check services if available
-    if hasattr(request.app.state, "health_status"):
-        startup_status = request.app.state.health_status
-        health.postgres = startup_status.get("postgres", False)
-        health.redis = startup_status.get("redis", False)
-        health.openai = startup_status.get("openai", False)
-        health.orchestrator = startup_status.get("orchestrator", False)
-        health.sqlalchemy_engine = startup_status.get("sqlalchemy_engine", False)
-
-    # Quick connectivity tests for active services
-    if health.redis and hasattr(request.app.state, "redis") and request.app.state.redis:
+    if session_factory is not None:
         try:
-            await request.app.state.redis.ping()
-            health.redis = True
+            sqlalchemy_ok = await check_connection(session_factory)
         except Exception:
-            health.redis = False
+            logger.exception("SQLAlchemy readiness check failed")
 
-    if (
-        health.postgres
-        and hasattr(request.app.state, "pg_pool")
-        and request.app.state.pg_pool
-    ):
-        try:
-            async with request.app.state.pg_pool.acquire() as conn:
-                await conn.fetchval("SELECT 1")
-            health.postgres = True
-        except Exception:
-            health.postgres = False
-
-    if (
-        health.sqlalchemy_engine
-        and hasattr(request.app.state, "sqlalchemy_engine")
-        and request.app.state.sqlalchemy_engine
-    ):
-        async with request.app.state.sqlalchemy_engine.begin() as conn:
-            # Test connection
-            result = await conn.execute(text("SELECT 1 as test"))
-            test_value = result.scalar()
-            if test_value == 1:
-                logger.info("✅ SQLAlchemy connection test passed")
-
-    if (
-        health.openai
-        and hasattr(request.app.state, "openai_client")
-        and request.app.state.openai_client
-    ):
-        try:
-            # Lightweight OpenAI API call to verify connectivity
-            # Using models.list() as it's a simple, fast endpoint
-            models = await asyncio.wait_for(
-                request.app.state.openai_client.client.models.list(),
-                timeout=AppConfig.OPENAI_TIMEOUT,
-            )
-            health.openai = True
-        except asyncio.TimeoutError:
-            health.openai = False
-        except Exception:
-            health.openai = False
-
-    # Determine overall status
-    all_healthy = all(
-        [health.postgres, health.redis, health.openai, health.orchestrator]
+    status = HealthStatus(
+        orchestrator=orchestrator_ok,
+        sqlalchemy_engine=sqlalchemy_ok,
+        message="All services ready"
+        if orchestrator_ok and sqlalchemy_ok
+        else "One or more services unavailable",
     )
-    core_healthy = health.redis and health.openai and health.orchestrator
 
-    if all_healthy:
-        health.message = "All services healthy"
-    elif core_healthy:
-        health.message = "Core services healthy, some optional services degraded"
-    else:
-        health.message = "Service degradation detected"
+    if not (orchestrator_ok and sqlalchemy_ok):
+        raise HTTPException(status_code=503, detail=status.model_dump())
 
-    return health
+    return status

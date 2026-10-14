@@ -1,0 +1,373 @@
+"""Tests for OpenAIClient: payload execution, streaming, token usage, embeddings and vector-store search, against a faked SDK."""
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+from clients.openai_client import FileSource, OpenAIClient
+from config.settings import OpenAISettings
+from clients.messages import AssistantMessage
+
+# Every real request payload carries a model (OpenAIBaseRequest.base_payload
+# always sets it) and execute() reads it back to attribute token spend, so the
+# fakes must carry one too. Priced in airglider.src.config, so cost is exercised.
+FAKE_MODEL = "gpt-4.1-mini"
+
+
+def async_iter(items):
+    """Return an async iterable over items."""
+
+    async def _gen():
+        for item in items:
+            yield item
+
+    return _gen()
+
+
+def make_settings(**overrides):
+    base = {
+        "API_KEY": "test-key",
+        "BASE_MODEL": "gpt-4o",
+        "EMBEDDING_MODEL": "text-embedding-3-small",
+        "EMBEDDING_DIMENSIONS": 512,
+        "MAX_CONCURRENCY": 5,
+    }
+    return OpenAISettings(**{**base, **overrides})
+
+
+def make_client():
+    with patch("clients.openai_client.AsyncOpenAI"):
+        return OpenAIClient(make_settings())
+
+
+def make_fake_completion(content="hi", total=10, prompt=7, completion=3, cached=0):
+    usage = MagicMock(
+        total_tokens=total,
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        prompt_tokens_details=MagicMock(cached_tokens=cached),
+    )
+    message = MagicMock(content=content, tool_calls=None, refusal=None)
+    completion = MagicMock(
+        id="cmpl-123", choices=[MagicMock(message=message)], usage=usage
+    )
+    return completion
+
+
+class TestOpenAIClientInit:
+    def test_raises_when_api_key_missing(self):
+        with pytest.raises(ValueError, match="API key"):
+            OpenAIClient(make_settings(API_KEY=""))
+
+    def test_sets_max_input_tokens(self):
+        client = make_client()
+        assert client.max_input_tokens > 0
+
+    def test_sets_embedding_model(self):
+        client = make_client()
+        assert client.embedding_model == "text-embedding-3-small"
+
+
+class TestTokenCount:
+    def setup_method(self):
+        self.client = make_client()
+
+    def test_single_string(self):
+        count = self.client.token_count("hello world")
+        assert count > 0
+
+    def test_list_of_strings(self):
+        count = self.client.token_count(["hello", "world"])
+        assert count > 0
+
+    def test_list_sums_individual_counts(self):
+        combined = self.client.token_count("hello world")
+        split = self.client.token_count(["hello", "world"])
+        # may differ slightly due to encoding boundaries but both positive
+        assert combined > 0 and split > 0
+
+    def test_empty_string_returns_zero(self):
+        assert self.client.token_count("") == 0
+
+
+class TestGetEmbeddings:
+    """Tracing-free like the rest of the client: failures raise through the
+    caller, and `token_usage` stays on the returned payload — it is the app's
+    wrapper task (`AppWorkflow.get_embeddings`, see test_app_workflow.py) that
+    turns the call into a step and promotes the usage."""
+
+    def setup_method(self):
+        self.client = make_client()
+
+    @staticmethod
+    def _fake_response(*embeddings: list[float]) -> MagicMock:
+        fake = MagicMock()
+        fake.data = [MagicMock(embedding=e) for e in embeddings]
+        fake.model = "text-embedding-3-large"
+        fake.usage.prompt_tokens = 7
+        fake.usage.total_tokens = 7
+        return fake
+
+    @pytest.mark.asyncio
+    async def test_raises_when_input_too_long(self):
+        self.client.max_input_tokens = 1
+        with pytest.raises(ValueError, match="too long"):
+            await self.client.get_embeddings(
+                ["a very long text that exceeds one token"]
+            )
+
+    @pytest.mark.asyncio
+    async def test_returns_embeddings_with_usage_on_the_payload(self):
+        self.client.client.embeddings.create = AsyncMock(
+            return_value=self._fake_response([0.1, 0.2], [0.3, 0.4])
+        )
+
+        result = await self.client.get_embeddings(["hello", "world"])
+        assert result.embeddings == [[0.1, 0.2], [0.3, 0.4]]
+        # untouched here: promotion is the wrapper task's job, so the client
+        # hands the usage over exactly as the API reported it
+        assert result.token_usage is not None
+        assert result.token_usage.model == "text-embedding-3-large"
+        assert result.token_usage.prompt == 7
+
+    @pytest.mark.asyncio
+    async def test_api_error_raises_through(self):
+        self.client.client.embeddings.create = AsyncMock(
+            side_effect=RuntimeError("API down")
+        )
+        with pytest.raises(RuntimeError, match="API down"):
+            await self.client.get_embeddings(["hello"])
+
+
+class TestSearchVectorStore:
+    """The SDK's search response is mapped to `FileSource` here, so no caller
+    reads OpenAI's types."""
+
+    @pytest.mark.asyncio
+    async def test_hits_become_file_sources_with_their_chunks_joined(self):
+        with patch("clients.openai_client.AsyncOpenAI"):
+            client = OpenAIClient(make_settings(VECTOR_STORE_ID="vs_1"))
+        hit = MagicMock(
+            file_id="file_1",
+            filename="docs/deployment.md",
+            score=0.56,
+            content=[MagicMock(text="Cloud "), MagicMock(text="Run")],
+        )
+        client.client.vector_stores.search = AsyncMock(return_value=MagicMock(data=[hit]))
+
+        [source] = await client.search_vector_store("How is it deployed?")
+
+        assert source == FileSource(
+            file_id="file_1", file_name="docs/deployment.md", score=0.56, content="Cloud Run"
+        )
+        assert client.client.vector_stores.search.await_args.args == ("vs_1",)
+
+    @pytest.mark.asyncio
+    async def test_no_store_configured_raises(self):
+        client = make_client()
+        client.vector_store_id = None
+        with pytest.raises(RuntimeError, match="No vector store"):
+            await client.search_vector_store("anything")
+
+
+class TestPromptLengthGuard:
+    """The guard measures the whole payload, tool schemas included.
+
+    Counting message content alone undercut the real prompt ~4x on the
+    argument parsers, whose schemas are most of what they send.
+    """
+
+    def setup_method(self):
+        self.client = make_client()
+
+    @pytest.mark.asyncio
+    async def test_tool_schema_counts_toward_the_ceiling(self):
+        self.client.max_input_tokens = 50
+        # short messages, a large tool schema: the guard must still fire
+        payload = {
+            "model": FAKE_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"function": {"name": "big", "description": "x " * 400}}],
+        }
+        req = MagicMock(sse_stream=None, to_payload=lambda: payload)
+
+        with pytest.raises(ValueError, match="too long"):
+            await self.client.execute(req)
+
+    @pytest.mark.asyncio
+    async def test_a_short_payload_passes(self):
+        self.client._chat_stream = AsyncMock(return_value=make_fake_completion(content="ok"))
+        req = MagicMock(
+            sse_stream=None,
+            to_payload=lambda: {
+                "model": FAKE_MODEL,
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+        assert (await self.client.execute(req)).content == "ok"
+
+    def test_token_count_refuses_a_payload_dict(self):
+        # the original bug: a dict iterates as its keys and "counts" as ~4
+        with pytest.raises(TypeError, match="not dict"):
+            self.client.token_count({"model": "m", "messages": []})
+
+
+class TestExecute:
+    def setup_method(self):
+        self.client = make_client()
+
+    @pytest.mark.asyncio
+    async def test_returns_assistant_message(self):
+        # the message itself, no envelope: the client is tracing-free and the
+        # app's `llm_execute` wrapper is what makes this call a step
+        fake_completion = make_fake_completion(content="hello")
+        self.client._chat_stream = AsyncMock(return_value=fake_completion)
+
+        req = MagicMock(sse_stream=None, to_payload=lambda: {"model": FAKE_MODEL})
+        result = await self.client.execute(req)
+
+        assert isinstance(result, AssistantMessage)
+        assert result.content == "hello"
+
+    @pytest.mark.asyncio
+    async def test_token_usage_propagated(self):
+        fake_completion = make_fake_completion(total=10, prompt=7, completion=3)
+        self.client._chat_stream = AsyncMock(return_value=fake_completion)
+
+        req = MagicMock(sse_stream=None, to_payload=lambda: {"model": FAKE_MODEL})
+        result = await self.client.execute(req)
+
+        assert result.token_usage.total == 10
+        assert result.token_usage.prompt == 7
+        assert result.token_usage.completion == 3
+
+    @pytest.mark.asyncio
+    async def test_cached_tokens_propagated(self):
+        fake_completion = make_fake_completion(
+            total=10, prompt=8, completion=2, cached=6
+        )
+        self.client._chat_stream = AsyncMock(return_value=fake_completion)
+
+        req = MagicMock(sse_stream=None, to_payload=lambda: {"model": FAKE_MODEL})
+        result = await self.client.execute(req)
+
+        assert result.token_usage.cached == 6
+        assert result.token_usage.cache_hit_rate == 6 / 8
+
+    @pytest.mark.asyncio
+    async def test_missing_prompt_tokens_details_defaults_cached_to_zero(self):
+        # older models/endpoints return usage without prompt_tokens_details
+        fake_completion = make_fake_completion()
+        fake_completion.usage.prompt_tokens_details = None
+        self.client._chat_stream = AsyncMock(return_value=fake_completion)
+
+        req = MagicMock(sse_stream=None, to_payload=lambda: {"model": FAKE_MODEL})
+        result = await self.client.execute(req)
+
+        assert result.token_usage.cached == 0
+
+    @pytest.mark.asyncio
+    async def test_none_cached_tokens_defaults_to_zero(self):
+        # prompt_tokens_details present but cached_tokens itself is None
+        fake_completion = make_fake_completion()
+        fake_completion.usage.prompt_tokens_details = MagicMock(cached_tokens=None)
+        self.client._chat_stream = AsyncMock(return_value=fake_completion)
+
+        req = MagicMock(sse_stream=None, to_payload=lambda: {"model": FAKE_MODEL})
+        result = await self.client.execute(req)
+
+        assert result.token_usage.cached == 0
+
+    @pytest.mark.asyncio
+    async def test_no_usage_defaults_to_empty_token_usage(self):
+        fake_completion = make_fake_completion()
+        fake_completion.usage = None
+        self.client._chat_stream = AsyncMock(return_value=fake_completion)
+
+        req = MagicMock(sse_stream=None, to_payload=lambda: {"model": FAKE_MODEL})
+        result = await self.client.execute(req)
+
+        assert result.token_usage.total == 0
+        assert result.token_usage.cached == 0
+
+    @pytest.mark.asyncio
+    async def test_save_payload_called_when_flag_set(self):
+        fake_completion = make_fake_completion()
+        self.client._chat_stream = AsyncMock(return_value=fake_completion)
+
+        req = MagicMock(sse_stream=None, to_payload=lambda: {"model": FAKE_MODEL})
+        with patch("clients.openai_client.save_file") as mock_save:
+            await self.client.execute(req, save_payload=True)
+
+        mock_save.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_save_payload_not_called_by_default(self):
+        fake_completion = make_fake_completion()
+        self.client._chat_stream = AsyncMock(return_value=fake_completion)
+
+        req = MagicMock(sse_stream=None, to_payload=lambda: {"model": FAKE_MODEL})
+        with patch("clients.openai_client.save_file") as mock_save:
+            await self.client.execute(req)
+
+        mock_save.assert_not_called()
+
+
+class TestClose:
+    @pytest.mark.asyncio
+    async def test_calls_aclose(self):
+        client = make_client()
+        client.client._client.aclose = AsyncMock()
+        await client.close()
+        client.client._client.aclose.assert_called_once()
+
+
+class TestChatStream:
+    def setup_method(self):
+        self.client = make_client()
+
+    def make_stream_mock(self, events, completion):
+        stream = AsyncMock()
+        stream.__aenter__ = AsyncMock(return_value=stream)
+        stream.__aexit__ = AsyncMock(return_value=None)
+        stream.__aiter__ = MagicMock(return_value=async_iter(events))
+        stream.get_final_completion = AsyncMock(return_value=completion)
+        self.client.client.beta.chat.completions.stream = MagicMock(return_value=stream)
+        return stream
+
+    @pytest.mark.asyncio
+    async def test_returns_final_completion(self):
+        fake_completion = make_fake_completion()
+        self.make_stream_mock([], fake_completion)
+
+        result = await self.client._chat_stream({}, sse_stream=None)
+        assert result == fake_completion
+
+    @pytest.mark.asyncio
+    async def test_sends_delta_to_sse_stream(self):
+        fake_completion = make_fake_completion()
+        event = MagicMock(type="content.delta", delta="hello")
+        self.make_stream_mock([event], fake_completion)
+
+        sse = AsyncMock()
+        await self.client._chat_stream({}, sse_stream=sse)
+
+        sse.send_chars.assert_called_once_with(data="hello")
+
+    @pytest.mark.asyncio
+    async def test_non_delta_event_skipped(self):
+        fake_completion = make_fake_completion()
+        event = MagicMock(type="chunk", delta="ignored")
+        self.make_stream_mock([event], fake_completion)
+
+        sse = AsyncMock()
+        await self.client._chat_stream({}, sse_stream=sse)
+
+        sse.send_chars.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_sse_stream_skips_send(self):
+        fake_completion = make_fake_completion()
+        event = MagicMock(type="content.delta", delta="hello")
+        self.make_stream_mock([event], fake_completion)
+
+        result = await self.client._chat_stream({}, sse_stream=None)
+        assert result == fake_completion
