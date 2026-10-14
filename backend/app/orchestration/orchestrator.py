@@ -7,7 +7,7 @@ import logging
 import time
 from typing import Any, Coroutine
 
-from config import AppConfig
+from config import AppConfig, settings
 from app.common.sse_stream import SSEStream
 from app.common.request_context import RequestContext
 
@@ -105,15 +105,17 @@ class Orchestrator:
             await sse_stream.send_chat_id(request_context.user_message.id)
 
             # 2. the session's budget: one round trip that creates the sessions row on a
-            # first message and reports the balance. Attached by hand because
-            # `run` builds this root rather than being a unit of work itself,
-            # so nothing is in scope to adopt the step — and attached before
-            # the unwrap, so a read that failed is still on the record.
-            await sse_stream.send_ui_loading("checking budget...")
-            budget_step = await start_session_turn(request_context)
-            record.add_step(budget_step)
-            remaining_tokens = budget_step.unwrap()
-            record.add_details(f"session tokens remaining: {remaining_tokens}")
+            # first message and reports the balance.
+            # NOTE: the budget steps stay off `record`, and their numbers go to
+            # the server log only — `record` is sent to the browser as the
+            # `complete` event's `log_record`, and the budgets are internal.
+            # A read that fails still lands on the record, as the
+            # `runtime_error` its unwrap raises into.
+            remaining_tokens = (await start_session_turn(request_context)).unwrap()
+            logger.info(
+                f"session tokens remaining: {remaining_tokens}, "
+                f"session={request_context.session_id}"
+            )
             if remaining_tokens <= 0:
                 record.add_details("refused: session out of tokens")
                 logger.warning(
@@ -125,11 +127,9 @@ class Orchestrator:
 
             # 3. the site's daily budget, in production only
             if request_context.app_env == SITE_BUDGET_ENFORCED_IN:
-                site_step = await read_site_spend(request_context)
-                record.add_step(site_step)
-                site_spent = site_step.unwrap()
-                record.add_details(f"site tokens spent today: {site_spent}")
-                if site_spent >= AppConfig.SITE_DAILY_TOKEN_BUDGET:
+                site_spent = (await read_site_spend(request_context)).unwrap()
+                logger.info(f"site tokens spent today: {site_spent}")
+                if site_spent >= settings.app.SITE_DAILY_TOKEN_BUDGET:
                     record.add_details("refused: site out of tokens for today")
                     logger.warning(
                         f"🚫 Site daily budget spent ({site_spent}), refusing "

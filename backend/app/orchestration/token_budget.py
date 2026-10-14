@@ -34,9 +34,9 @@ async def start_session_turn(request_context: RequestContext) -> int:
     message (`POST /session/new` persists nothing) and returns the balance
     `Orchestrator.run` judges.
 
-    A `@task` so the round trip is its own step on the trace. `run` attaches it
-    with `add_step`, since it builds the turn's root rather than being a unit
-    of work itself.
+    A `@task` so a failed round trip comes back as a step `run` can unwrap.
+    `run` does not attach it to the turn's trace: that trace is sent to the
+    browser, and the balance is internal, so it goes to the server log.
     """
     async with request_context.store(SessionStore) as store:
         return await store.start_turn(request_context.session_id)

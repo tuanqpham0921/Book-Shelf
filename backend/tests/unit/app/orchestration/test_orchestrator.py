@@ -19,7 +19,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
-from config import AppConfig
+from config import AppConfig, settings
 from app.domains.base_workflow import FailedGoalOutput
 from app.domains.books.external import BookAnchorOutput
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
@@ -67,7 +67,7 @@ def start_turn():
     with patch(
         "app.orchestration.orchestrator.start_session_turn",
         new_callable=AsyncMock,
-        return_value=_balance(AppConfig.SESSION_TOKEN_BUDGET),
+        return_value=_balance(settings.app.SESSION_TOKEN_BUDGET),
     ) as mock_start:
         yield mock_start
 
@@ -600,25 +600,25 @@ class TestRefusingAnExhaustedSession:
         self, make_request_context, start_turn
     ):
         """So a refused turn reads as one, rather than as a turn that did
-        nothing for no reason. Its one step is the balance read that refused
-        it."""
+        nothing for no reason."""
         ctx = self._context(make_request_context, start_turn)
 
         _, record = await self._turn(ctx)
 
         assert "refused: session out of tokens" in record.await_args.args[1].details
 
-    async def test_the_balance_is_recorded_on_every_turn(
+    async def test_the_balance_stays_off_the_turns_record(
         self, make_request_context, start_turn
     ):
-        """Tracking rather than enforcement, which is why it is not inside the
-        guard: what the session had before this turn, so the turn's cost can be
-        read against it."""
+        """The record is sent to the browser as `log_record`, and the budgets are
+        internal: the balance goes to the server log, never onto the trace."""
         ctx = self._context(make_request_context, start_turn, remaining_tokens=1_234)
 
         _, record = await self._turn(ctx)
 
-        assert "session tokens remaining: 1234" in record.await_args.args[1].details
+        root = record.await_args.args[1]
+        assert not any("1234" in detail for detail in root.details)
+        assert all(step is not start_turn.return_value for step in root.steps)
 
 
 class TestRefusingWhenTheSiteIsSpent:
@@ -651,7 +651,7 @@ class TestRefusingWhenTheSiteIsSpent:
         ctx = make_request_context(app_env="production")
         ctx.sse_stream.send_error = AsyncMock()
 
-        _, triage_cls = await self._turn(ctx, AppConfig.SITE_DAILY_TOKEN_BUDGET)
+        _, triage_cls = await self._turn(ctx, settings.app.SITE_DAILY_TOKEN_BUDGET)
 
         triage_cls.assert_not_called()
         ctx.sse_stream.send_error.assert_awaited_once_with(SITE_OUT_OF_TOKENS_MESSAGE)
@@ -659,7 +659,7 @@ class TestRefusingWhenTheSiteIsSpent:
     async def test_under_the_cap_the_turn_runs(self, make_request_context):
         ctx = make_request_context(app_env="production")
 
-        _, triage_cls = await self._turn(ctx, AppConfig.SITE_DAILY_TOKEN_BUDGET - 1)
+        _, triage_cls = await self._turn(ctx, settings.app.SITE_DAILY_TOKEN_BUDGET - 1)
 
         triage_cls.assert_called_once()
 
@@ -667,7 +667,7 @@ class TestRefusingWhenTheSiteIsSpent:
         """A local eval campaign is spend the owner chose."""
         ctx = make_request_context(app_env="development")
 
-        read, triage_cls = await self._turn(ctx, AppConfig.SITE_DAILY_TOKEN_BUDGET)
+        read, triage_cls = await self._turn(ctx, settings.app.SITE_DAILY_TOKEN_BUDGET)
 
         read.assert_not_called()
         triage_cls.assert_called_once()

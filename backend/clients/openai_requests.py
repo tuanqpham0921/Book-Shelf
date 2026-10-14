@@ -7,7 +7,6 @@ from typing import Any
 from .base import BaseLLMRequest
 
 from config import settings
-from config.constants import OpenAIConstants
 from clients.messages import AssistantMessage, SystemMessage, ToolMessage
 from openai import pydantic_function_tool
 from openai.types.chat import ChatCompletionFunctionToolParam
@@ -44,11 +43,14 @@ class OpenAIBaseRequest(BaseLLMRequest):
 
     # The app-wide guard is both the default and the ceiling: a node may ask
     # for less when it knows its output is small, and asking for more is a
-    # misconfiguration rather than a choice.
+    # misconfiguration rather than a choice. `exclude=True` because a step's
+    # input reaches the browser in the turn's trace, and the cap is internal;
+    # `to_payload` reads the attribute, so the API still gets it.
     max_completion_tokens: int = Field(
-        default=OpenAIConstants.MAX_DEFAULT_COMPLETION,
+        default=settings.openai.MAX_DEFAULT_COMPLETION,
         gt=0,
-        le=OpenAIConstants.MAX_DEFAULT_COMPLETION,
+        le=settings.openai.MAX_DEFAULT_COMPLETION,
+        exclude=True,
     )
 
     @property

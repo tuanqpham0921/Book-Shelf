@@ -33,7 +33,7 @@ Every request is checked when it is built, so a bad one fails at the call site r
 
 - **Model family.** A reasoning model (anything not `gpt-4*`) takes `reasoning_effort`; the others take `temperature`, `top_p` and `seed`. Setting one the model ignores raises.
 - **Tool linkage.** Every assistant tool call needs a `ToolMessage` reply, and every `ToolMessage` needs its call.
-- **Size.** `max_completion_tokens` may be lowered, never raised past `OpenAIConstants.MAX_DEFAULT_COMPLETION`. `execute` also refuses a payload over `MAX_INPUT_TOKENS`, counting messages and tool schemas together.
+- **Size.** `max_completion_tokens` may be lowered, never raised past `settings.openai.MAX_DEFAULT_COMPLETION` (`OPENAI_MAX_DEFAULT_COMPLETION`). `execute` also refuses a payload over `settings.openai.MAX_INPUT_TOKENS` (`OPENAI_MAX_INPUT_TOKENS`), counting messages and tool schemas together. Both caps are internal: the error says the input is too long and the numbers go to the log, and `max_completion_tokens` is `exclude=True` so it stays out of the trace the browser gets.
 
 A completion cut off by `max_completion_tokens` raises, rather than coming back as an empty tool call.
 

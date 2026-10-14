@@ -112,7 +112,7 @@ class SessionModel(Base):
     route checks the balance before a turn and the turn is charged after it runs.
 
     remaining_tokens takes no default here or in the DDL: the starting allowance
-    is AppConfig.SESSION_TOKEN_BUDGET, and a client-side `default=` would not
+    is settings.app.SESSION_TOKEN_BUDGET, and a client-side `default=` would not
     apply to the `postgresql.insert()` the store uses anyway."""
 
     __tablename__ = "sessions"

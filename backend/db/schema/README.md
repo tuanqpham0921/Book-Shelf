@@ -21,7 +21,7 @@ erDiagram
     sessions ||..o{ chat_runs : "session_id, no FK"
 ```
 
-- **`sessions`** is created on a session's first message; `POST /session/new` writes nothing. It is debited once per turn, after the turn runs, so the last turn can push it below zero. That is why there is no `CHECK (remaining_tokens >= 0)` and no default (the starting budget is `AppConfig.SESSION_TOKEN_BUDGET`).
+- **`sessions`** is created on a session's first message; `POST /session/new` writes nothing. It is debited once per turn, after the turn runs, so the last turn can push it below zero. That is why there is no `CHECK (remaining_tokens >= 0)` and no default (the starting budget is `settings.app.SESSION_TOKEN_BUDGET`, `APP_SESSION_TOKEN_BUDGET`).
 - **`chat_runs.writer`** is the reply stage's envelope, and the only stored copy of the turn's prose.
 - **`feedback`** has one row per `(chat_id, session_id)`, the upsert target. On the review page the session is the reviewer's; in the chat it is the session that produced the run. A run's review count is counted from these rows, never stored.
 - **Deleting a `chat_runs` row** takes its `feedback` and `test_runs` rows with it.

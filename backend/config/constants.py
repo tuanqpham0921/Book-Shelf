@@ -1,4 +1,4 @@
-"""Constants that are not read from the environment: limits, budgets, timeouts and paths.
+"""Constants that are not read from the environment: limits, timeouts and paths.
 
 The Makefile and docker-compose.yml hard-code some of the same paths, so a
 change here needs the same change there.
@@ -11,18 +11,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 class AppConfig:
     """System-level constants."""
 
-    # What a new session may spend, across every call of every turn. Unlike the
-    # per-call caps in OpenAIConstants this is a real budget: it is spent down
-    # once per turn and never refills, so when it runs out the deployed service
-    # refuses the next message. The sessions table deliberately has no DEFAULT
-    # on remaining_tokens — this is the only place the number lives.
-    SESSION_TOKEN_BUDGET = 200_000
-
-    # What the whole deployed site may spend in a rolling 24 hours, across
-    # every session. The per-session budget above cannot bound this on its own:
-    # the session id comes from the URL, so a caller gets a fresh budget by
-    # making one up. Production only (token_budget.read_site_spend).
-    SITE_DAILY_TOKEN_BUDGET = 3_000_000
+    # NOTE: the token budgets and per-call token caps are env settings, not
+    # constants: settings.app.*_TOKEN_BUDGET and settings.openai.MAX_*.
 
     # Chat messages one IP may send per window, in production. Counted in each
     # instance's memory, so with max-instances=3 the real ceiling is up to 3x
@@ -52,14 +42,8 @@ class AppConfig:
 
 
 class OpenAIConstants:
-    """Per-call token caps and the vector-store search size."""
+    """The vector-store search size."""
 
-    # App wide limit. Guards against a runaway, not a budget: you are billed
-    # for tokens generated, so a cap costs nothing until it binds — and when
-    # it binds it fails the turn. A node may set a smaller
-    # `max_completion_tokens`; above this is refused.
-    MAX_INPUT_TOKENS       = 25_000  # whole payload, tool schemas included
-    MAX_DEFAULT_COMPLETION = 10_000  # reasoning + visible output together
     VECTOR_STORE_MAX_RESULTS = 10    # chunks per search; the API allows 1-50
 
 class FilesLocationConstants:

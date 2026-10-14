@@ -19,7 +19,7 @@ from clients.openai_requests import (
     OpenAIChatRequest,
     OpenAIParserRequest,
 )
-from config.constants import OpenAIConstants
+from config import settings
 
 
 USER_MSG = UserMessage(content="hello")
@@ -102,7 +102,7 @@ class TestCompletionCapBounds:
 
     def test_the_default_is_the_app_wide_guard(self):
         req = OpenAIBaseRequest(prompt="p", prompt_path="p.txt", messages=[USER_MSG])
-        assert req.max_completion_tokens == OpenAIConstants.MAX_DEFAULT_COMPLETION
+        assert req.max_completion_tokens == settings.openai.MAX_DEFAULT_COMPLETION
 
     def test_a_node_may_lower_its_cap(self):
         req = OpenAIBaseRequest(
@@ -115,7 +115,7 @@ class TestCompletionCapBounds:
             OpenAIBaseRequest(
                 prompt="p", prompt_path="p.txt",
                 messages=[USER_MSG],
-                max_completion_tokens=OpenAIConstants.MAX_DEFAULT_COMPLETION + 1,
+                max_completion_tokens=settings.openai.MAX_DEFAULT_COMPLETION + 1,
             )
 
     @pytest.mark.parametrize("bad", [0, -1])
@@ -247,7 +247,7 @@ class TestOpenAIParserRequest:
         req = OpenAIParserRequest(prompt="p", prompt_path="p.txt", messages=[USER_MSG], tool_models=[ToolA])
         assert (
             req.to_payload()["max_completion_tokens"]
-            == OpenAIConstants.MAX_DEFAULT_COMPLETION
+            == settings.openai.MAX_DEFAULT_COMPLETION
         )
 
     def test_to_payload_honors_a_lowered_cap(self):
@@ -276,7 +276,7 @@ class TestOpenAIChatRequest:
         req = OpenAIChatRequest(prompt="p", prompt_path="p.txt", messages=[USER_MSG], sse_stream=make_sse_stream())
         assert (
             req.to_payload()["max_completion_tokens"]
-            == OpenAIConstants.MAX_DEFAULT_COMPLETION
+            == settings.openai.MAX_DEFAULT_COMPLETION
         )
 
 

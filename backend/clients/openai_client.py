@@ -58,7 +58,7 @@ class OpenAIClient(BaseLLMClient):
         self.client               = AsyncOpenAI(api_key=openai_settings.API_KEY)
         self.embedding_model      = openai_settings.EMBEDDING_MODEL
         self.embedding_dimensions = openai_settings.EMBEDDING_DIMENSIONS
-        self.max_input_tokens     = OpenAIConstants.MAX_INPUT_TOKENS
+        self.max_input_tokens     = openai_settings.MAX_INPUT_TOKENS
         
         self.semaphore = asyncio.Semaphore(openai_settings.MAX_CONCURRENCY)
         self.vector_store_id = openai_settings.VECTOR_STORE_ID
@@ -67,10 +67,16 @@ class OpenAIClient(BaseLLMClient):
         """Embed `input`. Raises through the caller on failure — no tracing
         here (see `BaseLLMClient`): the step envelope and the usage promotion
         happen on the app's wrapper, `AppWorkflow.get_embeddings`."""
-        if self.token_count(input) > self.max_input_tokens:
-            raise ValueError(
-                f"Input is too long. Max input tokens: {self.max_input_tokens}"
+        input_tokens = self.token_count(input)
+        if input_tokens > self.max_input_tokens:
+            # the cap goes to the log, not the message: an error message can
+            # reach the browser through the turn's trace
+            logger.warning(
+                "Embedding input of %s tokens is over the %s-token cap",
+                input_tokens,
+                self.max_input_tokens,
             )
+            raise ValueError("Input is too long")
 
         async with self.semaphore:
             response = await self.client.embeddings.create(
@@ -129,10 +135,13 @@ class OpenAIClient(BaseLLMClient):
         # overcounts by ~5%, the safe direction for a ceiling.
         prompt_tokens = self.token_count(json.dumps(payload, default=str))
         if prompt_tokens > self.max_input_tokens:
-            raise ValueError(
-                f"Input is too long: {prompt_tokens} tokens. "
-                f"Max input tokens: {self.max_input_tokens}"
+            # the cap goes to the log, not the message (see get_embeddings)
+            logger.warning(
+                "Payload of %s tokens is over the %s-token cap",
+                prompt_tokens,
+                self.max_input_tokens,
             )
+            raise ValueError("Input is too long")
 
         async with self.semaphore:
             final_completion = await self._chat_stream(payload, req.sse_stream)
@@ -144,9 +153,12 @@ class OpenAIClient(BaseLLMClient):
         # symptom rather than the cause. This is the only layer that can see
         # both the finish reason and the cap that produced it.
         if choice.finish_reason == "length":
+            logger.warning(
+                "Hit max_completion_tokens (%s) before finishing",
+                payload.get("max_completion_tokens"),
+            )
             raise ValueError(
-                f"hit max_completion_tokens ({payload.get('max_completion_tokens')}) "
-                f"before finishing — the response is truncated"
+                "hit max_completion_tokens before finishing — the response is truncated"
             )
 
         response_message = choice.message
