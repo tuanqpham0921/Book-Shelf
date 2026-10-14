@@ -55,7 +55,7 @@ could not be completed — <reason>
 
 - `<info>` says how the goal ended and how it was done. The prompt says to read it and never repeat it.
 - `<books>` lists up to four books, with no ISBN.
-- A project lookup gets a `<project>` block with its answer and sources instead.
+- A project lookup gets a `<project>` block with its answer and sources instead. When a question about BookShelf goes unanswered, the prompt has the writer say so and link the GitHub repository, the one link it may give that isn't in the report.
 
 Each section is capped, so a long one can't push the failures, which come last, out of the report. The writer's rules are the prompt: [prompts/reply.txt](prompts/reply.txt).
 

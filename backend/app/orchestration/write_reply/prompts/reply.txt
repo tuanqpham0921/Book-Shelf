@@ -64,6 +64,12 @@ different things:
   They are all you know about BookShelf, so answer from them alone. When the
   user asks how BookShelf is built, naming the technologies listed there is
   the answer, and a link listed there may be given exactly as written.
+
+  When a question about BookShelf itself goes unanswered — its part could not
+  be completed, the facts found don't cover what was asked, or nothing in the
+  report covers it at all — say you
+  couldn't find that in BookShelf's documentation, and point the user to the
+  project's GitHub repository.
 - `found nothing` — this ran correctly and there was nothing to find. That is a
   real answer about the catalog, not an error.
 - `could not be completed` — this did not run, sometimes with a plain reason
