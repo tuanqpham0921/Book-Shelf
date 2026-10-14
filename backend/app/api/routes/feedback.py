@@ -2,9 +2,11 @@
 /review page's reviews. Both upsert the same `feedback` row."""
 
 import logging
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
+from config import AppConfig
 from app.api.schemas import FeedbackIn, ReviewIn
 from app.api.dependencies import get_chat_run_store, get_feedback_store
 from db.stores.chat_run_store import ChatRunStore
@@ -20,7 +22,7 @@ review_router = APIRouter(tags=["Feedback"])
 
 @router.put("/session/{session_id}/message/{chat_id}/feedback")
 async def submit_feedback(
-    session_id: str,
+    session_id: Annotated[str, Path(pattern=AppConfig.SESSION_ID_PATTERN)],
     chat_id: str,
     feedback: FeedbackIn,
     chat_runs: ChatRunStore = Depends(get_chat_run_store),

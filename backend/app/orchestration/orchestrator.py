@@ -21,7 +21,7 @@ from app.orchestration.task_runner import (
     TaskRunnerInput,
     TaskRunnerWorkflow,
 )
-from app.orchestration.run_recorder import flat_record, record_chat_run
+from app.orchestration.run_recorder import browser_record, record_chat_run
 from app.orchestration.token_budget import (
     OUT_OF_TOKENS_MESSAGE,
     SITE_BUDGET_ENFORCED_IN,
@@ -150,13 +150,14 @@ class Orchestrator:
                 # fixed replies: the answer, then 'complete'
                 request_context.user_message.pass_validation = False
                 record.add_details(f"refused by validation: {validation!r}")
+                record.ok = True
                 await sse_stream.send_chars(reply)
                 await sse_stream.send(
                     "complete",
                     {
                         "status": "completed",
                         "chat_id": request_context.user_message.id,
-                        "log_record": flat_record(record),
+                        "log_record": browser_record(record),
                     },
                 )
                 return
@@ -257,7 +258,7 @@ class Orchestrator:
                 {
                     "status": "completed",
                     "chat_id": request_context.user_message.id,
-                    "log_record": flat_record(record),
+                    "log_record": browser_record(record),
                 },
             )
             await sse_stream.close()

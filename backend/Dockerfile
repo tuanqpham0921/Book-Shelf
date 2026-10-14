@@ -1,5 +1,5 @@
 # Build context is backend/. Deployed by `make deploy` (gcloud run deploy
-# --source), which hands this file to Cloud Build; see docs/temp_docs/deployment.md.
+# --source), which hands this file to Cloud Build; see docs/strategies/deployment.md.
 
 FROM python:3.12-slim AS deps
 

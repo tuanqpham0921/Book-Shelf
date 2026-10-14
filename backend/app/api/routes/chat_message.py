@@ -4,9 +4,9 @@ the turn to the `Orchestrator`, and streams its events back as SSE."""
 import asyncio
 import json
 import logging
-from typing import Any, AsyncGenerator, Callable
+from typing import Annotated, Any, AsyncGenerator, Callable
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from sse_starlette.event import ServerSentEvent
 from sse_starlette.sse import EventSourceResponse
 from starlette.background import BackgroundTask
@@ -31,7 +31,7 @@ router = APIRouter(tags=["Chat"])
     "/session/{session_id}/message", dependencies=[Depends(limit_messages_per_ip)]
 )
 async def chat(
-    session_id: str,
+    session_id: Annotated[str, Path(pattern=AppConfig.SESSION_ID_PATTERN)],
     chat_in: ChatIn,
     orchestrator: Orchestrator = Depends(get_orchestrator),
     request_context_factory: Callable = Depends(get_request_context_factory),

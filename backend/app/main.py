@@ -2,6 +2,7 @@
 registers every router behind App Check (health aside)."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -21,6 +22,14 @@ setup_logging(
     log_file=FilesLocationConstants.LOG_DIR / "dev_log.log",
 )
 logger = logging.getLogger(__name__)
+
+# App Check is enforced only when the project number is set, so a deployed
+# revision without it would serve every route to anyone. Refuse to boot there:
+# the startup probe fails and traffic stays on the last good revision. Cloud Run
+# sets K_SERVICE; `make local-prod` runs as production without App Check, so
+# APP_ENVIRONMENT alone can't tell the two apart.
+if os.getenv("K_SERVICE") and not settings.app.FIREBASE_PROJECT_NUMBER:
+    raise RuntimeError("APP_FIREBASE_PROJECT_NUMBER is unset on Cloud Run")
 
 
 @asynccontextmanager
@@ -50,6 +59,9 @@ app = FastAPI(
     description="AI assistant for finding books",
     version="1.0.0",
     lifespan=lifespan,
+    # no /openapi.json, /docs or /redoc in production: they sit outside App
+    # Check and map the whole API
+    openapi_url=None if settings.app.ENVIRONMENT == "production" else "/openapi.json",
 )
 
 # 2. CORS

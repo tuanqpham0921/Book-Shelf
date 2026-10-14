@@ -40,7 +40,7 @@ V1 has no user auth; why, and what stands in for it, is [decision 009](../decisi
 | OpenAI account | a hard monthly spend cap |
 | Cloud Run | concurrency 5 × 3 instances as a throughput ceiling; `make deploy-off` as a kill switch |
 | CORS | exact origins only (both Firebase hostnames); `GET, POST, PUT, OPTIONS`; only the headers `api.js` sends |
-| App Check | every route but the health checks needs a token from the site |
+| App Check | every route but the health checks needs a token from the site; a Cloud Run revision without `APP_FIREBASE_PROJECT_NUMBER` refuses to boot |
 | Per IP | a message limit per hour, per instance (production only) |
 | Site-wide | a daily token cap across every session (production only) |
 | Per session | a token budget, in every environment |

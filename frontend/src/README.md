@@ -36,7 +36,7 @@ turn
 - **`task.start`'s title is the goal's instruction.** `task.end` brings the book count for the header, plus `details`: the parsed `args`, `sql`, `error_message`, duration and tokens. `TaskSection` shows those first, then the preview cards.
 - **The reply is the turn's answer, so it stays open.** Every step folds, so the turn shows the answer rather than the work.
 - **`sources`** follows a reply that drew on project facts. The Sources button beside the log button opens them.
-- **`complete`** carries the turn's flattened trace, which the log button shows.
+- **`complete`** carries the turn's flattened trace, which the log button shows. A crashed step's error arrives as its type and message only; the traceback stays on the server (`browser_record` in `run_recorder.py`).
 
 **A book card shows only what `BookOut` sends** ([backend/app/api/schemas/external.py](../../backend/app/api/schemas/external.py)). A field outside it is `undefined` here, so showing a new one means adding it to `BookOut` first.
 

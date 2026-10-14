@@ -173,3 +173,24 @@ class TestValidation:
 
         assert resp.status_code == 400
         assert orchestrator.contexts == []
+
+    @pytest.mark.parametrize(
+        "session_id",
+        [
+            pytest.param("dev%0Afake_log_line", id="newline"),
+            pytest.param("x" * 65, id="too-long"),
+            pytest.param("dev_abc;drop", id="punctuation"),
+        ],
+    )
+    async def test_a_malformed_session_id_is_refused(self, client, session_id):
+        """The id comes from the URL, so it reaches the logs and the tables as
+        the caller wrote it."""
+        http, orchestrator, _ = client
+
+        async with http:
+            resp = await http.post(
+                f"/session/{session_id}/message", json={"message": "Find me a book"}
+            )
+
+        assert resp.status_code == 422
+        assert orchestrator.contexts == []

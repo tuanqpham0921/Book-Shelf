@@ -23,6 +23,11 @@ class AppConfig:
     # The longest chat message the route accepts, in characters
     MAX_MESSAGE_LENGTH = 2000
 
+    # What a session id in a route's path may look like. Ids come from the URL,
+    # so this keeps newlines out of the logs and junk out of the tables; it does
+    # not stop a made-up id (the site's daily budget bounds those).
+    SESSION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
+
     # Bounds on one feedback row's comment list, which the chat can write in
     # production. The frontend's feedback popup and review editor stop at the
     # same numbers.
