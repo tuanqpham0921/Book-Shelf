@@ -90,6 +90,17 @@ def flat_record(record: OperationResult) -> list[dict[str, Any]]:
     return json.loads(json.dumps(flat, default=str))
 
 
+def browser_record(record: OperationResult) -> list[dict[str, Any]]:
+    """`flat_record` for the `complete` event's `log_record`, minus each
+    `runtime_error`'s traceback: the browser is anyone's, and a traceback names
+    the server's files and lines. The error's type and message stay; the
+    chat_runs row and development's record.json keep the traceback."""
+    spans = flat_record(record)
+    for span in spans:
+        (span.get("runtime_error") or {}).pop("traceback", None)
+    return spans
+
+
 async def _insert_chat_run(
     request_context: RequestContext,
     record: OperationResult,

@@ -13,9 +13,13 @@ from sqlalchemy import select
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.orchestration.triage import TriageOutput
 from app.domains.planjane import PlanJaneOutput, SystemGoal
-from app.orchestration.run_recorder import build_chat_run_row, record_chat_run
+from app.orchestration.run_recorder import (
+    browser_record,
+    build_chat_run_row,
+    record_chat_run,
+)
 from app.orchestration.write_reply import RecommendationsOutput, TextBlock
-from airglider import OperationResult, Response, TokenUsage
+from airglider import OperationResult, Response, RuntimeErrorInfo, TokenUsage
 from config import FilesLocationConstants
 from db.stores.deferred_query import DeferredBookQuery
 
@@ -336,3 +340,37 @@ class TestRecordChatRun:
             await record_chat_run(
                 ctx, _make_root_record(planner), _make_workflow(planner)
             )
+
+
+class TestBrowserRecord:
+    """The `complete` event's `log_record` goes to whoever has the page open."""
+
+    def _crashed_root(self) -> OperationResult:
+        try:
+            raise ValueError("boom")
+        except ValueError as e:
+            error = RuntimeErrorInfo.from_exception(e)
+        child = OperationResult(name="child", ok=False, runtime_error=error)
+        root = OperationResult(name="root", runtime_error=error)
+        root.add_step(child)
+        return root
+
+    def test_no_span_carries_a_traceback(self):
+        spans = browser_record(self._crashed_root())
+
+        errors = [span["runtime_error"] for span in spans]
+        assert len(errors) == 2
+        assert not any("traceback" in error for error in errors)
+
+    def test_the_error_type_and_message_stay(self):
+        spans = browser_record(self._crashed_root())
+
+        assert spans[0]["runtime_error"] == {"type": "ValueError", "message": "boom"}
+
+    def test_the_record_itself_keeps_its_traceback(self):
+        """The chat_runs row and record.json are built from the same record."""
+        root = self._crashed_root()
+
+        browser_record(root)
+
+        assert "ValueError: boom" in root.runtime_error.traceback
