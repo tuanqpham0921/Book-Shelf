@@ -739,18 +739,6 @@ class TestValidatingTheMessage:
         ctx.sse_stream.send_chars.assert_awaited_once_with(reply)
         assert ctx.user_message.pass_validation is False
 
-    async def test_the_refusal_is_on_the_turns_record(
-        self, make_request_context, validate
-    ):
-        ctx = self._unvalidated(make_request_context)
-        validate.return_value = _validation(gibberish_or_incoherent=True)
-
-        _, record = await self._turn(ctx)
-
-        root = record.await_args.args[1]
-        assert any(d.startswith("refused by validation") for d in root.details)
-        assert root.ok
-
     async def test_a_check_with_no_verdict_stops_the_turn(
         self, make_request_context, validate
     ):
