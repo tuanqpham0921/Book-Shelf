@@ -87,7 +87,7 @@ flowchart LR
 
 Python, FastAPI, PostgreSQL with pgvector and OpenAI on the backend; React and Vite on the frontend. It is deployed on Cloud Run, Neon and Firebase Hosting.
 
-Claude Code for developement.
+Written with the help of Claude Code.
 
 ## License
 
