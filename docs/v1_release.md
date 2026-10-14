@@ -2,7 +2,7 @@
 
 BookShelf V1 is a small, polished set of book-finding capabilities built to show off the planner and its orchestration: books are the demo domain, and the planner is the point. This page is the technical record of what V1 does, how it is designed and what comes after it. The about pages on the site are the readable version and draw from here.
 
-**Live at** [tuanqpham0921.web.app](https://tuanqpham0921.web.app).
+**Released** October 2026. **Live at** [tuanqpham0921.web.app](https://tuanqpham0921.web.app).
 
 
 ## Scope
