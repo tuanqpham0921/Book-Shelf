@@ -16,6 +16,14 @@ The domain has no shared base or schemas. Its one node subclasses `AppWorkflow` 
 
 The docs are searched through an **OpenAI vector store**, not pgvector: OpenAI chunks, embeds and indexes the files, and the node calls `OpenAIClient.search_vector_store` for the closest chunks. The store is named by `OPENAI_VECTOR_STORE_ID` in `config/.env`. Left unset, every project lookup fails and the question goes to the planner.
 
+How BookShelf uses it:
+
+- **Raw search, not the `file_search` tool.** `search_vector_store` calls `vector_stores.search`, which returns chunks and scores with no model involved. The answer is a separate gpt-6-luna call the node builds itself, so the node controls the prompt, can reject, and records both steps on its trace. The hosted `file_search` tool in the Responses API would fold search and answer into one call.
+- **OpenAI's defaults.** Files are chunked at 800 tokens with 400 of overlap. The search asks for 10 results (`OpenAIConstants.VECTOR_STORE_MAX_RESULTS`; the API allows 1 to 50), with no query rewriting and no attribute filters.
+- **Cost.** Chunks come back as ordinary input tokens on the answer call, and they are most of a lookup's spend. Storage is free under 1 GB across all of the account's vector stores.
+
+OpenAI's guides: [Retrieval](https://developers.openai.com/api/docs/guides/retrieval) (vector stores, `vector_stores.search`, chunking, pricing) and [File search](https://developers.openai.com/api/docs/guides/tools-file-search) (the hosted tool BookShelf doesn't use).
+
 Because these docs are what the chatbot answers from, every README in the project is written so that one chunk makes sense on its own — see [docs/strategies/documentation.md](../../../../docs/strategies/documentation.md).
 
 ## Loading the docs

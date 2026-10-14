@@ -50,6 +50,8 @@ The READMEs and `docs/` are built into the chat assistant, so a developer can as
 
 `Retrieve_Project_Info` answers from a vector store over the READMEs and `docs/`, so those pages are written for a reader who gets one chunk at a time ([documentation strategy](strategies/documentation.md)). The store is loaded by hand today.
 
+**The search is OpenAI file search, not pgvector.** OpenAI chunks, embeds and indexes the docs, so there is no second index to keep in the database beside the book embeddings. The node calls the store's raw search (`vector_stores.search`) for the 10 closest chunks, then answers in a call of its own that can reject, instead of using the hosted `file_search` tool that would search and answer in one step. How it is set up is in [the project domain](../backend/app/domains/project/README.md#search-openai-file-search); OpenAI's own guides are [Retrieval](https://developers.openai.com/api/docs/guides/retrieval) and [File search](https://developers.openai.com/api/docs/guides/tools-file-search).
+
 ## Architecture
 
 ```mermaid
@@ -142,7 +144,7 @@ Every turn spends OpenAI money, and anyone can open the site. The limits a user 
 - **The whole site has a daily token budget**, in production.
 - **Each IP has an hourly message limit**, in production.
 
-The values are in `config/constants.py`.
+The token budgets are env settings (`APP_SESSION_TOKEN_BUDGET`, `APP_SITE_DAILY_TOKEN_BUDGET`), kept internal: a user is told a limit was reached, never its size. The per-IP limit is in `config/constants.py`.
 
 All the limits, from the OpenAI account cap down to the per-message length cap, are in the [deployment strategy](strategies/deployment.md#security-and-spend). `make deploy-off` revokes public access without deleting anything.
 
