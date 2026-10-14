@@ -1,4 +1,4 @@
--- Books table (embedding width must match OPENAI_EMBEDDING_DIMENSIONS / init docs).
+-- Books table (embedding width must match OPENAI_EMBEDDING_DIMENSIONS).
 CREATE TABLE IF NOT EXISTS books (
     isbn13 TEXT PRIMARY KEY,
     isbn10 TEXT,
@@ -53,8 +53,8 @@ CREATE TABLE IF NOT EXISTS chat_runs (
 );
 
 -- Links an eval-suite case to the chat run it produced. Written by
--- evals/run_suites.py after a suite run; joined with chat_runs by the
--- evals report script (evals/report.py). CASCADE: wiping chat_runs
+-- evals/planjane/run_suites.py after a suite run; joined with chat_runs by
+-- evals/common.py. CASCADE: wiping chat_runs
 -- between eval campaigns auto-cleans these rows.
 CREATE TABLE IF NOT EXISTS test_runs (
     chat_id TEXT PRIMARY KEY REFERENCES chat_runs(chat_id) ON DELETE CASCADE,
@@ -66,8 +66,9 @@ CREATE TABLE IF NOT EXISTS test_runs (
 -- Reviews from the internal /review page and the chat's own feedback: one
 -- row per (chat_id, session_id), where session_id is the *reviewing* session —
 -- for the review page not the session that produced the run, for the chat
--- always that same session (its route checks it). A session re-submitting replaces its review in place (see unique
--- index) rather than appending; a different session appends a new review.
+-- always that same session (its route checks it). A session re-submitting
+-- replaces its review in place (see unique index); a different session
+-- appends a new one.
 -- liked: the reviewer's overall like/dislike of the run (optional).
 -- comments: JSONB list of {title, message, positive} observations, replaced
 -- whole on each submit.

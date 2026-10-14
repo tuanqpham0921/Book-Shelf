@@ -1,14 +1,5 @@
-"""One descriptor per node — the single source `app/registry.py` derives from.
-
-A node is a vertical slice exporting one `SPEC`; the registry derives every
-lookup from the collected specs, so adding a capability means adding a folder
-and listing its `SPEC`, not editing parallel dicts that can drift apart.
-
-`node_type` is the name the planner LLM emits, and must match the `Literal`
-default on the request schema — pydantic's discriminator for picking the class
-back out of a tool call. `__post_init__` enforces that; a mismatch would
-otherwise only show up as a failed eval.
-"""
+"""`NodeSpec`, one per node and the only thing `app/registry.py` reads, and
+`NodeTier`, the catalog's sections."""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -26,13 +17,8 @@ class NodeTier(str, Enum):
     reads in `Registry.format_catalog()`, so it is prompt text."""
 
     RETRIEVAL = "Retrieval — lookup or fetch data"
-    # NOTE: combine is different wording from eval (might be okay)
     COMBINE = "Combine — narrow or merge what earlier goals found, without searching again"
     ANALYZE = "Analyze — interpret, compare, or recommend using retrieved data"
-    # GENERATE removed 2026-09-08 with its one member. Writing the reply is no
-    # longer a capability the planner picks, so a tier for it would be a
-    # heading over an empty section — the stage runs after every plan instead
-    # (app/orchestration/write_recommendations/).
 
 
 @dataclass(frozen=True)
@@ -48,13 +34,13 @@ class NodeSpec:
         node_type: The capability name the planner emits, e.g. "Retrieve_by_Title".
         tier: Which catalog section this node is listed under.
         request: The pydantic request schema — but what the registry uses it
-            for is its *docstring*, which IS the tool description the planner
-            LLM reads. The arguments a node needs are not on it: each slice
-            declares an `*Args` subclass in `schemas.py` that its own parse
-            call ships, so the planner is given a capability to pick rather
-            than fields to guess at. The request stays a model, and stays the
-            base of that subclass, because it carries the `node_type` Literal
-            everything discriminates on — and so a field the planner really
+            for is its *docstring*, which IS the catalog entry the planner
+            LLM reads. It lives in the slice's `external.py`. The arguments a
+            node needs are not on it: each slice declares an `*Args` model in
+            `tools.py` that its own parse call ships, so the planner is given
+            a capability to pick rather than fields to guess at. The request
+            stays a model because it carries the `node_type` Literal
+            that names it, and so a field the planner really
             should fill has somewhere to go.
         input: What this node is invoked with — declares which upstream shapes
             it can consume. The default accepts the goal text and nothing else,
@@ -78,7 +64,6 @@ class NodeSpec:
         if value != self.node_type:
             raise ValueError(
                 f"NodeSpec({self.node_type!r}) disagrees with "
-                f"{self.request.__name__}.node_type default ({value!r}) — the "
-                "planner emits the spec's name but pydantic discriminates on "
-                "the schema's, so a mismatch makes the node unreachable"
+                f"{self.request.__name__}.node_type default ({value!r}): "
+                "two names for one node, and nothing would say which is right"
             )

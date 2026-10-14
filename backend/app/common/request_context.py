@@ -1,16 +1,13 @@
-"""`RequestContext` — the services one turn can reach.
+"""`RequestContext`, the services one turn can reach: the message, the LLM
+client, the SSE stream and a database session factory.
 
-Not what a node is working on; that half is `WorkflowInput`. They split on
-lifetime: services are built once at the request boundary and are the same for
-every node, while an input is assembled fresh at each dispatch.
+What a node works on is its `WorkflowInput` instead. They split on lifetime:
+services are built once per request, an input fresh at each dispatch.
 
-The database is the exception to "built once", and deliberately so. What this
-class carries is the *factory*, never a live session or a store built on one:
-`/session/{id}/message` is an SSE endpoint, and FastAPI exits its
-yield-dependencies when the handler returns — before the first event is sent,
-and long before any node runs. A store parked here at request time would spend
-the whole turn on a session that was already closed. `store()` below opens a
-fresh one per use instead, which is also what lets `Orchestrator._finalize`
+NOTE: the database is carried as a factory, never a live session. FastAPI
+closes a yield-dependency when the SSE handler returns, before the first event
+is sent, so a session opened at request time would be closed for the whole
+turn. `store()` opens one per use, which also lets `Orchestrator._finalize`
 write after the request is over.
 """
 
@@ -45,6 +42,8 @@ class RequestContext(BaseModel):
     # The turn's message — identity, not input: the wire `chat_id` and
     # `user_chat_id` in chat_runs both come from its id, and it outlives every
     # node in the plan while `NodeInput.instruction` changes at each dispatch.
+    # Unvalidated as the route builds it; `Orchestrator.run` swaps in the
+    # checked `UserMessage` before any workflow is built.
     user_message: UserMessage
 
     llm_client: OpenAIClient = Field(..., exclude=True)

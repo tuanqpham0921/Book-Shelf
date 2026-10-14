@@ -1,32 +1,18 @@
 import { useState, useEffect } from 'react';
-import Markdown from 'react-markdown';
+import Markdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-const BlogPost = ({ postId = 1 }) => {
+const BlogPost = ({ page }) => {
     const [post, setPost] = useState(null);
     const [content, setContent] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Post metadata - you can move this to a separate JSON file later
-    const postsData = {
-        1: {
-            id: 1,
-            title: "An AI System for Book Discovery",
-            author: "Tuan Pham",
-            date: "November 5, 2025",
-            contentFile: "/blog-posts/book-recommender-system.md"
-        }
-    };
-
     useEffect(() => {
         const loadBlogPost = async () => {
             try {
-                // Get post metadata
-                const postMeta = postsData[postId];
-                if (!postMeta) {
-                    throw new Error('Blog post with ID ' + postId + ' not found');
-                }
+                // each about page lives at public/about/<page>/README.md
+                const postMeta = { contentFile: `/about/${page}/README.md` };
 
                 // Load markdown content from public folder
                 const response = await fetch(postMeta.contentFile);
@@ -46,7 +32,7 @@ const BlogPost = ({ postId = 1 }) => {
         };
 
         loadBlogPost();
-    }, [postId]);
+    }, [page]);
 
     if (loading) {
         return (
@@ -71,19 +57,14 @@ const BlogPost = ({ postId = 1 }) => {
     return (
         <div className="blog-container">
             <article className="blog-article">
-                <header className="blog-header">
-                    <h1 className="blog-title">
-                        {post.title}
-                    </h1>
-
-                    <div className="blog-meta">
-                        <span>By {post.author}</span>
-                        <span>{post.date}</span>
-                    </div>
-                </header>
-
                 <div className="markdown-body">
-                    <Markdown remarkPlugins={[remarkGfm]}>
+                    {/* Image paths resolve against the .md file, as they do on GitHub */}
+                    <Markdown
+                        remarkPlugins={[remarkGfm]}
+                        urlTransform={(url, key) => defaultUrlTransform(
+                            key === 'src' ? new URL(url, new URL(post.contentFile, window.location.origin)).pathname : url
+                        )}
+                    >
                         {content}
                     </Markdown>
                 </div>

@@ -1,6 +1,6 @@
 """Shared utility surface for the app.
 
-The identity and serialization helpers now live in `airglider` — they are what
+The identity and serialization helpers live in `airglider` — they are what
 its record tree is built and persisted with, so the library owns them rather
 than borrowing them from here. They are re-exported (not re-implemented) so
 app code keeps importing them from one place and the two can never drift.

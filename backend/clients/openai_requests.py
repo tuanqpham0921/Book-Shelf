@@ -1,10 +1,12 @@
+"""The OpenAI request models: plain, parser (tool calls) and chat (streamed),
+each checked at construction and rendered by `to_payload()`."""
+
 import logging
 from typing import Any
 
 from .base import BaseLLMRequest
 
 from config import settings
-from config.constants import OpenAIConstants
 from clients.messages import AssistantMessage, SystemMessage, ToolMessage
 from openai import pydantic_function_tool
 from openai.types.chat import ChatCompletionFunctionToolParam
@@ -41,11 +43,14 @@ class OpenAIBaseRequest(BaseLLMRequest):
 
     # The app-wide guard is both the default and the ceiling: a node may ask
     # for less when it knows its output is small, and asking for more is a
-    # misconfiguration rather than a choice.
+    # misconfiguration rather than a choice. `exclude=True` because a step's
+    # input reaches the browser in the turn's trace, and the cap is internal;
+    # `to_payload` reads the attribute, so the API still gets it.
     max_completion_tokens: int = Field(
-        default=OpenAIConstants.MAX_DEFAULT_COMPLETION,
+        default=settings.openai.MAX_DEFAULT_COMPLETION,
         gt=0,
-        le=OpenAIConstants.MAX_DEFAULT_COMPLETION,
+        le=settings.openai.MAX_DEFAULT_COMPLETION,
+        exclude=True,
     )
 
     @property
@@ -118,23 +123,6 @@ class OpenAIBaseRequest(BaseLLMRequest):
 
         return self
 
-
-    def to_summary(self) -> dict[str, Any]:
-        """Adds the two OpenAI-specific things a trace is read for: the
-        reasoning effort a cost line is explained by, and *which* schema a
-        parser call was filling in.
-
-        `tool_models` is reached by `getattr` because only the parser and tool
-        subclasses declare it — one override covering every request beats three
-        that differ by a line.
-        """
-        summary = super().to_summary()
-        summary["reasoning_effort"] = self.reasoning_effort
-        tool_models = getattr(self, "tool_models", None)
-        if tool_models:
-            summary["tools"] = [model.__name__ for model in tool_models]
-        return summary
-
     def to_messages_payload(self) -> list[dict[str, Any]]:
         messages = []
         if self.prompt:
@@ -164,9 +152,11 @@ class OpenAIBaseRequest(BaseLLMRequest):
 
 
 class OpenAIParserRequest(OpenAIBaseRequest):
-    """Support only one tool model for parsing 1 request"""
+    """Tool calls, parsed. One tool model pins the call to it; several let the
+    model call any of them — more than one at once — or answer in text
+    instead."""
 
-    tool_models: Annotated[list[type], Field(min_length=1, max_length=1)]
+    tool_models: Annotated[list[type], Field(min_length=1)]
     tool_override: dict | None = None
     # A node class docstring is *selection* prose — it exists so the planner can
     # choose between tools. When tool_choice already pins the one tool, sending
@@ -178,33 +168,40 @@ class OpenAIParserRequest(OpenAIBaseRequest):
         payload = self.base_payload()
 
         payload["tools"] = (
-            [self.to_function_tools()]
+            self.to_function_tools()
             if not self.tool_override
             else [self.tool_override]
         )
-        payload["tool_choice"] = {
-            "type": "function",
-            "function": {"name": self.tool_models[0].__name__},
-        }
+        if len(self.tool_models) == 1:
+            payload["tool_choice"] = {
+                "type": "function",
+                "function": {"name": self.tool_models[0].__name__},
+            }
+        else:
+            # several calls allowed, since one message can need more than one
+            # tool. Parallel calls are not held to strict schemas: one that
+            # does not match fails to parse and the whole call raises, so a
+            # caller offering several tools needs a fallback for that
+            payload["tool_choice"] = "auto"
+            payload["parallel_tool_calls"] = True
         return payload
 
-    def to_function_tools(self) -> ChatCompletionFunctionToolParam:
-        tool_name = self.tool_models[0].__name__
-        tool = pydantic_function_tool(
-            self.tool_models[0],
-            name=tool_name,
-        )
-        if not self.include_tool_description:
-            # Mutate in place: tool["function"] is a PydanticFunctionTool (a dict
-            # subclass carrying .model) and the openai lib keys auto-parsing off
-            # that type. Replacing the dict would silently downgrade
-            # parsed_arguments to a raw dict.
-            tool["function"].pop("description", None)
-        return tool
+    def to_function_tools(self) -> list[ChatCompletionFunctionToolParam]:
+        tools = []
+        for model in self.tool_models:
+            tool = pydantic_function_tool(model, name=model.__name__)
+            if not self.include_tool_description:
+                # Mutate in place: tool["function"] is a PydanticFunctionTool (a
+                # dict subclass carrying .model) and the openai lib keys
+                # auto-parsing off that type. Replacing the dict would silently
+                # downgrade parsed_arguments to a raw dict.
+                tool["function"].pop("description", None)
+            tools.append(tool)
+        return tools
 
 
 class OpenAIChatRequest(OpenAIBaseRequest):
-    """Support only sse stream no tool choice"""
+    """Text streamed to the browser as it arrives; no tools."""
 
     @model_validator(mode="after")
     def check_sse_stream(self) -> "OpenAIChatRequest":

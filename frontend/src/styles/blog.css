@@ -27,35 +27,6 @@
   }
 }
 
-@utility blog-header {
-  margin-bottom: 2rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--border-light);
-}
-
-@utility blog-title {
-  font-size: 1.875rem;
-  font-weight: 700;
-  color: var(--text-active);
-  margin-bottom: 1rem;
-  line-height: 1.25;
-  font-family: var(--font-urbanist);
-}
-
-@utility blog-meta {
-  display: flex;
-  align-items: center;
-  color: var(--text-inactive);
-  font-size: 0.875rem;
-  gap: 1rem;
-
-  @media (width < 640px) {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
-  }
-}
-
 @utility blog-content {
   max-width: none;
 

@@ -1,3 +1,5 @@
+"""Postgres settings (`POSTGRES_*`): connection, pool size and TLS mode."""
+
 from typing import Literal
 from urllib.parse import quote_plus
 

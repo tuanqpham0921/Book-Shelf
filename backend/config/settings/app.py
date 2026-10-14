@@ -1,3 +1,5 @@
+"""App settings (`APP_*`): name, environment, CORS origins and App Check."""
+
 from typing import Annotated, Literal
 
 from pydantic import field_validator
@@ -19,6 +21,21 @@ class AppSettings(BaseSettings):
     # check needs. The deploy recipe sets it; local dev leaves it unset, since
     # a Vite dev server has no reCAPTCHA key to earn a token with.
     FIREBASE_PROJECT_NUMBER: str | None = None
+
+    # The token budgets. Internal: they are logged, never recorded on the turn's
+    # trace or sent to the browser — a user is told a budget ran out, not its size.
+    # Defaulted so an .env without them (CI, an old local file) still boots.
+    #
+    # What a new session may spend, across every call of every turn. A real
+    # budget, unlike the per-call caps on OpenAISettings: it is spent down once
+    # per turn and never refills. The sessions table deliberately has no
+    # DEFAULT on remaining_tokens — this is the only place the number lives.
+    SESSION_TOKEN_BUDGET: int = 200_000
+    # What the whole site may spend in a rolling 24 hours, across every session.
+    # The session budget cannot bound this on its own: the session id comes from
+    # the URL, so a caller gets a fresh budget by making one up. Production only
+    # (token_budget.read_site_spend).
+    SITE_DAILY_TOKEN_BUDGET: int = 3_000_000
 
     model_config = SettingsConfigDict(
         env_file=FilesLocationConstants.ENV_FILE,

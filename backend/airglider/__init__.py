@@ -6,7 +6,7 @@ indirection is the whole point of the package boundary: the internal module
 layout stays free to move without touching a caller.
 
 The package imports nothing from its host application, so it can be lifted out
-as a standalone distribution. The one thing a host is expected to own is the
+as a standalone distribution. The one thing a host is expected to edit is the
 model price table in `airglider.src.config` — see that module's docstring.
 """
 

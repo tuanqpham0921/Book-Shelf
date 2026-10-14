@@ -7,8 +7,8 @@ func.similarity() must receive the raw Python string and let SQLAlchemy bind it
 as a parameter.
 
 Second, the deferred family's invariants — the ones that make a query
-composable into a WITH clause instead of runnable on its own — and, since
-2026-08-24, the one query that trades them away
+composable into a WITH clause instead of runnable on its own — and the one
+query that trades them away
 (`TestTheVectorQueryException`). The statements
 are derived on `DeferredBookQuery` itself (`count_stmt` / `score_stats_stmt` /
 `materialize_stmt` / `compose`), so everything here compiles SQL with no session
@@ -46,9 +46,8 @@ def _title(title: str = "Dune") -> DeferredBookQuery:
 
 
 def _intersected(*queries: DeferredBookQuery) -> DeferredBookQuery:
-    """What `Combine_Intersect` builds. Replaced `filter_query` on
-    2026-08-24: bounds reach an intersection as their own deferred query
-    (`_traits`) rather than as a `BookMetadataFilter` parsed by a filter node."""
+    """What `Combine_Intersect` builds: bounds reach an intersection as their
+    own deferred query (`_traits`)."""
     return DeferredBookQuery.compose(list(queries), op="and", label="intersected")
 
 
@@ -84,9 +83,8 @@ class TestNumericTraitsQuery:
     """The same predicates as any bound, with nothing to AND them onto — which
     is what makes bounds a search rather than a narrowing.
 
-    Since 2026-08-24 it is also the *only* reading of a bound: a bound that
-    narrows a subject is this query intersected with that subject's, rather than
-    a second `BookMetadataFilter` parsed inside a filter node."""
+    It is also the *only* reading of a bound: a bound that narrows a subject
+    is this query intersected with that subject's."""
 
     def test_bounds_become_the_whole_where_clause(self):
         compiled = _compiled_sql(_traits(min_pages=400, max_year=2000).stmt)
@@ -302,9 +300,8 @@ class TestScoreStatsStmt:
 class TestTheVectorQueryException:
     """The one query carrying an ORDER BY and a LIMIT, and what still works on it.
 
-    Nothing on `DeferredBookQuery` marks it — a tracked `capped` attribute and
-    a `compose()` guard were tried and removed on 2026-08-24 (see the class
-    docstring). So the exception lives in the compiled SQL, and that is where
+    Nothing on `DeferredBookQuery` marks it (see the class docstring), so the
+    exception lives in the compiled SQL, and that is where
     these check it.
     """
 
@@ -338,7 +335,7 @@ class TestTheVectorQueryException:
         assert "num_pages <= 300" in compiled
 
     def test_intersecting_it_keeps_cosine_order_reachable(self):
-        """The claim the whole 2026-08-24 change rests on.
+        """The claim that lets a bound narrow a similarity pool.
 
         `compose(op="and")` carries the one score through and
         `materialize_stmt` orders by it, so a bound narrows a similarity pool
@@ -426,8 +423,8 @@ class TestCompileSqlVectorElision:
 
     Built by hand rather than via `embedding_search_stmt` so the elision is
     tested against the pattern rather than against one builder's current
-    output — but that builder is the live caller, and since 2026-08-24 its
-    statement rides on a `DeferredBookQuery`, so this guard is what keeps a
+    output — but that builder is the live caller, and its statement rides on
+    a `DeferredBookQuery`, so this guard is what keeps a
     vector out of `chat_runs.query_sql`."""
 
     def _vector_stmt(self):

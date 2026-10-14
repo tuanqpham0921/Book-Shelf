@@ -1,3 +1,6 @@
+"""Health checks, open to everyone: `/health` and `/ping` say the process is up,
+`/ready` also checks the orchestrator and the database."""
+
 import logging
 import time
 
@@ -14,12 +17,13 @@ router = APIRouter(tags=["System"])
 @router.get("/health", include_in_schema=False)
 @router.get("/ping", include_in_schema=False)
 async def ping():
-    """Ping the backend - always returns ok if app is running."""
+    """Always ok while the process runs."""
     return {"status": "ok", "timestamp": time.time()}
+
 
 @router.get("/ready", response_model=HealthStatus)
 async def detailed_health_check(request: Request):
-    """Detailed health check with service status."""
+    """Ok when the orchestrator is built and the database answers; 503 otherwise."""
     orchestrator = getattr(request.app.state, "orchestrator", None)
     session_factory = getattr(request.app.state, "sqlalchemy_session_factory", None)
 

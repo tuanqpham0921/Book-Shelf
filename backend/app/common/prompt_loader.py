@@ -1,3 +1,5 @@
+"""Load a prompt file by its path under `app/`, e.g. `common/prompts/fill_schema_args.txt`."""
+
 import logging
 from pathlib import Path
 
@@ -7,8 +9,12 @@ logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(FilesLocationConstants.PROMPTS_DIR)
 
+# The generic argument parser, shared by the nodes without a prompt of their own
+FILL_SCHEMA_ARGS_PROMPT_PATH = "common/prompts/fill_schema_args.txt"
+
 
 def load_prompt(prompt_path: str) -> str:
+    """The prompt's text, stripped. Raises if the file is missing."""
     full_path = PROMPTS_DIR / Path(prompt_path)
     if not full_path.exists():
         raise FileNotFoundError(f"Prompt file not found: {full_path}")
@@ -17,6 +23,7 @@ def load_prompt(prompt_path: str) -> str:
 
 
 def format_prompt(prompt_path: str, **kwargs) -> str:
+    """The prompt with its `{placeholders}` filled. Raises on a missing one."""
     template = load_prompt(prompt_path)
     try:
         return template.format(**kwargs)

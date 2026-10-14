@@ -28,7 +28,7 @@ from app.domains.planjane import (
     MAX_SYSTEM_GOALS,
 )
 from app.domains.planjane.executor import build_goal_parse_request
-from app.domains.base_request import MAX_STRING_LENGTH, MIN_CONFIDENCE
+from app.common.field_types import MAX_STRING_LENGTH, MIN_CONFIDENCE
 from app.common.field_types import (
     INSTRUCTION_FALLBACK,
     MAX_INSTRUCTION_LENGTH,
@@ -170,7 +170,7 @@ class TestProcessParseResult:
         )
 
     def test_confidence_exactly_at_default_threshold_is_accepted(self, parse_wf):
-        # default confident_tuning=0.5; condition is `< 0.5`, so 0.5 itself passes
+        # MIN_GOAL_CONFIDENCE is 0.5 and the condition is `<`, so 0.5 itself passes
         goal = _make_goal(confidence=0.5)
         parse_wf.process_parse_result(_make_parse_result(goals=[goal]))
         assert len(parse_wf.result.accepted_goals) == 1
@@ -232,20 +232,6 @@ class TestProcessParseResult:
         assert len(parse_wf.result.accepted_goals) == 1
         assert len(parse_wf.result.refused_goals) == 1
 
-    def test_custom_confident_tuning_refuses_goal_below_threshold(self, parse_wf):
-        goal = _make_goal(confidence=0.6)
-        parse_wf.process_parse_result(
-            _make_parse_result(goals=[goal]), confident_tuning=0.7
-        )
-        assert len(parse_wf.result.refused_goals) == 1
-
-    def test_custom_confident_tuning_accepts_goal_above_threshold(self, parse_wf):
-        goal = _make_goal(confidence=0.8)
-        parse_wf.process_parse_result(
-            _make_parse_result(goals=[goal]), confident_tuning=0.7
-        )
-        assert len(parse_wf.result.accepted_goals) == 1
-
 
 class TestFinalizeResult:
     """`ok` is now exactly "did we produce a plan" — `bool(accepted_goals)`.
@@ -297,7 +283,6 @@ class TestRun:
         )
 
     async def test_accepted_goals_populated_from_tool_call(self, parse_wf):
-        # TODO: add make fail goals, and overload
         parse_result = _make_parse_result(goals=[_make_goal()])
         parse_wf.sse_stream.send_ui_loading = AsyncMock()
         parse_wf.run_llm_call = AsyncMock(

@@ -1,3 +1,5 @@
+"""Tests for `generate_chat_response`, the SSE generator behind the chat route."""
+
 import asyncio
 import json
 import logging
@@ -9,7 +11,6 @@ from app.api.routes.chat_message import generate_chat_response
 
 logger = logging.getLogger(__name__)
 
-# TODO: review this
 class _FakeSSEStream:
     def __init__(self, error=None):
         self.error = error

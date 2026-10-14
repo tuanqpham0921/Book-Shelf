@@ -1,3 +1,6 @@
+"""`OpenAIClient`: completions, embeddings and vector-store search, all behind
+one semaphore. Raises on failure; tracing is the app's job."""
+
 import asyncio
 import json
 import logging
@@ -21,8 +24,7 @@ class EmbeddingsResult(BaseModel):
 
     A model rather than bare vectors so the app's wrapping `@task`
     (`AppWorkflow.get_embeddings`) can promote `token_usage` — the same hook
-    `AssistantMessage` rides — because embedding spend used to vanish from the
-    run record entirely.
+    `AssistantMessage` rides — and embedding spend lands in the run record.
 
     `embeddings` is excluded from serialization: ~1KB of floats per text that
     no reader of a `chat_runs` row can use. Callers read it live.
@@ -35,6 +37,18 @@ class EmbeddingsResult(BaseModel):
         return {"num_texts": len(self.embeddings)}
 
 
+class FileSource(BaseModel):
+    """One chunk a vector store search returned, with the file it came from.
+
+    The client's own shape rather than the SDK's `VectorStoreSearchResponse`,
+    so callers get the chunk as one string and never import from `openai`."""
+
+    file_id: str
+    file_name: str
+    score: float
+    content: str
+
+
 class OpenAIClient(BaseLLMClient):
     def __init__(self, openai_settings: OpenAISettings):
         """Initialize the OpenAIClient."""
@@ -42,21 +56,27 @@ class OpenAIClient(BaseLLMClient):
             raise ValueError("OpenAI API key not set")
         
         self.client               = AsyncOpenAI(api_key=openai_settings.API_KEY)
-        self.base_model           = openai_settings.BASE_MODEL
         self.embedding_model      = openai_settings.EMBEDDING_MODEL
         self.embedding_dimensions = openai_settings.EMBEDDING_DIMENSIONS
-        self.max_input_tokens     = OpenAIConstants.MAX_INPUT_TOKENS
+        self.max_input_tokens     = openai_settings.MAX_INPUT_TOKENS
         
         self.semaphore = asyncio.Semaphore(openai_settings.MAX_CONCURRENCY)
+        self.vector_store_id = openai_settings.VECTOR_STORE_ID
     
     async def get_embeddings(self, input: list[str]) -> EmbeddingsResult:
         """Embed `input`. Raises through the caller on failure — no tracing
         here (see `BaseLLMClient`): the step envelope and the usage promotion
         happen on the app's wrapper, `AppWorkflow.get_embeddings`."""
-        if self.token_count(input) > self.max_input_tokens:
-            raise ValueError(
-                f"Input is too long. Max input tokens: {self.max_input_tokens}"
+        input_tokens = self.token_count(input)
+        if input_tokens > self.max_input_tokens:
+            # the cap goes to the log, not the message: an error message can
+            # reach the browser through the turn's trace
+            logger.warning(
+                "Embedding input of %s tokens is over the %s-token cap",
+                input_tokens,
+                self.max_input_tokens,
             )
+            raise ValueError("Input is too long")
 
         async with self.semaphore:
             response = await self.client.embeddings.create(
@@ -75,28 +95,53 @@ class OpenAIClient(BaseLLMClient):
             ),
         )
 
+    async def search_vector_store(
+        self,
+        query: str,
+        max_num_results: int = OpenAIConstants.VECTOR_STORE_MAX_RESULTS,
+    ) -> list[FileSource]:
+        """The chunks of the vector store closest to `query`, closest first.
+        Raises through the caller on failure, like `get_embeddings`."""
+        if not self.vector_store_id:
+            raise RuntimeError("No vector store is configured")
+
+        async with self.semaphore:
+            page = await self.client.vector_stores.search(
+                self.vector_store_id,
+                query=query,
+                max_num_results=max_num_results,
+            )
+        return [
+            FileSource(
+                file_id=r.file_id,
+                file_name=r.filename,
+                score=r.score,
+                content="".join(c.text for c in r.content),
+            )
+            for r in page.data
+        ]
+
+
     async def execute(self, req: BaseLLMRequest, save_payload: bool = False) -> AssistantMessage:
         """Execute the chat completion.
 
-        Typed at the base request, matching `BaseLLMClient.execute` — the body
-        only ever touches `to_payload()` and `sse_stream`, both of which the
-        base declares, and narrowing it here made every app-layer caller (which
-        holds a `BaseLLMRequest`) an error.
+        Typed at the base request, matching `BaseLLMClient.execute`: the body
+        only touches `to_payload()` and `sse_stream`, which the base declares.
         """
         payload = req.to_payload()
-        
-        # Serialized, because the bill is messages *and* tool schemas: the
-        # numeric-traits parse is 74% tool schema, so counting message content
-        # alone undercounts it ~4x. This overcounts by ~5% (JSON syntax) —
-        # the safe direction for a ceiling — and, unlike a hand-picked list of
-        # keys, cannot silently miss a component a new request type adds.
-        # (Passing `payload` itself counted its *keys*: 4 tokens.)
+
+        # NOTE: count the serialized payload, because the bill is messages *and*
+        # tool schemas (a numeric-traits parse is 74% tool schema). JSON syntax
+        # overcounts by ~5%, the safe direction for a ceiling.
         prompt_tokens = self.token_count(json.dumps(payload, default=str))
         if prompt_tokens > self.max_input_tokens:
-            raise ValueError(
-                f"Input is too long: {prompt_tokens} tokens. "
-                f"Max input tokens: {self.max_input_tokens}"
+            # the cap goes to the log, not the message (see get_embeddings)
+            logger.warning(
+                "Payload of %s tokens is over the %s-token cap",
+                prompt_tokens,
+                self.max_input_tokens,
             )
+            raise ValueError("Input is too long")
 
         async with self.semaphore:
             final_completion = await self._chat_stream(payload, req.sse_stream)
@@ -108,9 +153,12 @@ class OpenAIClient(BaseLLMClient):
         # symptom rather than the cause. This is the only layer that can see
         # both the finish reason and the cap that produced it.
         if choice.finish_reason == "length":
+            logger.warning(
+                "Hit max_completion_tokens (%s) before finishing",
+                payload.get("max_completion_tokens"),
+            )
             raise ValueError(
-                f"hit max_completion_tokens ({payload.get('max_completion_tokens')}) "
-                f"before finishing — the response is truncated"
+                "hit max_completion_tokens before finishing — the response is truncated"
             )
 
         response_message = choice.message
@@ -144,9 +192,7 @@ class OpenAIClient(BaseLLMClient):
         completion_details = usage.completion_tokens_details
 
         # `or 0` on the inner reads too: the details object can be present
-        # with its count still None. This raised a ValidationError for years —
-        # invisibly, because the client's old `@task` swallowed it into a
-        # failed envelope whose *default* usage was what tests then read.
+        # with its count still None
         return TokenUsage(
             model = model,
             total=usage.total_tokens,
@@ -168,7 +214,6 @@ class OpenAIClient(BaseLLMClient):
                     await sse_stream.send_chars(data=event.delta)
 
             final_completion = await stream.get_final_completion()
-            # print_json(final_completion.model_dump(), "Final Completion")
 
         return final_completion
 
@@ -201,12 +246,3 @@ class OpenAIClient(BaseLLMClient):
 
         # list of strings
         return sum(len(encoding.encode(item)) for item in text)
-    
-    async def ping(self):
-        """Ping the OpenAI API."""
-        
-        response = await self.client.responses.create(
-            model=self.base_model,
-            input="ping"
-        )
-        return response

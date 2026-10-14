@@ -24,9 +24,8 @@
 config/.env
 config/.env.*
 
-# SQL run against the database, never read by the app
+# the schema SQL, run against the database and never read by the app
 /db/init/
-/db/commands/
 
 **/__pycache__/
 **/*.py[cod]

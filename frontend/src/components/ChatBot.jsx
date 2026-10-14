@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { useImmer } from 'use-immer';
 import ChatInput from '@/components/chatbot/ChatInput'
 import ChatMessages from '@/components/chatbot/ChatMessages'
@@ -23,7 +23,6 @@ function openContainer(response) {
 }
 
 function ChatBot() {
-    const messagesEndRef = useRef(null)
     const activeAbortControllerRef = useRef(null)
 
     const [turn, setTurn] = useImmer([])
@@ -32,14 +31,6 @@ function ChatBot() {
     const [newMessage, setNewMessage] = useState('');
 
     const isStreaming = turn.length && turn[turn.length - 1].response.isStreaming;
-
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-
-    useEffect(() => {
-        scrollToBottom()
-    }, [turn, !isStreaming])
 
     async function handleSendMessage() {
         const trimmedMessage = newMessage.trim();
@@ -58,7 +49,7 @@ function ChatBot() {
             turnId: turnID,
             isUser: false,
             isLoading: true,
-            loadingText: 'Sending Request...',
+            loadingText: 'sending request...',
             isStreaming: true,
             sections: [
                 // Each section is a distinct unit of response.
@@ -68,7 +59,7 @@ function ChatBot() {
                 // { id: ..., type: 'books', books: [...] }
                 // { id: ..., type: 'diagram', mermaid: 'graph TD; ...' }
                 // { id: ..., type: 'task', title: 'Find books by Stephen King',
-                //   count: 4, open: true, closed: false, sections: [...] }
+                //   count: 4, open: false, closed: false, sections: [...] }
                 //   ^ the one nesting section: text/books streamed between a
                 //     task.start and its task.end land in its own list
             ],
@@ -106,11 +97,11 @@ function ChatBot() {
             for await (const event of parseSSEStream(stream)) {
                 // Check if request was aborted
                 if (abortController.signal.aborted) {
-                    console.log('Stream aborted by controller');
+                    // console.log('Stream aborted by controller');
                     break;
                 }
 
-                console.log("🔗 event: ", event.type);
+                // console.log("🔗 event: ", event.type);
 
                 // 🆔 Chat id is known before any work starts on the backend —
                 // grab it immediately so feedback can attach to this run even
@@ -129,6 +120,8 @@ function ChatBot() {
                     setTurn(draft => {
                         const last = draft[draft.length - 1];
                         last.response.chatId = event.data?.chat_id || null;
+                        // the turn's flattened trace, for the log button
+                        last.response.logRecord = event.data?.log_record || null;
                         last.response.isLoading = false;
                         last.response.loadingText = null;
                         last.response.isStreaming = false;
@@ -170,7 +163,7 @@ function ChatBot() {
                 /// 🔄 Loading message
                 if (event.type === 'ui.loading') {
                     setTurn(draft => {
-                        draft[draft.length - 1].response.loadingText = event.data || 'Thinking...';
+                        draft[draft.length - 1].response.loadingText = event.data || 'thinking...';
                         draft[draft.length - 1].response.isLoading = true;
                         draft[draft.length - 1].response.isStreaming = true;
                     });
@@ -224,9 +217,17 @@ function ChatBot() {
                     continue;
                 }
 
-                // 🗂️ TASK SECTIONS — one per executed node. Opens expanded so
-                // the user watches the step happen, then folds itself away on
-                // task.end, leaving the final answer as what's still visible.
+                // 📄 SOURCES — the docs a project answer came from, shown by
+                // a button beside the log button rather than in the reply
+                if (event.type === 'sources') {
+                    setTurn(draft => {
+                        draft[draft.length - 1].response.sources = event.data?.sources || [];
+                    });
+                    continue;
+                }
+
+                // 🗂️ TASK SECTIONS — one per executed node. Folded from the
+                // start, so the reply is what's visible; a click opens one.
                 if (event.type === 'task.start') {
                     setTurn(draft => {
                         const last = draft[draft.length - 1];
@@ -239,7 +240,7 @@ function ChatBot() {
                             collapsible: event.data.collapsible !== false,
                             count: null,
                             details: null,
-                            open: true,
+                            open: false,
                             closed: false,
                             ok: true,
                             sections: []
@@ -260,9 +261,6 @@ function ChatBot() {
                             // parsed args, SQL, cost — rendered above the
                             // task's preview
                             task.details = event.data.details ?? null;
-                            // stay open when there's nothing to fold away, or
-                            // when this node owns the answer
-                            task.open = !task.collapsible || task.sections.length === 0;
                         }
                     });
                     continue;
@@ -292,11 +290,6 @@ function ChatBot() {
                     });
                     continue;
                 }
-
-                console.log("----------------------------")
-                console.log(turn)
-                console.log("----------------------------")
-
             }
 
         } catch (err) {

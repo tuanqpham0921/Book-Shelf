@@ -1,3 +1,6 @@
+"""The async engine, its session factory, and the health check. One engine per
+process, built by `AppContext` and disposed on shutdown."""
+
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     AsyncEngine,
@@ -61,7 +64,6 @@ def get_async_engine(sqlalchemy_settings: SQLAlchemySettings) -> AsyncEngine:
             # what `pool_pre_ping` falls back to when it drops a dead one.
             "timeout": AppConfig.DATABASE_TIMEOUT,
         },
-        # echo=settings.debug, # Log SQL queries in debug mode
     )
 
     logger.info("Async engine created")

@@ -1,10 +1,15 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import { useRef, useEffect, useState, lazy, Suspense } from 'react'
 import { Copy, Check } from 'lucide-react';
 import { BookGridStack } from '@/components/book/BooksGrid';
 import TaskSection from '@/components/chatbot/TaskSection';
 import ChatFeedback from '@/components/chatbot/ChatFeedback';
+import { MarkdownPre } from '@/design-system/CodeBlock';
+
+// Fenced code in a reply gets the same highlighting as the task details
+const MARKDOWN_COMPONENTS = { pre: MarkdownPre };
 
 // Dynamic import for MermaidDiagram (large library)
 const MermaidDiagram = lazy(() => import('@/components/MermaidDiagram'));
@@ -42,7 +47,7 @@ function renderSection(section, responseId, sectionIndex) {
     if (section.type === 'text' && section.content) {
         return (
             <div key={key} className="message-bubble response markdown-container">
-                <Markdown remarkPlugins={[remarkGfm]}>{section.content}</Markdown>
+                <Markdown remarkPlugins={[remarkGfm, remarkBreaks]} components={MARKDOWN_COMPONENTS}>{section.content}</Markdown>
             </div>
         );
     }
@@ -70,7 +75,7 @@ function renderSection(section, responseId, sectionIndex) {
     // Error section
     if (section.type === 'error' && section.content) {
         return (
-            <div key={key} className="message-bubble text-[var(--accent-negative)] italic mt-2">
+            <div key={key} className="message-bubble text-[var(--accent-negative)] italic mt-2 whitespace-pre-wrap">
                 <span>{section.content}</span>
             </div>
         );
@@ -92,34 +97,59 @@ function ChatMessages({ messages, sessionId }) {
         setTimeout(() => setCopiedId(current => current === id ? null : current), 1500)
     }
 
-    const scrollToNewestTurn = () => {
-        if (messages.length > 0) {
-            const newestTurn = messages[messages.length - 1]
-            const turnRef = turnRefs.current[newestTurn.id]
-            if (turnRef) {
-                turnRef.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }
+    // Follow the reply as it streams, unless the reader scrolled up. A new
+    // turn starts pinned to the top instead — and since the newest turn is at
+    // least the list's height (`.newest`), "the bottom" is that same spot
+    // until the reply outgrows the view, so following only starts then.
+    const following = useRef(true)
+    const lastScrollTop = useRef(0)
+    const lastScrollHeight = useRef(0)
+
+    const scrollToBottom = () => {
+        const el = containerRef.current
+        el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    }
+
+    const handleScroll = () => {
+        const el = containerRef.current
+        if (el.scrollHeight - el.scrollTop - el.clientHeight < 40) {
+            following.current = true
+        } else if (el.scrollTop < lastScrollTop.current) {
+            // only the reader scrolls up — every scroll made here goes down
+            following.current = false
         }
+        lastScrollTop.current = el.scrollTop
     }
 
     useEffect(() => {
-        if (messages.length > 0) {
-            const newestTurn = messages[messages.length - 1]
-            if (newestTurn.user && newestTurn.user.id !== lastUserMessageId.current) {
-                lastUserMessageId.current = newestTurn.user.id
-                scrollToNewestTurn()
-            }
+        const el = containerRef.current
+        const newestTurn = messages.at(-1)
+        if (!el || !newestTurn) return
+
+        if (newestTurn.user && newestTurn.user.id !== lastUserMessageId.current) {
+            lastUserMessageId.current = newestTurn.user.id
+            following.current = true
+            turnRefs.current[newestTurn.id]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        } else if (
+            following.current &&
+            // grown past the view; scrolling sooner would cut the smooth
+            // scroll to the new turn short. Not only while streaming: the
+            // feedback row and the disclaimer land as the reply ends
+            el.scrollHeight > lastScrollHeight.current
+        ) {
+            scrollToBottom()
         }
+        lastScrollHeight.current = el.scrollHeight
     }, [messages])
 
     return (
-        <div ref={containerRef} className="chat-messages-container">
+        <div ref={containerRef} onScroll={handleScroll} className="chat-messages-container">
             {messages.map(({ id, user, response }, index) => (
                 <div
                     key={id}
                     data-turn-id={id}
                     ref={(el) => turnRefs.current[id] = el}
-                    className={`turn-container ${index === messages.length - 1 ? 'min-h-[95%]' : 'min-h-0'} `}
+                    className={`turn-container ${index === messages.length - 1 ? 'newest' : ''}`}
                 >
                     {/* User message */}
                     <div data-user-id={user.id}
@@ -160,16 +190,29 @@ function ChatMessages({ messages, sessionId }) {
                         {/* Feedback — once the reply is done and the backend
                             has named its run (the chat.id event) */}
                         {response.chatId && !response.isStreaming && (
-                            <ChatFeedback key={response.chatId} chatId={response.chatId} sessionId={sessionId} />
+                            <ChatFeedback key={response.chatId} chatId={response.chatId} sessionId={sessionId} logRecord={response.logRecord} sources={response.sources} />
                         )}
 
                         {/* AI disclaimer - show on last message */}
                         {index === messages.length - 1 && !response.isLoading && !response.isStreaming && (
                             (response.sections?.length > 0 || response.text) && (
-                                <div className="flex justify-end mt-5 mr-2">
-                                    <span className="text-xs text-[var(--text-muted)] italic">
-                                        AI can make mistakes. Please double-check responses.
-                                    </span>
+                                // The reply bubble's box at full width, so this ends where reply text does
+                                <div className="message-bubble response w-full text-left">
+                                    {/* opening it adds the list below the fold, so follow it down */}
+                                    <details
+                                        className="text-sm text-[var(--text-muted)]"
+                                        onToggle={(e) => e.currentTarget.open && scrollToBottom()}
+                                    >
+                                        <summary className="list-none [&::-webkit-details-marker]:hidden italic cursor-pointer hover:text-[var(--text-hover)]">
+                                            This assistant can make mistakes. Learn more
+                                        </summary>
+                                        <ul className="list-disc pl-5 mt-1 space-y-0.5">
+                                            <li>Limited eval tests</li>
+                                            <li>Basic data cleaning</li>
+                                            <li>Simple algorithm implementations</li>
+                                            <li>Ongoing improvements (no retry yet)</li>
+                                        </ul>
+                                    </details>
                                 </div>
                             )
                         )}

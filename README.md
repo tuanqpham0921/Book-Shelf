@@ -1,154 +1,94 @@
 # BookShelf
 
-An AI book recommender that **plans before it searches**. Instead of routing a
-message through a fixed graph, it asks an LLM to turn the message into an
-explicit set of goals — each one a typed capability with its own arguments —
-shows you that plan as a diagram, then executes it against a Postgres catalog of
-5,197 books using vector similarity, full-text search and structured filters.
+BookShelf is a chat assistant for a fixed book shelf. Ask it for books by an author, books on a subject, books like one you liked, or books under some page count, and it answers only from that shelf.
 
-**[Live demo](https://tuanqpham0921.web.app)** ·
-**[Video walkthrough](https://drive.google.com/file/d/1iMLYHvfMU0ECTITtlwgHNjXtJGePy7fE/view?usp=sharing)**
+**Try it:** [tuanqpham0921.web.app](https://tuanqpham0921.web.app). 
 
-[![CI](https://github.com/tuanqpham0921/Book-Recommender/actions/workflows/ci.yml/badge.svg)](https://github.com/tuanqpham0921/Book-Recommender/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+Besides finding books, the chatbot answers questions about BookShelf's own docs and design.
 
+## Why it is built this way
+
+BookShelf deliberately does not search the internet or rely on what the model already knows about books. Every answer comes from its own catalog, which brings three things:
+
+- **Control:** the model cannot recommend a book that isn't in the inventory or invent facts about one.
+- **A visible plan:** each message becomes a short plan of contained tasks, such as "find books by this author" or "keep the ones under 300 pages".
+- **Something to measure:** each task can be checked on its own, and the planner is graded against expected plans.
+
+## Transparent by design
+
+BookShelf tries to hide nothing about how it reached an answer. You can look through the AI rather than at it:
+
+- **The plan comes first,** drawn as a diagram before any task runs.
+- **Every task shows its work:** the arguments the model parsed from your message, the SQL it ran, how many books matched, the time and tokens it took, and a preview of what it found.
+- **The whole trace is yours:** the log button shows every step of the turn, and a project answer lists the docs it came from.
+- **Failures are explained, not hidden:** a step that found nothing or broke says so, and the reply tells you why.
+- **The code and docs are open,** and the chatbot answers questions about BookShelf from those same docs.
+
+```mermaid
+flowchart LR
+    M["message"] --> T["Triage<br/>plan it, answer it, or turn it away"]
+    T --> P["PlanJane<br/>the planner"]
+    P --> R["TaskRunner<br/>one contained task per goal"]
+    R --> W["reply<br/>written from the results"]
 ```
-"Find horror novels similar to It by Stephen King"
-"Books like Dune but under 300 pages"
-"Compare Dune and The Iliad based on themes and complexity"
-"I want something philosophical but easy to read"
-```
 
----
+## Vocabulary
 
-## How it works
+**A turn**, in the order it runs:
 
-Three layers, each visible in the trace the UI renders:
-
-| Layer | Question it answers |
+| Term | Meaning |
 |---|---|
-| **Triage** | Is this worth planning at all — small talk, out of scope, or a real ask? |
-| **PlanJane** | What are the goals? Emits typed goals from a tool catalog built out of the node registry, plus the Mermaid diagram you see before execution |
-| **TaskRunner** | Runs each goal against its executor, streaming one collapsible section per step |
+| **Triage** | decides whether a message needs a plan at all |
+| **Promoted tool** | a node triage can call directly, so a common ask skips the planner; an optimization, like triage's plan cache |
+| **PlanJane** | the planner: turns a message into goals, one node each, and draws the plan |
+| **Goal** | one step of a plan: a node, its instruction, and the goals it depends on |
+| **TaskRunner** | runs the goals in dependency order |
+| **Reply stage** | writes the answer from every goal's result, once per turn |
 
-Retrieval is **counts-first**: a node builds a query and counts it without
-fetching rows, so "2,429 books → 250 → 49" costs three `COUNT`s, not three
-result sets. Only a small preview is ever materialized. After every goal has
-run, one writing stage turns the results into prose with book cards attached to
-the paragraphs that mention them.
+**Nodes**, what the planner plans with:
 
-The full architecture — node taxonomy, the vertical-slice layout, the tracing
-library (`airglider`) — is in **[CLAUDE.md](CLAUDE.md)** and
-**[docs/](docs/README.md)**.
+| Term | Meaning |
+|---|---|
+| **Node** | one capability, run like a small agent: it reads an instruction, calls its own tools and returns a typed output |
+| **Tool** | a schema an LLM fills in one call; the atomic unit of LLM work |
+| **Catalog** | the set of nodes the planner can pick from |
+| **Spec** | a node's entry in the catalog: its name, the description the planner reads, and what goes in and comes out |
+| **Slice** | the folder holding one node: its spec, schemas and executor |
+| **`external.py`** | a slice's schemas for what goes into and out of the node |
+| **Executor** | the code that runs a node |
+| **Anchor / candidate** | books the user named, versus books that match a description |
 
----
+**Tracing:**
 
-## Live deployment
+| Term | Meaning |
+|---|---|
+| **airglider** | the tracing and execution engine every step runs under |
+| **Envelope** | airglider's record of one step: input, output, ok, timing, tokens and child steps |
 
-| Piece | Where | Deploy with |
-|---|---|---|
-| Frontend | Firebase Hosting — [tuanqpham0921.web.app](https://tuanqpham0921.web.app) | `make -C frontend deploy` |
-| Backend | Cloud Run `book-shelf-api`, `us-east5` | `make -C backend deploy` |
-| Database | [Neon](https://neon.com) — managed Postgres 18 + pgvector, `aws-us-east-2` | `make -C backend neon-bootstrap` |
+## Where to go
 
-Both deploy commands are self-contained: the backend recipe in
-[`backend/Makefile`](backend/Makefile) carries every flag of the live revision
-(CPU, concurrency, startup probe, service account, env), and the frontend's API
-URL lives in `frontend/.env.production`, so a fresh clone builds a bundle that
-points at the real backend. Secrets are **not** in either: the OpenAI key and
-the database password come from Secret Manager at runtime.
+| To | Read |
+|---|---|
+| run the backend, or deploy it | [backend/](backend/README.md) |
+| run the frontend, or deploy it | [frontend/](frontend/README.md) |
+| see how a request flows through the app | [backend/app/](backend/app/README.md) |
+| see what the planner is and how it plans | [PlanJane](backend/app/domains/planjane/README.md) |
+| see how every step is traced | [airglider](backend/airglider/README.md) |
+| learn where the books come from | [the dataset](backend/data/README.md) |
+| learn about the database and its schema | [db/](backend/db/README.md) |
+| run or read the evals | [evals/](backend/evals/README.md) |
+| read what V1 does, its limits and what comes next | [V1 release](docs/v1_release.md) |
+| see why things are built the way they are | [decisions](docs/decisions/README.md) |
+| see how evals, deployment, the database and new nodes are approached | [strategies](docs/strategies/README.md) |
+| find known bugs and small follow-ups | [backlog](docs/backlog.md) |
+| write or edit docs here | [documentation strategy](docs/strategies/documentation.md) |
 
-Runbooks: [docs/deployment.md](docs/deployment.md) (Cloud Run, staged) and
-[docs/deployment-neon.md](docs/deployment-neon.md) (the database).
+## Built with
 
----
+Python, FastAPI, PostgreSQL with pgvector and OpenAI on the backend; React and Vite on the frontend. It is deployed on Cloud Run, Neon and Firebase Hosting.
 
-## Quick start
-
-**Prerequisites:** Python 3.12 + [Poetry](https://python-poetry.org), Node 22+,
-Docker (for the local Postgres), an OpenAI API key.
-
-### Backend
-
-```bash
-cd backend
-poetry install
-cp config/.env.example config/.env   # then fill in OPENAI_API_KEY + POSTGRES_PASSWORD
-
-make postgres-start                  # Postgres 16 + pgvector; db/init/ builds the schema
-make dev                             # http://localhost:8000
-```
-
-The catalog itself is **not in the repo** — a dump of 5,197 books with their
-1024-dimension embeddings is ~67 MB, so `data/*.csv` and `data/backup/` are
-git-ignored. Two ways to get rows:
-
-- `make postgres-restore BACKUP_FILE=path/to/your.sql` — replay a dump you have.
-- `make dev-neon` — skip local data entirely and run the same server against the
-  Neon database, by layering `config/.env.neon` over `config/.env`.
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-make dev                             # http://localhost:3000, talks to :8000
-```
-
-No env file to create: `.env.development` already points at the local backend.
-To override it, add a git-ignored `.env.local`.
-
-### Tests
-
-```bash
-make -C backend tests-all            # unit + integration + the airglider library
-make -C frontend lint                # ESLint
-```
-
-Integration tests run the real FastAPI app over an ASGI transport with the
-stores faked, so they need no database and no OpenAI key. CI runs both suites
-plus a production frontend build on every push.
-
----
-
-## Project structure
-
-```
-backend/
-  app/
-    api/            FastAPI routes and request/response schemas
-    common/         messages, SSE stream, RequestContext
-    domains/        one folder per capability (vertical slices) + the book domain
-    orchestration/  Orchestrator, Triage, TaskRunner, run recorder
-    registry.py     the node registry — every lookup answers from SPECS
-  airglider/        standalone tracing/result library (own tests, no app imports)
-  clients/          OpenAI client, tracing-free by design
-  config/           pydantic-settings + constants (.env lives here, git-ignored)
-  db/               async engine, SQLAlchemy models, stores, init SQL
-  evals/            suite definitions, runner, reports
-  Dockerfile        what Cloud Run builds
-frontend/
-  src/
-    api.js          the only backend surface
-    components/     chat, book cards, mermaid diagram, review queue
-    pages/          BookShelfPage (shell), ChatReviewPage
-    design-system/  buttons, modals, dropdowns
-  public/blog-posts/  static markdown for the /blog view
-docs/               roadmap, backlog, eval strategy, design records, runbooks
-```
-
----
-
-## Status
-
-Public pre-release. Conversation is single-turn: each message is planned and
-answered statelessly. What is deliberately not done yet — an auth gate on the
-review endpoints, turning run recording back on in production, rate limiting —
-is tracked in [docs/backlog.md](docs/backlog.md) and Stage 4 of
-[docs/deployment.md](docs/deployment.md).
-
----
+Claude Code for developement.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Feedback welcome: tuanqpham0921@gmail.com
+MIT, see [LICENSE](LICENSE). Feedback is welcome at tuanqpham0921@gmail.com.

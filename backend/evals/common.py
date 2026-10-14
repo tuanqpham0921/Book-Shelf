@@ -1,9 +1,15 @@
-"""Shared plumbing for the two eval report generators.
+"""Shared plumbing for the eval scripts.
 
-`report_system_goals.py` answers *did the planner pick the right nodes*,
-`report.py` answers *what did the run cost*. Both read the same
+`planjane/report_system_goals.py` answers *did the planner pick the right
+nodes*, `planjane/report.py` answers *what did the run cost*. Both read the same
 test_runs ⋈ chat_runs join and the same suite JSONs, so the fetching, filtering
-and CLI live here rather than being kept in sync twice.
+and CLI live here rather than being kept in sync twice. The formatting helpers
+at the bottom (`truncate`, `current_git_sha`, `report_header`) serve the
+triage eval too.
+
+Sits at `evals/` rather than beside the scripts that use it: a script puts its
+own folder first on sys.path, and a `common.py` there would shadow the
+backend's `common` package.
 
 Everything below the DB shim is pure and unit-testable.
 """
@@ -14,7 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-SUITES_DIR = Path(__file__).parent / "suites"
+SUITES_DIR = Path(__file__).parent / "planjane" / "suites"
 DEFAULT_OUTPUT_DIR = Path(__file__).parent / "results"
 
 

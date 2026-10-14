@@ -1,71 +1,47 @@
 # frontend/src
 
-Single-page React app (React 19 + Vite). All routes (`/`, `/blog`, `/review`) render
-`BookShelfPage`, which maps the path to a view; views are lazy-loaded and stay
-mounted once visited.
-
-## Map
+`frontend/src` is the code of BookShelf's React app. Every route (`/`, `/bookshelf`, `/airglider`, `/planjane`, `/review`) renders `BookShelfPage`, which maps the path to a view: the chat, one about page each, or the review queue. Views load lazily and stay mounted once visited.
 
 | Path | What it is |
 |---|---|
-| `api.js` | **The only backend surface.** `VITE_API_URL` comes from `.env.development` / `.env.production` at build time; wraps fetch with a 120s timeout and attaches the Firebase App Check token (`X-Firebase-AppCheck`) when the build carries `VITE_RECAPTCHA_SITE_KEY` — production only. The backend doesn't serve the review routes in production, so `/review` works only against a local backend (`make dev-neon`); the chat's own feedback (`sendFeedback`) is served everywhere. One function per live endpoint — the three clients for endpoints that no longer exist (`stopChatStream`, `getTaskPlanDiagram`, `getRecommendedBooks`) were deleted 2026-09-19 |
-| `components/ChatBot.jsx` | Chat view: sends messages, consumes the SSE stream, builds ordered response sections (`text`/`books`/`diagram`/`error`/`task`) in `use-immer` state |
-| `components/chatbot/` | `ChatInput`, `ChatMessages` (react-markdown + remark-gfm rendering, plus `ChatFeedback` under each finished reply), `ChatFeedback` (thumbs up/down and a popup for categorized issue/praise comments, the review page's comment shape; every save sends the thumb and the whole comment list through `api.sendFeedback`, because the backend replaces the row; state is in memory for the page's life), `TaskSection` (one collapsible step: an executed node, or the plan diagram) |
-| `components/MermaidDiagram.jsx` | Renders the task-plan diagram (`securityLevel: 'strict'`, pan/zoom via `@panzoom/panzoom`); shared with the review page |
-| `components/book/` | `BookCard`, `BookCover`, `BookDetailModal`, `BooksGrid` |
-| `pages/ChatReviewPage.jsx` | Review queue over recorded chat runs: expand a run → goals, goal diagram, raw envelopes; file one review per run (`PUT /feedback/review`). The diagram is read out of the `planner` JSONB envelope (`output.diagram`), not the promoted `mermaid` column. The second "parsed arguments" diagram was dropped on 2026-08-10 when PlanJane became the only backend renderer — it had also been reading the wrong envelope, so it never displayed |
-| `pages/BookShelfPage.jsx` | Shell: header, view switching |
-| `design-system/` | Button, Badge, Modal, Dropdown, IconButton, ColorModeToggle, … |
-| `hooks/`, `utils/`, `styles/`, `data/` | Support code; split CSS lives in `styles/` |
+| `api.js` | every backend call, one function per endpoint; a 120s timeout, plus the App Check header in production |
+| `utils.js` | `parseSSEStream`, which turns the chat response into events |
+| `components/ChatBot.jsx` | the chat: sends a message and builds the turn's sections from the stream |
+| `components/chatbot/` | the input box, the message list, each step's collapsible `TaskSection`, and `ChatFeedback` (thumbs, comments, the turn's log and its sources) |
+| `components/book/` | book cards, covers, the detail modal and the grid |
+| `components/DisplayPanel.jsx` | picks the view for the path, loads it lazily and keeps it mounted |
+| `components/MermaidDiagram.jsx` | the plan diagram, shared with the review page |
+| `components/BlogPost.jsx` | the about pages: markdown from `public/about/<page>/README.md`, with no header of its own |
+| `pages/ChatReviewPage.jsx` | the review queue over recorded turns, one review per turn |
+| `design-system/` | buttons, badges, modals, dropdowns, the color-mode toggle and `CodeBlock` |
+| `data/` | the chat's suggested prompts and the feedback categories |
+| `styles/` | the CSS, split by area; colors are tokens in `tokens.css` |
 
-## SSE events the chat handles
+The backend doesn't serve the review routes in production, so `/review` works only against a local backend (`make dev-neon` in `backend/`). The chat's own feedback works everywhere.
 
-`chat.id`, `ui.loading`, `content.delta`, `book_card`, `mermaid.diagram`,
-`task.start`, `task.end`, `step.complete`, `error`, `complete` — handled in
-`ChatBot.jsx` via `parseSSEStream` from `utils/`.
+## How a turn renders
 
-**`book_card.data` is pinned by `BookOut`** (`backend/app/api/schemas/external.py`):
-`isbn13`, `title`, `authors`, `categories`, `published_year`, `num_pages`,
-`average_rating`, `description`, `thumbnail`. That is the whole payload — the
-backend's internal `Book` model carries more catalog columns, and they are
-dropped at this boundary rather than shipped and ignored. A component reading
-a field outside that list gets `undefined`, so adding one means adding it to
-`BookOut` too.
+`ChatBot.jsx` reads these SSE events: `chat.id`, `ui.loading`, `content.delta`, `book_card`, `mermaid.diagram`, `task.start`, `task.end`, `sources`, `step.complete`, `error`, `complete`. It turns them into a list of sections, `text`, `books`, `diagram`, `error` or `task`, kept in `use-immer` state.
 
-**Sections are flat except for tasks.** `task.start` / `task.end` bracket one
-executed node, and `content.delta` / `book_card` arriving between them nest
-inside that task's own `sections` list (`openContainer()` in `ChatBot.jsx`)
-rather than landing at the top level. That is the one level of nesting in the
-tree — a task holds text and books, never another task — so `renderSection()`
-in `ChatMessages.jsx` recurses exactly once. The plan diagram is streamed
-before any task opens, which is why it stays outside them — though it renders
-*as* one, a `TaskSection` titled by the frontend (PlanJane sends no heading),
-so the plan reads as the first step of the list.
+```
+turn
+├─ diagram            the plan, drawn as the first step, starts open
+├─ task               one per goal, starts folded
+│  ├─ details         args, SQL, cost (from task.end)
+│  └─ text / books    "Preview · N of M books"
+└─ text / books       the reply, always open (collapsible: false)
+```
 
-The pair is emitted by `TaskRunnerWorkflow`, not by individual executors, and
-closed in a `finally` — a node that raises still closes its section.
-`task.start`'s `title` is the goal's instruction, the planner's line for that
-step. `task.end` carries the `count` that stamps the header after the fact,
-since a section opens before the node knows how many books it matched, and
-`details` — the `args` its node parsed, its `sql`, `error_message`,
-`duration` and token counts (`task_details()` in
-`backend/app/orchestration/task_runner.py`, empty keys dropped). `TaskSection`
-renders them before the task's own sections, which sit under a `Preview · N of
-M books` label when there are cards — so a step reads: how it was done, then
-the sample of what it matched. Sections open expanded and fold
-themselves on `task.end`, so the finished turn shows the answer rather than the
-work; `collapsible: false` stays open, and a user click pins the state.
+- **Tasks are the only nesting.** `task.start` and `task.end` bracket one goal, and anything streamed between them lands in that task's `sections`. A task never holds another task, so `renderSection()` in `ChatMessages.jsx` recurses once.
+- **`task.start`'s title is the goal's instruction.** `task.end` brings the book count for the header, plus `details`: the parsed `args`, `sql`, `error_message`, duration and tokens. `TaskSection` shows those first, then the preview cards.
+- **The reply is the turn's answer, so it stays open.** Every step folds, so the turn shows the answer rather than the work.
+- **`sources`** follows a reply that drew on project facts. The Sources button beside the log button opens them.
+- **`complete`** carries the turn's flattened trace, which the log button shows.
 
-**One section per turn sets `collapsible: false`: the generation node's.** Every
-other node's cards are working material, and the prose written from them is what
-the turn is for — so the recommendation section folds like the rest now that
-something downstream writes a reply about it. A turn whose plan has no
-generation goal (a plain lookup) folds everything, which is a real gap rather
-than a styling choice: see `backend/app/domains/books/write_recommendations/`.
+**A book card shows only what `BookOut` sends** ([backend/app/api/schemas/external.py](../../backend/app/api/schemas/external.py)). A field outside it is `undefined` here, so showing a new one means adding it to `BookOut` first.
 
 ## Conventions
 
-- Complex nested state uses `use-immer`.
-- Review categories in `ChatReviewPage.jsx` must match the backend's
-  `FeedbackCategory` literal (`backend/app/api/schemas/external.py`).
-- Reduce features rather than add them — V1 direction (docs/roadmap.md).
+- Nested state uses `use-immer`.
+- Backend calls go through `api.js` and nowhere else.
+- `data/feedbackCategories.js` must match the backend's `FeedbackCategory`.

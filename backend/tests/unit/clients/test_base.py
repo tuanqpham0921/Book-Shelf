@@ -1,3 +1,5 @@
+"""Tests for clients/base.py — the provider-neutral client and request bases."""
+
 import pytest
 from typing import Any
 from clients.messages import UserMessage
@@ -15,7 +17,6 @@ class ConcreteClient(BaseLLMClient):
     async def execute(self, *_): ...
     async def close(self): ...
     def token_count(self, text): return len(text)
-    async def ping(self): return True
 
 
 USER_MSG = UserMessage(content="hello")
@@ -23,18 +24,18 @@ USER_MSG = UserMessage(content="hello")
 
 class TestBaseLLMRequest:
     def test_instantiates_with_required_fields(self):
-        req = ConcreteRequest(prompt="p", messages=[USER_MSG], model="gpt-4")
+        req = ConcreteRequest(prompt="p", prompt_path="p.txt", messages=[USER_MSG], model="gpt-4")
         assert req.prompt == "p"
         assert req.model == "gpt-4"
         assert req.sse_stream is None
 
     def test_to_payload_called(self):
-        req = ConcreteRequest(prompt="p", messages=[USER_MSG], model="gpt-4")
+        req = ConcreteRequest(prompt="p", prompt_path="p.txt", messages=[USER_MSG], model="gpt-4")
         assert req.to_payload() == {"model": "gpt-4"}
 
     def test_cannot_instantiate_abstract(self):
         with pytest.raises(TypeError):
-            BaseLLMRequest(prompt="p", messages=[USER_MSG], model="gpt-4")
+            BaseLLMRequest(prompt="p", prompt_path="p.txt", messages=[USER_MSG], model="gpt-4")
 
 
 class TestBaseLLMClient:

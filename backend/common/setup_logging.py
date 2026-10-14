@@ -1,4 +1,4 @@
-"""Bootstrap logging for the application."""
+"""Logging setup: Rich console output in local dev, plain lines elsewhere, plus a log file in development."""
 
 import logging
 import os
@@ -6,9 +6,6 @@ import sys
 from pathlib import Path
 from rich.logging import RichHandler
 
-"""
-DEBUG, INFO, WARNING, ERROR, CRITICAL
-"""
 PLAIN_LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s:%(funcName)s:%(lineno)d - %(message)s"
 
 FILE_LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(funcName)s:%(lineno)d | %(message)s"

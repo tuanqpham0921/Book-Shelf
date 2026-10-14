@@ -1,3 +1,5 @@
+"""Tests for common/utils/json_handler.py — saving, loading and printing JSON."""
+
 import json
 import builtins
 from enum import Enum

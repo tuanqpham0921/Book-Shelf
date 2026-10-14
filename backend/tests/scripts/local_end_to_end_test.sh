@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# End-to-end smoke test on this machine: unit tests, a fresh compose Postgres
+# seeded from data/backup/books.sql, the API, and one chat message.
+# NOTE: wipes the compose Postgres volume (make docker-clean-all) at both ends.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,7 +28,7 @@ make docker-clean-all
 make postgres-start
 sleep 5
 
-LOG_LEVEL=INFO poetry run python -m db.ingestion.main
+make postgres-restore-books
 
 LOG_LEVEL=INFO poetry run uvicorn app.main:app --host 127.0.0.1 --port 8000 &
 APP_PID=$!

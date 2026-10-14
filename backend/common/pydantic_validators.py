@@ -1,3 +1,5 @@
+"""Lenient pydantic validators for LLM-filled fields: out-of-range or malformed values are clamped or replaced, never rejected."""
+
 from pydantic import BeforeValidator
 
 def bounded_float(min_float: float, max_float: float) -> BeforeValidator:

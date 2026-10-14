@@ -1,9 +1,15 @@
+"""Retrieve_by_Lexical_Traits slice: exports the node's `SPEC`."""
+
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindByLexicalTraitsExecutor
-from .external import FindByLexicalTraitsInput, FindByLexicalTraitsOutput
+from .external import (
+    FindByLexicalTraitsInput,
+    FindByLexicalTraitsOutput,
+    FindByLexicalTraitsRetrieval,
+)
 from .labels import FindLexicalTraitsNodeTypeEnum
-from .schemas import FindByLexicalTraitsArgs, FindByLexicalTraitsRetrieval
+from .tools import FindByLexicalTraitsArgs
 
 SPEC = NodeSpec(
     node_type=FindLexicalTraitsNodeTypeEnum.REQUEST.value,

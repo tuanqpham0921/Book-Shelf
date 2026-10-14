@@ -1,16 +1,9 @@
 # -------------------------------------------------------------------
-# Eval-run commands — moved here from backend/Makefile.
-#
-# Pulled into the root Makefile via `include makefile`, so `make query-suite-all`
-# etc. work from backend/. Every path below is anchored to $(EVALS_DIR) rather
-# than to cwd, so the same targets also work invoked from evals/ directly
-# (`make -f makefile query-suite`). They used to be bare relative paths, which
-# silently only worked from evals/ despite the root Makefile documenting the
-# opposite.
-#
-# The postgres dump targets this flow needs (README step 2) already live in the
-# root Makefile: `make postgres-dump-chat-runs` / `make postgres-dump-feedback`
-# (they used to be duplicated here — dropped to avoid override warnings on include).
+# Eval-run commands. The root Makefile includes this file, so every target
+# runs from backend/; each path is anchored to $(EVALS_DIR), so they also run
+# from evals/ (`make -f makefile query-suite`). The postgres dump targets a
+# campaign needs (postgres-dump-chat-runs, postgres-dump-feedback) are in the
+# root Makefile.
 # -------------------------------------------------------------------
 
 # Absolute path to this file's directory, resolved at parse time. Must stay
@@ -36,9 +29,9 @@ ARGS ?=
 LIMIT ?=
 SLEEP ?=
 SMOKE_LIMIT ?= 3
-SUITES_DIR := $(EVALS_DIR)suites
+SUITES_DIR := $(EVALS_DIR)planjane/suites
 LOG_DIR ?= $(EVALS_DIR)logs/query_suites
-RUN_SUITE = poetry run python -u $(EVALS_DIR)run_suites.py --base-url $(BASE_URL) \
+RUN_SUITE = poetry run python -u $(EVALS_DIR)planjane/run_suites.py --base-url $(BASE_URL) \
 	$(if $(LIMIT),--limit $(LIMIT)) $(if $(SLEEP),--sleep $(SLEEP)) $(ARGS) --suite
 
 # run the base query suite against a running backend (make dev first)
@@ -67,7 +60,7 @@ query-suite-stress:
 	$(RUN_SUITE) $(SUITES_DIR)/query_suite_stress.json 2>&1 | tee $(LOG_DIR)/stress_$$(date +%Y%m%d_%H%M%S).log
 
 # run the extended-catalog scaling suite (ids 101+)
-# its tool schemas are still parked in playground/app_mock, not wired into the registry
+# NOTE: its nodes exist only in playground/app_mock, so most cases fail today
 .PHONY: query-suite-extended
 query-suite-extended:
 	@mkdir -p $(LOG_DIR)
@@ -135,14 +128,14 @@ campaign_out = $(if $(CAMPAIGN),--output $(CAMPAIGN_DIR)/$(1))
 # per case by default; forward flags via ARGS, e.g. ARGS="--all".
 .PHONY: suite-goals
 suite-goals:
-	poetry run python $(EVALS_DIR)report_system_goals.py $(call campaign_out,system_goals.md) $(ARGS)
+	poetry run python $(EVALS_DIR)planjane/report_system_goals.py $(call campaign_out,system_goals.md) $(ARGS)
 
 # COST — tokens, dollars, latency and failures per run, plus a per-model spend
 # split. No expectation checking. Always prints to stdout; also saves when
 # CAMPAIGN (or an explicit --output) is given.
 .PHONY: suite-stats
 suite-stats:
-	poetry run python $(EVALS_DIR)report.py $(call campaign_out,report.md) $(ARGS)
+	poetry run python $(EVALS_DIR)planjane/report.py $(call campaign_out,report.md) $(ARGS)
 
 # both post-processors in one go — the usual move after a campaign
 .PHONY: suite-reports
@@ -155,7 +148,21 @@ suite-reports: suite-goals suite-stats
 # ARGS="--model gpt-5-nano".
 .PHONY: tools-catalog
 tools-catalog:
-	poetry run python $(EVALS_DIR)tools_catalog.py $(call campaign_out,tools_catalog.md) $(ARGS)
+	poetry run python $(EVALS_DIR)planjane/tools_catalog.py $(call campaign_out,tools_catalog.md) $(ARGS)
 
-# TODO: make the path to variable names
-# make a better run make, so it dumps and copy the logs over
+# TRIAGE — the router alone: each case in triage/suites/route_query.json goes
+# through triage's own request builder straight to OpenAI, and is graded on
+# which tool it picked, or whether it replied in text. No backend and no
+# database, but real gpt-5-mini calls. Debug a few with ARGS="--ids 101 409".
+.PHONY: eval-routing
+eval-routing:
+	poetry run python $(EVALS_DIR)triage/eval_route_query.py $(call campaign_out,route_query.md) $(ARGS)
+
+# VALIDATION — the message check alone: each case in
+# validation/suites/validate_message.json goes through the check's own request
+# builder straight to OpenAI, and is graded on which fixed reply the user would
+# get. No backend and no database, but real gpt-6-luna calls.
+# Debug a few with ARGS="--ids 1 2".
+.PHONY: eval-validation
+eval-validation:
+	poetry run python $(EVALS_DIR)validation/eval_validate_message.py $(call campaign_out,validate_message.md) $(ARGS)

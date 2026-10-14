@@ -1,9 +1,10 @@
+"""Retrieve_by_Author slice: exports the node's `SPEC`."""
+
 from app.domains.node_spec import NodeSpec, NodeTier
 
 from .executor import FindByAuthorExecutor
+from .external import FindByAuthorInput, FindByAuthorOutput, FindByAuthorRetrieval
 from .labels import FindAuthorNodeTypeEnum
-from .schemas import FindByAuthorRetrieval
-from .external import FindByAuthorInput, FindByAuthorOutput
 
 SPEC = NodeSpec(
     node_type=FindAuthorNodeTypeEnum.REQUEST.value,

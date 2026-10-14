@@ -1,4 +1,5 @@
-# Common utility function for handling json
+"""JSON and text file helpers for debugging and dev logs: print, save and load."""
+
 import json
 import logging
 from pathlib import Path

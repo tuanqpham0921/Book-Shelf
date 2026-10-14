@@ -1,10 +1,12 @@
+"""`SessionStore`: the per-session token budget."""
+
 from datetime import timedelta
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import AppConfig
+from config import settings
 from db.schema import SessionModel
 from .base_store import BaseStore
 
@@ -47,7 +49,7 @@ class SessionStore(BaseStore[SessionModel]):
             insert(SessionModel)
             .values(
                 session_id=session_id,
-                remaining_tokens=AppConfig.SESSION_TOKEN_BUDGET,
+                remaining_tokens=settings.app.SESSION_TOKEN_BUDGET,
             )
             .on_conflict_do_update(
                 index_elements=[SessionModel.session_id],
@@ -98,7 +100,7 @@ class SessionStore(BaseStore[SessionModel]):
         stmt = select(
             func.coalesce(
                 func.sum(
-                    AppConfig.SESSION_TOKEN_BUDGET - SessionModel.remaining_tokens
+                    settings.app.SESSION_TOKEN_BUDGET - SessionModel.remaining_tokens
                 ),
                 0,
             )

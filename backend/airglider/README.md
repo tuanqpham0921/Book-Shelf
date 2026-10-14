@@ -1,256 +1,66 @@
 # airglider
 
-Result envelopes and workflow scaffolding for async pipelines: every step
-returns the same envelope, nothing crashes silently, and a finished run is one
-tree you can persist, summarize, and cost.
+airglider is a small tracing library for async Python pipelines. Every unit of work returns the same result envelope, a failure never crashes the caller silently, and a finished run is one tree you can store, summarize and price. It imports nothing from BookShelf, so it can be lifted out as its own package.
 
-## Use it
+## The envelope
 
-```python
-from airglider import OperationResult, Workflow, task
+Every `@task` and every `Workflow` returns an `OperationResult`:
+
+```
+OperationResult
+├── id, parent_id, name, description
+├── ok              ran to completion
+├── timing          start_time, duration
+├── input           the call's arguments
+├── response        result (the payload) + output_type
+├── details         free-text notes
+├── token_usage     counts, per-model split, cost_usd
+├── runtime_error   type, message, traceback (None when ok)
+└── steps           child envelopes, nested the same way
 ```
 
-`airglider/__init__.py` is the entire public surface. **Import from the package
-root, never from `airglider.src.*`** — the internal layout is deliberately free
-to move. A symbol that is not re-exported in `__init__.py` is not API.
+Fields and methods: [src/schemas/](src/schemas/README.md).
 
-| Import | What it is |
-|---|---|
-| `Workflow` | base class for a multi-step async process — subclass, override `run()` |
-| `task` | decorator for a single async function |
-| `StepFailure` | control-flow signal raised by `OperationResult.unwrap` when a step fails |
-| `OperationResult` | the one envelope: `ok`, `input`, `details`, `runtime_error`, `timing`, `token_usage`, `parent_id`, `steps` — plus `add_step` / `unwrap` / `flatten` / `to_span` |
-| `parent_scope`, `current_parent`, `add_details` | the nesting ContextVar, and writing to the envelope currently running (see below) |
-| `Response`, `Time` | the envelope's payload and timing sub-models |
-| `TokenUsage`, `ModelUsage` | token counts, per-model split, and USD cost |
-| `RuntimeErrorInfo` | serializable exception record |
-| `cost_of`, `MODEL_PRICES`, `PRICES_CHECKED_ON`, … | the price table (see below) |
-| `to_serializable`, `remove_empty_values`, `strip_zero_token_usage`, `now_iso`, `uuid_8` | serialization + identity helpers |
+**How to read one:** `ok` means the step **ran to completion**, not that its result is good. A step that found nothing is `ok=True` with an empty payload. Whoever reads the payload decides whether it is enough.
 
-## The rules
+| What happened | `ok` | `runtime_error` |
+|---|---|---|
+| Ran, any result (even empty) | `True` | `None` |
+| Raised: the step couldn't proceed | `False` | the exception |
+| Stopped because a step it needed failed (`unwrap`) | `False` | `StepFailure` |
+| Cancelled | `False` | `CancelledError` |
 
-The contract, as implemented. Everything after this section is the reasoning
-behind one or another of these.
+So a *business* failure ("no anchor books to compare") is the producer raising, and lands in `runtime_error` exactly like a crash. There is no third state where `ok=False` carries no reason.
 
-### What you are in, and what you get back
+## Workflow and @task
 
-1. **Instrumentation is opt-in, and it is what puts you in the tree.** A `@task`
-   or a `Workflow` gets an envelope, a parent, timing and a spot in `steps`. A
-   plain `async def` gets none of that — it is an ordinary call. Nothing is
-   wrong with that; instrument what you want to be able to read later.
-2. **An uninstrumented callee that raises fails its caller.** With no envelope of
-   its own, the exception travels to the nearest enclosing `@task`/`Workflow`,
-   where it is stamped as *that* unit's `runtime_error`. So the trace says the
-   caller failed and names the exception, but shows no step for where it
-   happened. That is the cost of not instrumenting, and the reason to.
-3. **Calling one always returns an envelope; it does not raise.** `record_span`
-   swallows `Exception` — the envelope's `ok`/`runtime_error` *is* the report,
-   which is what keeps a failed unit from crashing the one above it.
-   `asyncio.CancelledError` is the exception: stamped, then re-raised, because
-   swallowing it would stop the actual cancellation.
-4. **A `@task` returns its payload — the envelope is the decorator's.**
-   Returning an `OperationResult` raises `TypeError`. Use
-   `(await step).unwrap()` to pass a nested step's payload through, `await step`
-   to inspect it, `add_details(...)` to annotate.
-5. **`Workflow` vs `@task` is scaffolding, not permission.** A workflow gives you
-   a declared output type, a class to hang state on, and (in this app) SSE
-   helpers. Either may call either, in any nesting; the tree comes out right
-   without anything threaded through a signature.
+Both produce the same envelope and can call each other in any nesting. The tree builds itself: whatever runs inside a unit of work becomes one of its `steps`.
 
-### Who says what about `ok`
+```mermaid
+flowchart TD
+    W[Workflow: FindBooks] --> T1["@task: count_books"]
+    W --> W2[Workflow: RankBooks]
+    W2 --> T2["@task: embed"]
+    W2 --> T3["@task: search"]
+```
 
-6. **`ok` means "ran to completion".** It is not a content judgment. A query that
-   matched nothing, a planner that produced zero goals, a filter that removed
-   everything — all `ok=True`. They did what their input asked.
-7. **The producer judges completeness; the consumer judges sufficiency.** "Did I
-   fill in what I promised, given the input I got?" is the producer's question.
-   "Is what I got enough for what I am doing?" is the consumer's, and it is
-   answered by reading the payload — never by asking the producer to have
-   encoded it in `ok`.
-8. **A producer that cannot complete raises.** It does not set `ok=False` and
-   return a payload-less envelope. Raising is what puts the reason in
-   `runtime_error`; setting the flag by hand leaves the consumer stopped with
-   nothing underneath explaining why.
-9. **Therefore `ok=False` ⟺ `runtime_error is not None`.** `unwrap` still handles
-   the other combination, and says so in the message — see the gap below.
+- **`@task`** wraps one async function. It returns its payload, and the decorator builds the envelope.
+- **`Workflow`** is a class for a multi-step process: subclass it, declare an output type and override `run()`. Use it when you want a typed output or somewhere to keep state. A host app usually adds its own base class on top (BookShelf's `AppWorkflow` adds streaming and LLM helpers).
+- A plain `async def` is not traced. It runs normally, and if it raises, the nearest traced caller records the error.
 
-### Running a step
+## Setup
 
-10. **Two verbs, and there is no third.** `await step` hands back the envelope
-    and leaves the policy to the caller. `(await step).unwrap()` hands back the
-    payload or stops. Splitting the await from the policy is what lets a caller
-    retry an envelope, or inspect it and *then* insist.
+airglider lives in the BookShelf repo and needs only `pydantic`. Import everything from the package root; [`__init__.py`](__init__.py) is the whole public surface, and `airglider.src.*` is free to move.
 
-    ```python
-    books = (await self.store_lookup(isbn)).unwrap()   # can't continue without it
+```python
+from airglider import OperationResult, Workflow, task, add_details
+```
 
-    step = await planner(NodeInput(query=q))           # a failure here means
-    if not step.ok:                                    # something specific to
-        await self.send_message("I couldn't plan that") # this caller
-    ```
+```bash
+make tests-airglider      # or: poetry run pytest airglider/tests/
+```
 
-11. **`unwrap` on a failed step notes it upward, then raises `StepFailure`.** The
-    note (`FAILED STEP: <name>`) lands on whatever envelope is currently being
-    built, so the stopped caller records which step stopped it.
-12. **A `StepFailure` stops exactly one unit of work.** `record_span` catches it,
-    stamps `runtime_error`, and logs one warning line — no traceback, since the
-    step that actually crashed already logged the real one. It does **not**
-    escape to the caller above. Aborting several levels means each level
-    unwrapping in turn, which is a decision per level rather than an exception
-    tearing through units that might have wanted to handle it.
-13. **You never attach a step by hand.** Nesting is automatic. `add_step` exists
-    for the one case it cannot cover — an envelope produced outside any scope,
-    as when a non-workflow caller builds a root over finished records — and is
-    idempotent, so calling it anyway is absorbed rather than double-billed.
-
-### Writing to your own envelope
-
-14. **`add_details(...)` writes to the unit of work currently running**, which
-    inside a `@task` body is that task's own record. `current_parent()` is the
-    same lookup if you need the envelope itself (to stamp `token_usage`, say).
-15. **`self.add_details` on a `Workflow` always means that workflow.** So in a
-    `@task` *method* on a workflow the two land in different places: the module
-    function on the task, `self.` on the workflow. Usually you want the former.
-16. **A payload carrying `token_usage` has it promoted.** When a `@task`'s
-    return value has a `token_usage: TokenUsage` attribute, the decorator
-    moves it onto the task's envelope (`+=`, so it aggregates by model) and
-    sets the payload's copy to `None`. This is how a client call's spend
-    enters the tree without the client knowing about envelopes — the host's
-    `AssistantMessage` and `EmbeddingsResult` both ride it. Type the field
-    `TokenUsage | None`, since the decorator will null it.
-
-### Known gap
-
-`Workflow.__call__` does not yet set `ok=True` on clean completion — a `run()`
-body has to set `self.record.ok = True` itself (this app does it in
-`AppWorkflow.finalize_result`). So rule 9 is a convention today rather than
-something the library enforces, and rule 8 is the one to hold the line on
-until the default flips.
-
-## The record tree, and `flatten()`
-
-**One envelope class.** `OperationResult` is a unit of work — id, parent,
-timing, input, output, details, usage, error — and the `steps` it accumulated.
-A `Workflow` and a `@task` produce the same thing; one that ran nothing else
-just carries an empty `steps`.
-
-There used to be a `WorkFlowOperationResult` subclass that added `steps`, on the
-reasoning that a leaf has no children and should not carry the field. Two things
-retired it. `steps` is not mandatory — an empty list costs nothing and `flatten`
-reads it the same either way — and, more decisively, once nesting became
-automatic (below) any unit of work can run another, so "which shape am I"
-stopped being answerable at decoration time. What the split actually produced
-was the same relationship rebuilt from several angles: an isinstance ladder in
-`flatten`, a `getattr(x, "steps", [])` at every reader, and a rule about who was
-allowed to call whom.
-
-`add_step` is the only place parentage is known, so it is the only place
-`parent_id` is set, and stamping on attach rather than deriving it later is what
-carries the link through serialization. It is **idempotent**: a step that
-already has a `parent_id` is skipped, and one claimed by a *different* parent is
-refused and logged, since the same envelope in two trees would have its spend
-counted in both.
-
-## Nesting — the one ContextVar
-
-A child cannot know its own parent: a `@task` is a plain async function with no
-reference to its caller, and a `Workflow` is constructed before anyone decides
-where its record hangs. So the *caller* publishes instead. `parent_scope(record)`
-(`src/context.py`) sets `CURRENT_PARENT`, and in its `finally` resets it and then
-attaches `record` to whatever was current before. `@task`'s wrapper and
-`Workflow.__call__` are the only two call sites, which keeps the set/reset
-discipline checkable by reading two files.
-
-What follows from it:
-
-- **Who calls whom stopped mattering.** A task may call a task, a workflow, or
-  any mix; nothing is threaded through a signature and the tree still comes out
-  right.
-- **Two verbs for running a step**, since attaching is no longer anybody's job:
-  `await step` hands back the envelope and leaves the caller to decide what a
-  failure means; `(await step).unwrap()` hands back the payload or raises
-  `StepFailure`. Splitting the await from the policy is what lets a caller retry
-  an envelope, or inspect it and *then* insist. Both work inside a `@task` as
-  well as a `Workflow` — `record_span` owns the `StepFailure` stop path, so
-  either records and logs an abort the same way. (`add_step` remains, for the
-  one case nesting can't cover: an envelope produced outside any scope.)
-- **Attaching happens on the way out**, which the token rollup requires:
-  `add_step` reads a child's usage once, at attach time, so a record attached
-  before it ran would contribute zero to every ancestor. The cancel path comes
-  free — `finally` runs while `CancelledError` propagates, so a step killed by a
-  client disconnect still lands in its parent's `steps`.
-- **Concurrency is safe.** A plain `await` shares the caller's context;
-  `gather`/`create_task` copy it, so siblings each keep their own parent. The
-  copy is shallow, so the attach still mutates the real record.
-- **Fire-and-forget stays broken**, and cannot be fixed here: a `create_task`
-  that outlives its parent attaches to an envelope already serialized and
-  reported. Await background work inside the scope that owns it.
-
-**A `@task` returns its payload; the envelope is the decorator's.** Returning an
-`OperationResult` raises `TypeError`. The shape used to mean "report `ok` myself
-without raising" or "hand back what I called", and both have better answers now
-— `ok` means ran-to-completion, and anything awaited inside already attached
-itself. Use `(await step).unwrap()` to pass a nested step's payload through,
-`await step` to inspect it, and `add_details(...)` to write free text onto the
-envelope currently running (inside a `@task` body, that is the task's own
-record).
-
-`flatten()` is then the tree as a **span list** — depth-first, parent before
-child, each entry carrying its `parent_id` and (via `Time.end_time`) its own
-interval. The nesting is rebuildable from the list alone, with no reference to
-the tree, which is what a timeline or a per-step cost table wants. `to_summary()`
-remains the shape for *reading* a run top to bottom.
-
-No row drags a subtree, so the list does not re-encode the tree once per level:
-every node goes through `to_span()` on the way in, which returns a shallow copy
-carrying `steps=[]`. A node with no children has nothing to drop and comes back
-**by reference**, which keeps flattening a mostly-free walk. `to_span()` is
-`model_construct` over the shared fields rather than a dump-and-revalidate, so a
-live payload stays the object the executor produced — and the sub-models are
-shared with the tree node, making a span a view rather than an independent
-record.
-
-A record reloaded from JSON is the case to know about: `steps` is typed
-`list[Any]` on purpose — pydantic would otherwise re-validate a child on
-assignment and hand back a *copy*, breaking the one thing the tree depends on,
-a step being the same object the workflow that produced it is still writing to.
-The cost is plain-dict children after a round trip, which `flatten` validates on
-the way past.
-
-## `record.input` — what a unit of work was called with
-
-Both `Workflow.__call__` and `@task` stamp it **before** the call, so a crashed
-or cancelled step still records its arguments. Keyed by parameter name, so
-`f(x)` and `f(arg=x)` record identically; a leading `self`/`cls` is dropped,
-since the receiver of a decorated method is not an argument.
-
-Values go through `to_record_input`, which differs from `to_serializable` in
-the two ways a *call record* needs:
-
-- **A value's own `to_summary()` wins.** One step's input is usually the step
-  before it's output, and that output is already recorded in full on its own
-  envelope — dumping it again grows the trace with the square of a pipeline's
-  depth rather than its size. Give a big payload a `to_summary()` and it
-  collapses everywhere at once (the host's `BaseLLMRequest` does this, so a
-  prompt never lands in a record).
-- **The result is always JSON-encodable.** Anything left over becomes
-  `<TypeName>`. Arguments are not payloads a caller chose to record — they are
-  whatever the function happens to take, and a live DB session or client
-  reaching the envelope would break the host's insert far from where it came
-  from.
-
-Neither path raises: `to_summary` is host code this library does not control,
-and bookkeeping that can take down the run it describes is a worse trade than
-a missing field.
-
-## The invariant
-
-**airglider imports nothing from the host application.** That is what makes it
-liftable into its own distribution, and it is the thing to protect when editing.
-It is why the serialization helpers and the price table live in here rather than
-being borrowed from the app's `common/`/`config/`.
-
-To check the invariant still holds, import it with the host packages blocked:
+The tests import only from `airglider`, so they travel with it. To check that airglider still imports nothing from the host, import it with the host packages blocked:
 
 ```bash
 poetry run python -c "
@@ -262,53 +72,67 @@ class B:
 sys.meta_path.insert(0, B()); import airglider; print('ok')"
 ```
 
-The host's `common/utils` **re-exports** the helpers rather than keeping a second
-copy, so `from common.utils import to_serializable` and `from airglider import
-to_serializable` are the same function and cannot drift.
+## Usage
 
-## Mermaid is not in here
+```python
+@task(description="Counts matching books")
+async def count_books(query) -> int:
+    ...
 
-It briefly was. It now lives at `app/domains/planjane/dial/`, because PlanJane
-is the only thing that draws a diagram and is headed for being a service of its
-own — the renderer has to travel with it. `dial/format.py` still imports
-nothing but `airglider`, so nothing about that move loosened this package.
+class FindBooks(Workflow[BookList]):
+    description = "Finds books"
 
-## Pricing is the one piece of policy
+    async def run(self, query):
+        # 1. a step we can't continue without: payload or stop
+        self.result.count = (await count_books(query)).unwrap()
 
-`src/config.py` holds a snapshot of one provider's prices on one date. Counting
-and rolling up tokens is general; *what a token costs* is not. It lives inside
-the package so `TokenUsage` can stamp `cost_usd` with no wiring from the host —
-the tradeoff being that a host calling other providers has to edit that file.
-If that becomes the norm, the seam to cut is `cost_of`: inject it instead of
-importing it, and the module moves back out to the application.
+        # 2. a step whose failure we handle ourselves
+        step = await rank_books(query)
+        if not step.ok:
+            add_details("ranking failed, keeping catalog order")
 
-Rates go stale. Re-verify and bump `PRICES_CHECKED_ON`. A model with no entry
-lands in `unpriced_models` and contributes nothing to `cost_usd` — unknown
-spend, deliberately not silent zero spend.
+        self.record.ok = True
 
-## Tests
-
-```bash
-make tests-airglider      # or: poetry run pytest airglider/tests/
+record = await FindBooks(BookList)(query)   # always an envelope, never raises
+record.result, record.to_summary(), record.flatten()
 ```
 
-They live beside the source so they travel with the package, and import only
-from `airglider`. `tests/__init__.py` is what keeps their module names
-namespaced against same-named files elsewhere in the host repo.
+## The rules
 
-## Before extracting it
+**What you get back**
 
-Known rough edges, in rough priority order:
+1. **Tracing is opt-in.** A `@task` or `Workflow` gets an envelope and a place in the tree; a plain function does not.
+2. **An untraced function that raises fails its caller.** The error lands on the nearest traced caller, with no step showing where it happened.
+3. **Calling a traced unit returns an envelope; it never raises.** The exception is `CancelledError`: it is recorded, then re-raised so cancellation still works.
+4. **A `@task` returns its payload, never an `OperationResult`.** Returning one raises `TypeError`.
+5. **`Workflow` vs `@task` is structure, not permission.** Either may call either, at any depth.
 
-1. **`src/` is nested inside the package**, so internal paths read
-   `airglider.src.schemas.record`. The convention is `src/airglider/…` at repo
-   root, or no `src` layer at all.
-2. **`base_glider.py` contains `Workflow`** — the module is named for the
-   metaphor, the class for the concept. Pick one axis.
-3. **`record.py` holds `OperationResult`, and callers store it as `.record`** —
-   three names for one thing (record / OperationResult / "envelope"). Cheapest
-   to unify now, while the library has one consumer.
-4. `exception.py` → `exceptions.py`; `schemas/` is a web-app word for what is
-   really the core model.
-5. Needs its own `pyproject.toml` and pytest config — the suite currently
-   inherits `asyncio_mode = "auto"` from the host's.
+**Who decides `ok`**
+
+6. **`ok` means "ran to completion"**, not "the result is good". An empty result is `ok=True`.
+7. **The producer judges completeness; the consumer judges sufficiency.** A caller reads the payload to decide if it is enough, and never asks the producer to encode that in `ok`.
+8. **A producer that can't complete raises.** It never sets `ok=False` by hand, which would leave no reason in `runtime_error`.
+9. **So `ok=False` always comes with a `runtime_error`.** A `Workflow` sets `self.record.ok = True` at the end of `run()` itself; a `@task` gets it set on return.
+
+**Running a step**
+
+10. **Two verbs.** `await step` returns the envelope and leaves the decision to you. `(await step).unwrap()` returns the payload, or stops the caller.
+11. **`unwrap` on a failed step** notes `FAILED STEP: <name>` on the caller and raises `StepFailure`.
+12. **A `StepFailure` stops exactly one unit of work.** It is recorded as that unit's error and logged as one warning line without a traceback. It does not escape to the level above: each level decides for itself whether to `unwrap`.
+13. **You never attach a step by hand.** `add_step` exists only for an envelope built outside any traced scope, and attaching twice is ignored.
+
+**Writing to your own envelope**
+
+14. **`add_details(...)` writes to the unit currently running**: inside a `@task` body, that task.
+15. **`self.add_details` on a `Workflow` always writes to that workflow**, even from inside one of its `@task` methods.
+16. **A payload's `token_usage` moves onto the envelope.** If a `@task` returns an object with a `token_usage: TokenUsage` field, the decorator adds it to the envelope and sets the payload's copy to `None`. Type the field `TokenUsage | None`.
+17. **`description` is the reader-facing line**, set as a class attribute on a `Workflow` or as `@task(description=...)`. It is not taken from the docstring, which is written for developers.
+
+## Limitations
+
+- **No retries.** A caller retries by constructing a new `Workflow` (instances are single-use) or calling the `@task` again.
+- **Errors are untyped.** A business failure and a crash both arrive as a `runtime_error`, so a caller cannot branch on which one it was.
+- **Fire-and-forget work is lost.** A `create_task` that outlives its parent attaches to an envelope that has already been reported. Await background work inside the unit that started it.
+- **Prices are one provider's snapshot.** See [src/](src/README.md#adding-a-model-price).
+
+How it works inside: [src/](src/README.md). Why it is built this way: [decision 001](../../docs/decisions/001-airglider-step-semantics.md).

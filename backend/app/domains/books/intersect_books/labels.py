@@ -1,9 +1,10 @@
+"""Combine_Intersect's node-type label."""
+
 from enum import Enum
 
 
 class CombineIntersectNodeTypeEnum(str, Enum):
-    """The planner-facing name for this node. One member: the request. The
-    output and executor classes are reached through the slice's NodeSpec, so
-    they need no string label of their own."""
+    """The node's planner-facing name. Output and executor are reached through
+    the slice's `NodeSpec`, so they need no label."""
 
     REQUEST = "Combine_Intersect"

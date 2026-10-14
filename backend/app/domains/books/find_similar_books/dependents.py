@@ -1,17 +1,5 @@
-"""Interpret what this node's dependencies handed it — step 1 of the flow.
-
-`SimilarBooksInput.anchors` already did *selection* (by type, in `build_input`);
-this is the *interpretation* half the input contract deliberately leaves to the
-executor (domains/README.md, executor rule 4): sorting each anchor by what the
-node can do with it — rows, or the query that would fetch them — and totalling
-how many books that comes to. Nothing here renders prompts or touches the LLM;
-that starts in `analyze_references.py`, which reads this module's output.
-
-The total is the reason this module still earns its place. Every anchor counted
-itself before handing on its query, so the size of the pooled anchor is knowable
-without a round trip — which is what let `fetch_anchor_books`' count-then-cap
-step disappear from `BookWorkflow`.
-"""
+"""Step 1 of the similarity flow: sort the anchors by what the node can do with
+each (rows or a query) and total them without a round trip."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -36,12 +24,10 @@ class ParsedDependents:
     to read below — a count only means something on an output that promises one.
 
     *Within* that branch `books` stays duck-typed, and deliberately. Declaring
-    rows is a shape claim, not a class, and **no registered node makes it at
-    all** since 2026-08-24, when the similarity node stopped carrying rows —
-    every output that can reach here hands on a query now. The pile survives on
-    one justification rather than two: a test can hand this node reference books
-    with no database at all, which is what `test_parsed_dependents` does. Delete
-    it when that stops being true and the pile is dead.
+    rows is a shape claim, not a class, and **no registered node makes it** —
+    every output that can reach here hands on a query. NOTE: the pile survives
+    only so a test can hand this node reference books with no database
+    (`test_parsed_dependents`); delete it when that stops being true.
     """
 
     # TODO: have a rejected or .ok = False
@@ -51,8 +37,7 @@ class ParsedDependents:
     # you can still generate, since I didn't find brave new world, I can only
     # here are some books similar to Dune...
 
-    # what to fetch rows from — the anchor for the similarity search, and the
-    # usual case now that retrieval nodes hand on a query rather than rows
+    # what to fetch rows from — the anchor for the similarity search
     queries: list[DeferredBookQuery] = field(default_factory=list)
     # rows a dependency already chose, used as-is
     books: list[Book] = field(default_factory=list)

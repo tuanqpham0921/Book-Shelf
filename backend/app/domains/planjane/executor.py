@@ -1,13 +1,4 @@
-"""The planner's flow. `run` is the table of contents; everything else sits
-where the flow reaches it.
-
-Same reading rule as the book slices (domains/README.md;
-`books/find_similar_books/executor.py` is the worked example): this file is the
-flow — `run()` plus every step, methods in the order `run` reaches them — with
-the request builder as a module-level pure function beside it. The satellites
-hold what outlives the run: `schemas.py` is what the LLM fills in,
-`external.py` is what the plan *is*, `dial/` is how the plan is shown.
-"""
+"""PlanJane's executor: parse the message into goals, sort them, draw the plan."""
 
 import logging
 
@@ -18,9 +9,9 @@ from app.domains.node_input import NodeInput, ParsedInput
 from app.registry import REGISTRY
 from clients import OpenAIParserRequest
 
-from app.domains.planjane.dial.mermaid import get_goals_mermaid_diagram
-from .external import PlanJaneOutput
-from .schemas import MAX_SYSTEM_GOALS, GoalParseRequest
+from .dial import get_goals_mermaid_diagram
+from .external import PlanJaneOutput, SystemGoal
+from .tools import MAX_SYSTEM_GOALS, GoalParseRequest
 
 logger = logging.getLogger(__name__)
 
@@ -34,48 +25,15 @@ GOAL_GENERATOR_PROMPT_PATH = "domains/planjane/prompts/0_goal_generator.txt"
 # serializes to ~1,341 tokens, so this is the schema's own worst case plus
 # margin. Raise it with MAX_SYSTEM_GOALS or MAX_INSTRUCTION_LENGTH.
 MAX_COMPLETION_TOKENS = 2_000
-# PLAYGORUND_PROMPT_PATH = "../playground/prompting/planner_prompt._extended.txt"
 
-
-def build_goal_parse_request(query: str) -> OpenAIParserRequest:
-    """Ask the LLM to break the message into `GoalParseRequest` goals.
-
-    The one request in the app whose prompt embeds the live tool catalog, and
-    the reason accuracy outranks cost on the model choice: the planner sees
-    every capability, the cache hit rate is high, and the output is short.
-    """
-    if not query:
-        raise ValueError("No query to plan from")
-
-    system_prompt = format_prompt(
-        prompt_path=GOAL_GENERATOR_PROMPT_PATH,
-        TOOLS_NAME_DESCRIPTION=REGISTRY.format_catalog(),
-    )
-    # NOTE: toggle on for prompting experiments
-    # system_prompt = load_prompt(prompt_path=PLAYGORUND_PROMPT_PATH)
-
-    return OpenAIParserRequest(
-        prompt=system_prompt,
-        model="gpt-6-sol",
-        reasoning_effort="none",
-        # NOTE: this should be a list of previous messages as well
-        # but for now we can just do clear and direct instructions
-        #
-        # the input's `instruction`, not `self.user_message` — identical on
-        # the wire today, but it means a rewritten or clarified message is
-        # what gets parsed.
-        messages=[UserMessage(content=query)],
-        tool_models=[GoalParseRequest],
-        max_completion_tokens=MAX_COMPLETION_TOKENS,
-    )
+# A goal below this confidence is refused; exactly at it is accepted.
+MIN_GOAL_CONFIDENCE = 0.5
 
 
 class PlanJaneExecutor(AppWorkflow[PlanJaneOutput]):
-    ui_loading_message = "Thinking..."
-    intent_reject_message = (
-        "I can't help with that request. Please try again with a book-related question."
-    )
-    continuation_reject_message = "I don't have memory of earlier messages yet — please restate your full request in one message."
+    description = "Plans the steps to answer you"
+
+    ui_loading_message = "thinking..."
 
     async def run(self, node_input: PlanJaneInput) -> None:
         """Two ways in, one body.
@@ -101,16 +59,17 @@ class PlanJaneExecutor(AppWorkflow[PlanJaneOutput]):
         self.process_parse_result(parse_result)
 
         # 3. show the plan — the diagram is the plan rendered
-        # TODO: generate an "unable to help with" reply for the refused half
+        # TODO: refused goals still reach no reply — only `out_of_scope` does,
+        # which the orchestrator hands to the reply stage
         if self.result.accepted_goals:
             await self.send_mermaid(self.result.accepted_goals)
 
-        # 4. last: ok is read off the sorted goals
+        # 4. finalize — ok is read off the sorted goals
         self.finalize_result()
 
-    def process_parse_result(
-        self, parse_result: GoalParseRequest, confident_tuning: float = 0.5
-    ) -> None:
+    def process_parse_result(self, parse_result: GoalParseRequest) -> None:
+        """Sort the parsed goals onto the output: refused when unsure or
+        unsupported, accepted up to MAX_SYSTEM_GOALS, buffered past it."""
         if len(parse_result.system_goals) == 0 and not parse_result.out_of_scope:
             # raise, not record.ok = False — the envelope stamps the failure
             msg = "Nothing was classified in the initial parse"
@@ -121,10 +80,9 @@ class PlanJaneExecutor(AppWorkflow[PlanJaneOutput]):
 
         # overflow goals are valid, just over the limit — same checks, so they
         # can fill capacity freed by refusals or wait in buffer_goals
-        all_goals = parse_result.system_goals
-        for goal in all_goals:
+        for goal in parse_result.system_goals:
             reasons = []
-            if goal.confidence < confident_tuning:
+            if goal.confidence < MIN_GOAL_CONFIDENCE:
                 reasons.append(f"Rejected: confidence too low ({goal.confidence})")
             if goal.target_node_type not in REGISTRY:
                 reasons.append(
@@ -138,27 +96,52 @@ class PlanJaneExecutor(AppWorkflow[PlanJaneOutput]):
             else:
                 self.result.buffer_goals.append(goal)
 
-    async def send_mermaid(self, system_goals: list) -> str | None:
-        """Render the accepted goals as a Mermaid flowchart and stream it.
-
-        Returns the diagram, or None when there is nothing to draw or generation
-        failed — never raises into the request. Lives here because the diagram
-        *is* the plan rendered.
-        """
+    async def send_mermaid(self, system_goals: list[SystemGoal]) -> None:
+        """Render the accepted goals as a Mermaid flowchart, stream it and keep
+        it on the output. Never raises into the request: a diagram that cannot
+        be drawn is noted and skipped."""
         diagram = get_goals_mermaid_diagram(system_goals)
         if not diagram:
             msg = "No Mermaid diagram generated (empty or invalid)"
             logger.warning(msg)
             self.add_details(msg)
-            return None
+            return
 
         # no heading of its own: the UI titles the plan's section, the same way
         # it titles every step after it
         await self.sse_stream.send_mermaid(diagram)
         self.result.diagram = diagram
-        return diagram
 
     def finalize_result(self) -> None:
-        # ok = a plan came out of this turn. Continuation is still decided
-        # from accepted_goals, not from ok.
+        # NOTE: ok means "a plan came out of this turn" — continuation is
+        # still decided from accepted_goals, not from ok.
         super().finalize_result(ok=bool(self.result.accepted_goals))
+
+
+def build_goal_parse_request(query: str) -> OpenAIParserRequest:
+    """Ask the LLM to break the message into `GoalParseRequest` goals.
+
+    The one request in the app whose prompt embeds the live tool catalog, and
+    the reason accuracy outranks cost on the model choice: the planner sees
+    every capability, the cache hit rate is high, and the output is short.
+    """
+    if not query:
+        raise ValueError("No query to plan from")
+
+    return OpenAIParserRequest(
+        prompt=format_prompt(
+            prompt_path=GOAL_GENERATOR_PROMPT_PATH,
+            TOOLS_NAME_DESCRIPTION=REGISTRY.format_catalog(),
+        ),
+        # the template's path: the catalog it was filled with is not recorded
+        prompt_path=GOAL_GENERATOR_PROMPT_PATH,
+        model="gpt-6-sol",
+        reasoning_effort="none",
+        # the input's `instruction`, not `self.user_message`, so a rewritten
+        # message (triage's `PlanJane.message`) is what gets parsed
+        # NOTE: single-turn only — earlier messages belong here once
+        # conversations carry them.
+        messages=[UserMessage(content=query)],
+        tool_models=[GoalParseRequest],
+        max_completion_tokens=MAX_COMPLETION_TOKENS,
+    )

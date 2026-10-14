@@ -85,7 +85,7 @@ class TestTheHappyPath:
 
     @pytest.mark.asyncio
     async def test_it_hands_on_a_narrowable_query(self, node):
-        """The 2026-08-24 change: the pool travels as a query, so a downstream
+        """The pool travels as a query, so a downstream
         `Combine_Intersect` can narrow it in SQL — and `score` carries cosine
         order through that narrowing."""
         out = (

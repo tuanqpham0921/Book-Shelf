@@ -1,17 +1,46 @@
+"""The API's wire models: request bodies (`ChatIn`, `FeedbackIn`, `ReviewIn`) and
+responses (`SessionOut`, `HealthStatus`, and `BookOut` for each book card).
+"""
+
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from config import AppConfig
+
+# Emoji blocks plus the characters that glue emoji together: variation
+# selectors, the zero-width joiner, the keycap mark and the flag tag letters.
+EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F000-\U0001FAFF"  # pictographs, emoticons, transport, flags, symbols
+    "⌀-⏿"  # technical: ⌚ ⏰ ⏳
+    "☀-➿"  # misc symbols and dingbats: ☀ ✨ ❤
+    "⬀-⯿"  # arrows and stars: ⬆ ⭐
+    "︎️‍⃣"
+    "\U000E0020-\U000E007F"
+    "]"
+)
+
 
 class SessionOut(BaseModel):
     id: str
     created_at: str
 
+
 class ChatIn(BaseModel):
     message: str
 
+    @field_validator("message")
+    @classmethod
+    def strip_emoji(cls, message: str) -> str:
+        """Emoji carry nothing the app can search on. A message that was only
+        emoji comes out blank, and the route refuses it as empty."""
+        return EMOJI_PATTERN.sub("", message)
+
+
 FeedbackCategory = Literal["Content", "Recommendation", "Planner", "Time", "UI/UX", "Other"]
+
 
 class ReviewCommentIn(BaseModel):
     """One observation inside a review."""
@@ -19,6 +48,7 @@ class ReviewCommentIn(BaseModel):
     title: FeedbackCategory | None = None
     message: str = Field(max_length=AppConfig.FEEDBACK_COMMENT_LENGTH)
     positive: bool = False
+
 
 class FeedbackIn(BaseModel):
     """One reaction to a chat run, upserted whole per (chat_id, session_id):
@@ -37,6 +67,7 @@ class FeedbackIn(BaseModel):
             )
         return self
 
+
 class ReviewIn(FeedbackIn):
     """The /review page's review of a chat run. session_id is the reviewing
     session, which may differ from the session that produced the run."""
@@ -44,27 +75,17 @@ class ReviewIn(FeedbackIn):
     chat_id: str
     session_id: str
 
+
 class BookOut(BaseModel):
     """One book as the chat client receives it, in a `book_card` SSE event.
 
-    The wire contract for a book, and the only place the frontend's field
-    names are pinned on this side. `Book` (app/domains/books/schemas.py) is the
-    internal model and carries every catalog column; this is the subset the UI
-    renders — `BookCard`, `BookCardDetailed`, `BookCover` and `BookDetailModal`
-    between them read exactly these fields and nothing else.
+    The wire contract for a book: `Book` (app/domains/books/schemas.py) carries
+    every catalog column, and this is the subset the UI renders. It is a type on
+    purpose, so a field added to `Book` does not reach the browser by default
+    (`ratings_count` is in the run log, but no card shows it).
 
-    Unlike the prompt-facing renderers, which pick their fields inline, the
-    narrowing here is a *type* on purpose: serialization is the boundary, so a
-    field added to `Book` reaches the browser unless something stops it, and
-    this class is that something. `ratings_count` is the standing example — the
-    bounds behind "obscure" and "most popular" are read off it and it is worth
-    keeping in the run log, but no card renders it. (`similarity_score` used to
-    be the example; it was deleted 2026-08-24, when the similarity node stopped
-    carrying rows to attach it to.)
-
-    Adding or renaming a field here is a frontend change: the components read
-    these names straight off the event payload, so a rename breaks rendering
-    silently, with no error raised on either side.
+    NOTE: renaming a field here is a frontend change. The components read these
+    names straight off the event, so a rename breaks the cards with no error.
     """
 
     isbn13: str

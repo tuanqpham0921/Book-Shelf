@@ -1,129 +1,109 @@
-# backend/evals
+# evals
 
-The planner eval harness — versioned query suites with per-case node expectations,
-a runner, and report generators. **Why it's built this way and where it's headed:**
-[docs/eval-strategy.md](../../docs/eval-strategy.md).
+BookShelf's evals grade the LLM calls that decide what a turn does: the planner, triage's router and the message check. Each has a folder of versioned case suites, a script that runs them, and a report. Why it is built this way and where it is headed: [docs/strategies/evals.md](../../docs/strategies/evals.md).
 
-## Suites (`suites/`)
+| Folder | Grades | Needs |
+|---|---|---|
+| `planjane/` | the planner, through the whole running app: which nodes it planned for each case | a running backend and the database |
+| `triage/` | triage's router alone: which tool it picked | an OpenAI key only |
+| `validation/` | the message check alone: which reply the user would get | an OpenAI key only |
+| `app_docs/` | not an eval: notebooks sizing and building the project-docs vector store, plus past campaign results | |
+
+## Layout
+
+The folders don't follow one pattern yet, because each was built separately. An eval here is meant to have three parts:
+
+- a **suite** of versioned cases;
+- a **runner** that sends each case to the node or call under test;
+- a **report** that grades the results.
+
+`triage/` and `validation/` have all three, with the report printed by the runner. `planjane/` splits them differently: its runner goes through the whole running app, and its two reports read the database. No node under `app/domains/` has an eval of its own yet.
+
+`common.py` is the plumbing the planner reports share. It sits here rather than in `planjane/` because a script puts its own folder first on `sys.path`, and a `common.py` there would shadow the backend's `common` package.
+
+Every command below runs from `backend/`. `CAMPAIGN=<name>` on any report files it under `evals/results/<name>/`.
+
+## Planner (`planjane/`)
+
+```mermaid
+flowchart LR
+    S["suites/*.json"] --> R["run_suites.py"]
+    R -->|"POST /session/{id}/message"| B["running backend"]
+    B --> C[("chat_runs")]
+    R --> T[("test_runs")]
+    C & T --> G["make suite-goals<br/>correctness"]
+    C & T --> K["make suite-stats<br/>cost"]
+```
 
 | Suite | Cases | Targets |
 |---|---|---|
-| `query_suite.json` | 70 | Core node set, easy→hard |
-| `query_suite_adversarial.json` | 54 | Rejection behavior (17 cases intentionally expect no nodes) |
-| `query_suite_extended.json` | 48 | Catalog scaling — dormant: needs the playground schemas given `NodeSpec`s and passed to `Registry` (see `backend/playground/README.md`) |
-| `query_suite_stress.json` | 9 | Buffer/overflow, confusing chains |
+| `query_suite.json` | 80 | the core node set, easy to hard |
+| `query_suite_adversarial.json` | 54 | rejection behaviour; 17 cases expect no nodes |
+| `query_suite_stress.json` | 9 | long messages and confusing chains |
+| `query_suite_extended.json` | 48 | a larger catalog; its nodes exist only in `playground/app_mock`, so it is dormant |
 
-Each case: `id`, `query`, `difficulty`, `expected_nodes`, `note` (+ `category`/`domain`
-in adversarial/stress).
+A case has `id`, `query`, `difficulty`, `expected_nodes` and `note`.
 
-## Workflow
-
-Backend must be running (`make dev`). Every path in `makefile` is anchored to the
-evals directory, so these run identically from `backend/` (via the root Makefile's
-include) or from `evals/` itself (`make -f makefile <target>`). Run logs land in
-`evals/logs/query_suites/` either way — override with `LOG_DIR=...`.
+**Run** (start the backend first with `make dev`):
 
 ```bash
-make query-suite            # base suite
-make query-suite-adversarial / -extended / -stress
-make query-suite-all        # all 4 concurrently (doubles as the concurrency test)
-make query-suite-all-seq    # sequential; -all-tmux for one pane per suite
-make query-suite-smoke      # first 3 queries, no sleep — the debug loop
+make query-suite                # the base suite
+make query-suite-adversarial    # also -stress, -extended
+make query-suite-all            # all four at once (also a concurrency test); -all-seq, -all-tmux
+make query-suite-smoke          # first 3 cases, no sleep: the debug loop
+make query-suite LIMIT=3 SLEEP=0 ARGS="--ids 1 16"
 ```
 
-`LIMIT=n` caps the queries per suite and `SLEEP=n` overrides the 45s the runner waits
-between them; both apply to every target above. A full campaign needs that sleep to
-stay under the OpenAI TPM limit, a debug run does not — so `make query-suite LIMIT=3
-SLEEP=0` finishes in seconds. `query-suite-smoke` is exactly that pairing (override the
-count with `SMOKE_LIMIT=n`). Smoke runs record to `chat_runs`/`test_runs` like any
-other, so both reports work on them.
+The runner waits 45s between cases to stay under the OpenAI rate limit; `SLEEP=0` turns that off for a short run. It reuses one session per run, named `test_<uuid8>` so eval traffic is easy to filter, and writes each case's `test_runs` row as soon as the case finishes, so an interrupted run keeps what it completed. A long run can exhaust that session's token budget; pass `ARGS="--new-session-per-query"`. Logs go to `evals/logs/query_suites/`.
 
-The runner (`run_suites.py`) POSTs each query to `/session/{id}/message`, consumes the
-SSE stream, and records its `test_runs` row (chat_id FK → `chat_runs` + suite name +
-case id) right away — not batched until the run finishes — so an interrupted run still
-has everything it completed recorded. Sessions are minted as `test_<uuid8>` so eval
-traffic is filterable. By default it sleeps 45s between queries to stay under the
-OpenAI TPM rate limit (`--sleep 0` to disable). Flags: `--suite`, `--difficulty`,
-`--ids`, `--new-session-per-query`, `--no-record`, `--sleep`.
-
-Then post-process:
+**Report:**
 
 ```bash
-make suite-goals   # report_system_goals.py — CORRECTNESS. Joins test_runs ⋈ chat_runs
-                   # and diffs accepted goal types vs expected_nodes
-                   # (matched/missing/extra) → results/system_goals_<timestamp>.md
-make suite-stats   # report.py — COST. ok/failed, runtime_error, duration, tokens
-                   # incl. cached + cache hit rate, dollars, and a per-model split
-make suite-reports # both
+make suite-goals     # correctness: each case's planned nodes against expected_nodes
+make suite-stats     # cost: ok/failed, duration, tokens, cache hit rate, dollars per model
+make suite-reports   # both
+make suite-reports CAMPAIGN=v1_baseline   # -> results/v1_baseline/system_goals.md + report.md
 ```
 
-Both take `ARGS="--all"` for every run (default: latest run per case), `ARGS="--suite
-<stem>"` (repeatable) and `ARGS="--output <path>"`. The split is deliberate: the goals
-report is the pass/fail gate and mentions no numbers that change run to run, so its
-diffs stay readable; the cost report is where tokens, dollars and latency live.
+Both read the latest run per case; `ARGS="--all"` reads every run, `ARGS="--suite <stem>"` narrows to one suite. The goals report is the project's golden test and has no numbers that change run to run, so its diffs stay readable.
 
-## Tool catalog (`tools_catalog.py`)
+Dollar figures are the `cost_usd` stamped on each run when it was recorded, so re-running a report never reprices old runs. A run with no cost counts as unpriced, never as free. A model missing from the [price table](../airglider/src/config.py) makes the report warn that costs are understated.
+
+**Tool catalog:**
 
 ```bash
-make tools-catalog                        # print
-make tools-catalog CAMPAIGN=v1_baseline   # -> results/v1_baseline/tools_catalog.md
+make tools-catalog
 make tools-catalog ARGS="--model gpt-5-nano"
 ```
 
-The odd one out: it reads the **live registry**, not the database, so it needs no
-backend, no prior run and no `chat_runs` rows — it describes the code at the current
-commit. Run it after adding or editing a node.
+`tools_catalog.py` reads the live registry instead of the database, so it needs no backend and no recorded run. It reports the tool count per tier, each tool's `Purpose:` line and token cost, and what the catalog costs per request, cached and uncached. It also flags nodes registered with no executor and docstrings missing a section (`Do not use:` and `Example queries:` are the ones that prevent misroutes). Run it after adding or editing a node.
 
-Every registered node is a tool the planner is told about, and its class docstring *is*
-the tool description — so the catalog is prompt text billed on **every** request,
-whether or not any of those tools get used. The report gives the tool count per tier,
-each tool's `Purpose:` line, per-tool token cost with its share of the block, and what
-the whole thing costs per request, uncached and cached (the catalog is byte-identical every time, so the cached
-column is the steady state — `make suite-stats`'s measured hit rate says how close you
-are to it). Two token figures, paid at different points:
-
-- **catalog tokens** — the whole `Registry.format_catalog()` block, rendered into both
-  the goal-generator and parse-response prompts, so it is paid twice per request;
-- **schema tokens** — one node's JSON function-tool schema, sent by
-  `strategy_classification.py` only for the nodes an accepted goal targets.
-
-It also audits: nodes registered with no executor (planned but unrunnable, still paying
-catalog tokens) and docstrings missing a canonical section — a missing `Do not use:` or
-`Example queries:` is a known misroute source, see
-[docs/eval-strategy.md](../../docs/eval-strategy.md).
-
-Dollar figures come from `cost_usd`, stamped onto each run's `token_usage` when it was
-recorded (rates in [airglider/src/config.py](../airglider/src/config.py)) — **frozen at record time**,
-so re-running a report never backfills or reprices history. Two distinct gaps get called
-out rather than hidden:
-
-- a run with no `cost_usd` at all (predates cost tracking) counts as **unpriced** in the
-  summary row, never as free;
-- a run whose `token_usage.unpriced_models` is non-empty still *has* a cost, just too low
-  — the report prints an explicit "costs are understated" warning naming the models. Add
-  them to `airglider/src/config.py`; only future runs will be right.
-
-## Repo sizing (`app_docs/`)
-
-Also not about planner quality — two notebooks on making the **repo itself** retrievable
-for project/code guidance. `app_docs/token_budget.ipynb` counts the code and docs to size a
-do-it-yourself index (tokens, chunks, index MB, dollars, retrieval-vs-whole-corpus cost per
-question); local counting only, no API calls and no database. `app_docs/file_search_docs.ipynb`
-takes the managed route — uploads `docs/` to an OpenAI vector store and queries it with the
-hosted file search tool; that one does spend money and leaves state on the account. See
-[app_docs/README.md](app_docs/README.md).
-
-## Campaign convention (`results/`)
-
-Per campaign: a directory with the raw SQL dumps of `chat_runs` + `feedback` (dump
-before deleting — `test_runs` cascades away with `chat_runs`), the generated reports,
-and a hand-written review (`personal_report.md`, optionally an AI review). See
-`results/dev_f5a12966_7_13_initial/` for the shape.
-
-`CAMPAIGN=<name>` files both reports into `results/<name>/` under fixed names, so
-`suite-reports` can't have one clobber the other:
+## Router (`triage/`)
 
 ```bash
-make suite-reports CAMPAIGN=v1_baseline
-# -> results/v1_baseline/system_goals.md + results/v1_baseline/report.md
+make eval-routing                        # every case
+make eval-routing ARGS="--ids 101 409"   # a few, while iterating
+make eval-routing ARGS="--save"          # also writes triage/results/route_query_<timestamp>/
 ```
+
+`eval_route_query.py` sends each case in `suites/route_query.json` through `build_route_request`, the same builder a real turn uses, straight to OpenAI. The prompt is read from disk on every call, so editing `route_query.txt` and rerunning is the whole loop. The suite costs about three cents.
+
+A case passes when the route is one of its `expected`: `PlanJane`, `ProjectInfoArgs`, `ClarifyingQuestion`, `SecurityReview`, or `reply` when the model answered in text. Several tool calls make one route, sorted and joined (`PlanJane + ProjectInfoArgs`). Arguments are not graded, except that a split's `PlanJane.message` is what the planner reads, so check the detail column on those. The report separates book asks kept from the planner from misuse let through, and prints every direct reply in full, since those words reach the user unedited.
+
+Case ids are grouped by route: 1xx plan, 2xx reply, 3xx clarify, 4xx security, 5xx mixed, 6xx project facts. Off-topic asks expect `PlanJane`, because the router clarifies only what is unclear, not what is unsupported. A follow-up expects `ClarifyingQuestion` unless it stands alone, since the router sees no earlier turns.
+
+## Message check (`validation/`)
+
+```bash
+make eval-validation
+make eval-validation ARGS="--ids 304 403"
+make eval-validation ARGS="--save"       # also writes validation/results/validate_message_<timestamp>/
+```
+
+Built like the router eval: each case in `suites/validate_message.json` goes through `build_validation_request` to OpenAI. A case passes when the reply the user would get is one of its `expected`: `pass`, `harmful` or `incoherent`. The report separates wrongly refused from wrongly passed and gives each failure's `reasoning`.
+
+The check does not look at code, prompt injection or language, so those cases (3xx, 4xx, 605 to 608) record what reaches triage. Keep cases out of the prompt's examples, so the suite tests the rules rather than recall.
+
+## Campaigns
+
+A campaign is one folder under `results/<name>/`: the reports (`CAMPAIGN=<name>`), the raw `chat_runs` and `feedback` dumps (`make postgres-dump-chat-runs-cascade`; dump before clearing, because `test_runs` cascades away with `chat_runs`), and a hand-written review. Past campaigns are in `app_docs/results/`.

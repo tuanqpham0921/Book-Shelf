@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.dialects import postgresql
 
-from config import AppConfig
+from config import settings
 from db.schema import SessionModel
 from db.stores.session_store import SessionStore
 
@@ -121,7 +121,7 @@ class TestStartTurn:
         this is the only place the starting allowance is decided."""
         params = statement_of(session).compile().params
 
-        assert params["remaining_tokens"] == AppConfig.SESSION_TOKEN_BUDGET
+        assert params["remaining_tokens"] == settings.app.SESSION_TOKEN_BUDGET
 
 
 class TestTheColumnItWrites:
@@ -148,7 +148,7 @@ class TestSpentInLastDay:
         sql = sql_of(session)
         assert "sum(" in sql and "- sessions.remaining_tokens" in sql
         params = statement_of(session).compile().params.values()
-        assert AppConfig.SESSION_TOKEN_BUDGET in params
+        assert settings.app.SESSION_TOKEN_BUDGET in params
 
     async def test_only_sessions_active_in_the_last_day_count(self, session):
         assert "sessions.last_updated > now() - " in sql_of(session)

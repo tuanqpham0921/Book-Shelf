@@ -1,5 +1,8 @@
+"""`RuntimeErrorInfo`: an exception recorded as data on the envelope."""
+
 import traceback
 from pydantic import BaseModel
+
 
 class RuntimeErrorInfo(BaseModel):
     """Serializable record of an unexpected exception — the error's type and

@@ -1,3 +1,6 @@
+"""The message models a request carries, each rendering itself with
+`to_openai_dict()`; `APIMessage` picks one by `role`."""
+
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -40,12 +43,15 @@ class SystemMessage(BaseMessage):
 class UserMessage(BaseMessage):
     role: Literal[Role.USER] = Role.USER
     id: str = Field(default_factory=lambda: f"chat_{uuid_8()}")
+    pass_validation: bool | None = None
     content: str
     created: str | None = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
 
     def to_openai_dict(self) -> dict:
+        if self.pass_validation is False:
+            raise RuntimeError("UserMessage did not pass risk validation. Can't continue")
         return {"role": self.role, "content": self.content}
 
 
@@ -70,10 +76,8 @@ class AssistantMessage(BaseMessage):
 
 
 class ToolMessage(BaseMessage):
-    """A tool result on its way back to the model. Pure message shape —
-    *running* a tool call is `AppWorkflow.execute_tool_call`, which is where
-    the dispatch used to live as a classmethod here and took clients/' last
-    piece of instrumentation with it when it moved."""
+    """A tool result on its way back to the model. Message shape only —
+    *running* a tool call is `AppWorkflow.execute_tool_call`."""
 
     role: Literal[Role.TOOL] = Role.TOOL
     name: str

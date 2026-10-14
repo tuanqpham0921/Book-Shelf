@@ -35,6 +35,13 @@
   scroll-margin-top: 16px;
   min-width: 0;
   max-width: 100%;
+
+  /* The newest turn fills the list so it can scroll to the top. Minus its
+     own margin-bottom, so on a single turn it fits exactly instead of
+     overflowing (and showing a scrollbar) on short screens. */
+  &.newest {
+    min-height: calc(100% - 20px);
+  }
 }
 
 @utility message-wrapper {
@@ -116,13 +123,17 @@
   padding-left: 10px;
 }
 
+/* Top-aligned, so a title that wraps keeps the chevron, count and status on
+   its first line. The fixed line-height is what the icons' margins center
+   on: (20px - icon size) / 2. */
 @utility task-section-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
   padding: 4px 0;
   font-size: 14px;
+  line-height: 20px;
   color: var(--text-hover);
   text-align: left;
   cursor: pointer;
@@ -141,6 +152,7 @@
 
 @utility task-section-chevron {
   flex-shrink: 0;
+  margin-top: 2px;
   color: var(--text-muted);
   transition: transform 0.15s ease;
 
@@ -161,6 +173,7 @@
 
 @utility task-section-status {
   flex-shrink: 0;
+  margin-top: 3px;
 
   &.ok {
     color: var(--accent-positive);
@@ -177,7 +190,7 @@
   /* One left edge for the whole step — its line, its cards, its details box.
      The children are styled for the top level of a reply, so their own inset
      (the bubble's margin and padding, the card row's p-4 and mb-5) comes off
-     here: the section's border already indents them. The row's inner pb-2
+     here: the section's border already indents them. The row's inner pb-4
      stays, as room for its horizontal scrollbar. */
   & .message-bubble {
     margin-left: 0;
@@ -226,14 +239,12 @@
     max-height: 12rem;
     overflow: auto;
     white-space: pre;
+    /* room under the last line for the horizontal scrollbar, which would
+       otherwise sit on top of it */
+    padding-bottom: 10px;
     font-family: 'Monaco', 'Menlo', monospace;
     font-size: 11px;
   }
-}
-
-@utility task-details-key {
-  font-family: 'Monaco', 'Menlo', monospace;
-  color: var(--text-muted);
 }
 
 @utility task-details-error {

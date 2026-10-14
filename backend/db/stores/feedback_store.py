@@ -1,3 +1,5 @@
+"""`FeedbackStore`: reviews of a chat run, one per reviewing session."""
+
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, select

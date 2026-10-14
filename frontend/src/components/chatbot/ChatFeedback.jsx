@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import api from '@/api'
-import { ThumbsUp, ThumbsDown, MessageCircle, Flag, Sparkles, ChevronDown } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, MessageCircle, Flag, Sparkles, ChevronDown, ScrollText } from 'lucide-react';
 import Button from '@/design-system/Button'
 import IconButton from '@/design-system/IconButton'
 import Badge from '@/design-system/Badge'
 import Modal from '@/design-system/Modal'
+import CodeBlock from '@/design-system/CodeBlock'
 import Dropdown from '@/design-system/Dropdown'
 import DropdownItem from '@/design-system/DropdownItem'
 import { FEEDBACK_CATEGORIES } from '@/data/feedbackCategories'
@@ -146,9 +147,11 @@ function FeedbackModal({ comments, isSaving, error, onAddComment, isOpen, onClos
 // and the comments together. A change shows straight away and is put back
 // if the save fails, including the 404 for a turn the backend hasn't
 // finished recording yet, so trying again works.
-function ChatFeedback({ chatId, sessionId }) {
+function ChatFeedback({ chatId, sessionId, logRecord, sources }) {
     const [feedback, setFeedback] = useState({ liked: null, comments: [] })
     const [showModal, setShowModal] = useState(false)
+    const [showLog, setShowLog] = useState(false)
+    const [showSources, setShowSources] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
     const [error, setError] = useState(null)
 
@@ -205,6 +208,18 @@ function ChatFeedback({ chatId, sessionId }) {
                 >
                     <MessageCircle size={16}/>
                 </IconButton>
+                {logRecord && (
+                    <IconButton onClick={() => setShowLog(true)} title="AirGlider Log">
+                        <ScrollText size={16}/>
+                    </IconButton>
+                )}
+                {sources?.length > 0 && (
+                    // leading-4 keeps it the icons' 16px tall, so it matches
+                    // the buttons beside it
+                    <IconButton onClick={() => setShowSources(true)} title="Sources" className="text-sm leading-4">
+                        Sources
+                    </IconButton>
+                )}
                 {error && !showModal && (
                     <span className="text-xs text-[var(--accent-negative)] italic">{error}</span>
                 )}
@@ -218,6 +233,27 @@ function ChatFeedback({ chatId, sessionId }) {
                 isOpen={showModal}
                 onClose={() => setShowModal(false)}
             />
+
+            {/* the docs a project answer came from */}
+            {sources?.length > 0 && (
+                <Modal isOpen={showSources} onClose={() => setShowSources(false)} title="Sources">
+                    <ul className="list-disc pl-5 space-y-1 text-sm">
+                        {sources.map(source => <li key={source}>{source}</li>)}
+                    </ul>
+                </Modal>
+            )}
+
+            {/* the turn's flattened trace, as the backend sent it */}
+            {logRecord && (
+                <Modal isOpen={showLog} onClose={() => setShowLog(false)} title="AirGlider Log">
+                    <CodeBlock
+                        language="json"
+                        className="max-h-[70vh] overflow-auto p-2 pb-3 text-xs rounded-md border border-[var(--border-light)] bg-[var(--bg-secondary)]"
+                    >
+                        {JSON.stringify(logRecord, null, 2)}
+                    </CodeBlock>
+                </Modal>
+            )}
         </div>
     )
 }

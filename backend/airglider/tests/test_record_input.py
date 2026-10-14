@@ -4,10 +4,9 @@ Two rules carry the weight here:
 
 1. **Keyed by parameter name**, so `f(x)` and `f(arg=x)` record identically —
    an index-keyed record would store the same call two ways.
-2. **A value that can summarize itself does.** A node's input carries the
-   output of the node before it, and that output's own envelope already holds
-   every field of it. Dumping it again would store the same payload once per
-   dependent, growing the trace with the square of a plan's depth.
+2. **A value is recorded whole when it can be.** `to_summary()` is only the
+   fallback for a value with no serializable form (a built query, say), ahead
+   of `<TypeName>`.
 
 The recording must also never take down the run it describes, which is the
 last class below.
@@ -22,13 +21,21 @@ from airglider import OperationResult, Workflow, current_parent, task
 
 
 class _Payload(BaseModel):
-    """Stands in for an upstream node output: big, and already recorded in
-    full on its own envelope."""
+    """Stands in for an upstream node output. Its `to_summary` is not used:
+    a model serializes, so it is recorded whole."""
 
     rows: list[str] = []
 
     def to_summary(self) -> dict:
         return {"num_rows": len(self.rows)}
+
+
+class _Handle:
+    """No serializable form, like a built query: only its summary can say
+    what it was."""
+
+    def to_summary(self) -> dict:
+        return {"label": "q"}
 
 
 class _Input(BaseModel):
@@ -81,15 +88,28 @@ class TestParameterNames:
 
 
 class TestSummarizing:
-    async def test_a_payload_that_can_summarize_itself_does(self):
-        """The anchor's rows live on the upstream node's envelope; this one
-        records that there were three of them."""
+    async def test_a_payload_that_serializes_is_recorded_whole(self):
+        """`to_summary` does not replace a value the record can hold."""
         anchor = _Payload(rows=["a", "b", "c"])
         wf = _Recorded()
         await wf(_Input(query="q", anchors=[anchor]))
 
         assert wf.record.input is not None
-        assert wf.record.input["node_input"]["anchors"] == [{"num_rows": 3}]
+        assert wf.record.input["node_input"]["anchors"] == [
+            {"rows": ["a", "b", "c"]}
+        ]
+
+    async def test_a_value_with_no_serializable_form_is_summarized(self):
+        wf = _Recorded()
+        await wf(_Handle())
+
+        assert wf.record.input == {"node_input": {"label": "q"}}
+
+    async def test_a_value_with_neither_is_its_type_name(self):
+        wf = _Recorded()
+        await wf(object())
+
+        assert wf.record.input == {"node_input": "<object>"}
 
     async def test_a_value_without_a_summary_is_recorded_whole(self):
         """The small, unique parts of a call — the query text, parsed args —
@@ -126,7 +146,7 @@ class TestFailurePaths:
         """`to_summary` is app code this library does not control. A missing
         `input` is a worse trade than a failed turn."""
 
-        class _BadSummary(BaseModel):
+        class _BadSummary:
             def to_summary(self):
                 raise ValueError("summary exploded")
 

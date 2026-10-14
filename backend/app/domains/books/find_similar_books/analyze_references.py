@@ -1,18 +1,5 @@
-"""The reference-analysis call's pure half: documents in, request out.
-
-Analyze_Similar_Books searches by vector, not keyword, so everything it depends
-on has to collapse into one block of prose reading like the description of the
-book the user wants next. `render_documents` builds the document block, and
-`build_analysis_request` asks the LLM to fold it into `IdealBookDescription` —
-the one string that gets embedded, and now the *only* thing that does. The step
-that *runs* the request is `FindSimilarBooksExecutor.analyze_references`, next
-door, and it is the slice's one remaining LLM call.
-
-Two things stay out of the prompt. The reference books are excluded from the
-search by isbn13 afterwards — a metadata filter, not something to ask prose to
-enforce. And the isbn13s never reach the model: the prompt forbids identifiers
-in the output, and in a description they only read as noise.
-"""
+"""Analyze_Similar_Books' one LLM call, pure half: render the anchor books and
+build the request that folds them into the one description to embed."""
 
 from pydantic import BaseModel, Field
 
@@ -50,6 +37,8 @@ def render_documents(books: list[Book]) -> str:
     """
     blocks: list[str] = []
 
+    # NOTE: no isbn13 — the named books are excluded from the search in SQL,
+    # and identifiers in a description only read as noise
     by_title: dict[str, list[str]] = {}
     for book in books:
         if not book.description:
@@ -102,6 +91,7 @@ def build_analysis_request(document_text: str) -> OpenAIParserRequest:
 
     return OpenAIParserRequest(
         prompt=load_prompt(prompt_path=ANALYZE_REFERENCES_PROMPT_PATH),
+        prompt_path=ANALYZE_REFERENCES_PROMPT_PATH,
         model="gpt-5-mini",
         reasoning_effort="low",
         # matches build_arg_parser_request in executor.py: the documents are

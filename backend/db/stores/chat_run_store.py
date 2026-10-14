@@ -1,3 +1,5 @@
+"""`ChatRunStore`: one row per chat turn, plus the review queue."""
+
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import exists, func, select

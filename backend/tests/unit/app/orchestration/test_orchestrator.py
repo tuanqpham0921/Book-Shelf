@@ -3,11 +3,10 @@ always handed to record_chat_run — the "don't record" decision for a missing
 result lives inside record_chat_run itself (see test_run_recorder.py), not in
 the orchestrator, so _finalize calls it unconditionally.
 
-`TestWritingTheReply` covers the third layer the orchestrator gained on
-2026-09-08, when the generation node was deregistered into a stage that runs
-once after the runner. The wiring is what is asserted here — whether the stage
+`TestWritingTheReply` covers the reply stage, which runs once after the
+runner. The wiring is what is asserted here — whether the stage
 runs, and what it is fed — not the reply itself, which is
-test_write_recommendations_executor.py.
+test_write_reply_executor.py.
 
 `TestChargingTheSession` covers the fourth thing `_finalize` does: charge the
 turn to its session's token budget. `TestRefusingAnExhaustedSession` is the other
@@ -20,13 +19,15 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
-from config import AppConfig
+from config import AppConfig, settings
 from app.domains.base_workflow import FailedGoalOutput
 from app.domains.books.external import BookAnchorOutput
 from app.domains.books.find_by_title import FindTitleNodeTypeEnum
 from app.domains.planjane import PlanJaneOutput, SystemGoal
+from app.domains.project.find_project_info import ProjectInfoOutput
 from app.orchestration.orchestrator import (
     DEBIT_TOKENS_TIMEOUT,
+    OUT_OF_SCOPE_REASON,
     Orchestrator,
     _best_effort,
 )
@@ -36,7 +37,10 @@ from app.orchestration.token_budget import (
     SITE_OUT_OF_TOKENS_MESSAGE,
 )
 from app.orchestration.triage import TriageOutput
+from app.orchestration.validation import UserMsgValidation
+from app.orchestration.validation.validate import HARMFUL_REPLY, INCOHERENT_REPLY
 from airglider import OperationResult, Response, TokenUsage
+from clients.messages import UserMessage
 
 # request_context comes from tests/conftest.py
 
@@ -63,9 +67,37 @@ def start_turn():
     with patch(
         "app.orchestration.orchestrator.start_session_turn",
         new_callable=AsyncMock,
-        return_value=_balance(AppConfig.SESSION_TOKEN_BUDGET),
+        return_value=_balance(settings.app.SESSION_TOKEN_BUDGET),
     ) as mock_start:
         yield mock_start
+
+
+def _validation(**flags) -> OperationResult:
+    """What `validate_user_message` hands back: a passing check unless a flag
+    says otherwise."""
+    fields = {
+        "reasoning": "",
+        "security_issue": False,
+        "harmful_content": False,
+        "gibberish_or_incoherent": False,
+    } | flags
+    return OperationResult(
+        name="app.orchestration.validation.validate.validate_user_message",
+        ok=True,
+        response=Response(result=UserMsgValidation(**fields)),
+    )
+
+
+@pytest.fixture(autouse=True)
+def validate():
+    """The message check, patched to pass for every test in this module — the
+    real one is an LLM call. The tests that are *about* it set its envelope."""
+    with patch(
+        "app.orchestration.orchestrator.validate_user_message",
+        new_callable=AsyncMock,
+        return_value=_validation(),
+    ) as mock_validate:
+        yield mock_validate
 
 
 @pytest.fixture(autouse=True)
@@ -104,8 +136,9 @@ def _plan() -> PlanJaneOutput:
     )
 
 
-def _triage_with_plan(plan, token_usage=None):
-    """A triage workflow that produced `plan`, or none at all.
+def _triage_with_plan(plan, token_usage=None, project_info=None):
+    """A triage workflow that produced `plan`, or none at all — and the project
+    facts it looked up itself, if any.
 
     The plan rides on the *record's* payload, because that is where `run` reads
     it from: `triage_workflow.record.unwrap()`. For a real workflow that is the
@@ -116,7 +149,9 @@ def _triage_with_plan(plan, token_usage=None):
     workflow = AsyncMock()
     workflow.record = OperationResult(
         ok=True,
-        response=Response(result=TriageOutput(parse_result=plan)),
+        response=Response(
+            result=TriageOutput(parse_result=plan, project_info=project_info)
+        ),
         token_usage=token_usage or TokenUsage(),
     )
     return workflow
@@ -192,12 +227,15 @@ class TestWritingTheReply:
     only tests that the reply happens at all."""
 
     @staticmethod
-    def _drive(request_context, runner, plan="default"):
+    def _drive(request_context, runner, plan="default", project_info=None):
         """Run a turn with triage and the runner faked, capturing the writer."""
         return (
             patch(
                 "app.orchestration.orchestrator.TriageWorkflow",
-                return_value=_triage_with_plan(_plan() if plan == "default" else plan),
+                return_value=_triage_with_plan(
+                    _plan() if plan == "default" else plan,
+                    project_info=project_info,
+                ),
             ),
             patch(
                 "app.orchestration.orchestrator.TaskRunnerWorkflow",
@@ -206,7 +244,7 @@ class TestWritingTheReply:
             # return_value explicit: the default MagicMock is not awaitable,
             # and the orchestrator awaits the workflow it constructs
             patch(
-                "app.orchestration.orchestrator.GenerateRecommendationsExecutor",
+                "app.orchestration.orchestrator.GenerationExecutor",
                 return_value=AsyncMock(),
             ),
             patch(
@@ -257,6 +295,90 @@ class TestWritingTheReply:
             await Orchestrator().run(request_context)
 
         writer_cls.assert_not_called()
+
+    async def test_project_facts_alone_are_written_from_without_a_runner(
+        self, request_context
+    ):
+        # "what's your tech stack?": triage looked the facts up, nothing was
+        # planned, and the reply is still the writer's
+        facts = ProjectInfoOutput(answer="FastAPI")
+        triage, runner_p, writer_p, record = self._drive(
+            request_context, _runner_with({}), plan=None, project_info=facts
+        )
+        with triage, runner_p as runner_cls, writer_p as writer_cls, record:
+            await Orchestrator().run(request_context)
+
+        runner_cls.assert_not_called()
+        node_input = writer_cls.return_value.await_args.args[0]
+        assert [result.output for result in node_input.results] == [facts]
+
+    async def test_project_facts_come_before_the_plans_results(self, request_context):
+        facts = ProjectInfoOutput(answer="FastAPI")
+        found = BookAnchorOutput(num_books=1, goal_instruction="Find Dune")
+        triage, runner_p, writer_p, record = self._drive(
+            request_context, _runner_with({"1": found}), project_info=facts
+        )
+        with triage, runner_p, writer_p as writer_cls, record:
+            await Orchestrator().run(request_context)
+
+        node_input = writer_cls.return_value.await_args.args[0]
+        assert [result.output for result in node_input.results] == [facts, found]
+
+    async def test_out_of_scope_alone_is_written_from_without_a_runner(
+        self, request_context
+    ):
+        # "what's the weather?": the planner plans nothing and sets it aside,
+        # and the reply says so rather than the turn ending in the generic error
+        triage, runner_p, writer_p, record = self._drive(
+            request_context,
+            _runner_with({}),
+            plan=PlanJaneOutput(out_of_scope=["What's the weather?"]),
+        )
+        with triage, runner_p as runner_cls, writer_p as writer_cls, record:
+            await Orchestrator().run(request_context)
+
+        runner_cls.assert_not_called()
+        node_input = writer_cls.return_value.await_args.args[0]
+        assert [result.output for result in node_input.results] == [
+            FailedGoalOutput(
+                goal_instruction="What's the weather?", reason=OUT_OF_SCOPE_REASON
+            )
+        ]
+
+    async def test_out_of_scope_comes_after_the_plans_results(self, request_context):
+        plan = _plan()
+        plan.out_of_scope = ["What's the weather?"]
+        found = BookAnchorOutput(num_books=1, goal_instruction="Find It")
+        triage, runner_p, writer_p, record = self._drive(
+            request_context, _runner_with({"1": found}), plan=plan
+        )
+        with triage, runner_p, writer_p as writer_cls, record:
+            await Orchestrator().run(request_context)
+
+        node_input = writer_cls.return_value.await_args.args[0]
+        outputs = [result.output for result in node_input.results]
+        assert outputs[0] == found
+        assert outputs[1].goal_instruction == "What's the weather?"
+
+    @pytest.mark.parametrize("ok", [True, False])
+    async def test_only_a_failed_reply_sends_an_error(self, request_context, ok):
+        """Verbatim, like the budget refusals: without it the stream ends on
+        the task sections with no reply and no reason."""
+        request_context.sse_stream.send_error = AsyncMock()
+        triage, runner_p, writer_p, record = self._drive(
+            request_context,
+            _runner_with({"1": BookAnchorOutput(num_books=1)}),
+        )
+        with triage, runner_p, writer_p as writer_cls, record:
+            writer_cls.return_value.record = OperationResult(name="writer", ok=ok)
+            await Orchestrator().run(request_context)
+
+        if ok:
+            request_context.sse_stream.send_error.assert_not_awaited()
+        else:
+            request_context.sse_stream.send_error.assert_awaited_once_with(
+                Orchestrator.reply_failure_message
+            )
 
     async def test_the_replys_record_lands_on_the_turns_trace(self, request_context):
         """Its spend and duration belong to the turn — the root envelope is
@@ -345,9 +467,7 @@ class TestBestEffortCleanup:
     terminate at all — and two of the three never touch a database.
     """
 
-    async def test_a_step_that_runs_out_of_time_names_itself_and_the_turn(
-        self, caplog
-    ):
+    async def test_a_step_that_runs_out_of_time_names_itself_and_the_turn(self, caplog):
         """The old single `except Exception` logged neither which step it was
         nor why, so a timeout and a crash read identically in the console."""
 
@@ -426,9 +546,7 @@ class TestRefusingAnExhaustedSession:
             await Orchestrator().run(ctx)
         return triage_cls, record
 
-    async def test_a_spent_session_gets_no_turn(
-        self, make_request_context, start_turn
-    ):
+    async def test_a_spent_session_gets_no_turn(self, make_request_context, start_turn):
         """Nothing is even planned — the refusal is ahead of triage, which is
         the first thing that costs money."""
         ctx = self._context(make_request_context, start_turn)
@@ -482,25 +600,25 @@ class TestRefusingAnExhaustedSession:
         self, make_request_context, start_turn
     ):
         """So a refused turn reads as one, rather than as a turn that did
-        nothing for no reason. Its one step is the balance read that refused
-        it."""
+        nothing for no reason."""
         ctx = self._context(make_request_context, start_turn)
 
         _, record = await self._turn(ctx)
 
         assert "refused: session out of tokens" in record.await_args.args[1].details
 
-    async def test_the_balance_is_recorded_on_every_turn(
+    async def test_the_balance_stays_off_the_turns_record(
         self, make_request_context, start_turn
     ):
-        """Tracking rather than enforcement, which is why it is not inside the
-        guard: what the session had before this turn, so the turn's cost can be
-        read against it."""
+        """The record is sent to the browser as `log_record`, and the budgets are
+        internal: the balance goes to the server log, never onto the trace."""
         ctx = self._context(make_request_context, start_turn, remaining_tokens=1_234)
 
         _, record = await self._turn(ctx)
 
-        assert "session tokens remaining: 1234" in record.await_args.args[1].details
+        root = record.await_args.args[1]
+        assert not any("1234" in detail for detail in root.details)
+        assert all(step is not start_turn.return_value for step in root.steps)
 
 
 class TestRefusingWhenTheSiteIsSpent:
@@ -533,7 +651,7 @@ class TestRefusingWhenTheSiteIsSpent:
         ctx = make_request_context(app_env="production")
         ctx.sse_stream.send_error = AsyncMock()
 
-        _, triage_cls = await self._turn(ctx, AppConfig.SITE_DAILY_TOKEN_BUDGET)
+        _, triage_cls = await self._turn(ctx, settings.app.SITE_DAILY_TOKEN_BUDGET)
 
         triage_cls.assert_not_called()
         ctx.sse_stream.send_error.assert_awaited_once_with(SITE_OUT_OF_TOKENS_MESSAGE)
@@ -541,7 +659,7 @@ class TestRefusingWhenTheSiteIsSpent:
     async def test_under_the_cap_the_turn_runs(self, make_request_context):
         ctx = make_request_context(app_env="production")
 
-        _, triage_cls = await self._turn(ctx, AppConfig.SITE_DAILY_TOKEN_BUDGET - 1)
+        _, triage_cls = await self._turn(ctx, settings.app.SITE_DAILY_TOKEN_BUDGET - 1)
 
         triage_cls.assert_called_once()
 
@@ -549,7 +667,100 @@ class TestRefusingWhenTheSiteIsSpent:
         """A local eval campaign is spend the owner chose."""
         ctx = make_request_context(app_env="development")
 
-        read, triage_cls = await self._turn(ctx, AppConfig.SITE_DAILY_TOKEN_BUDGET)
+        read, triage_cls = await self._turn(ctx, settings.app.SITE_DAILY_TOKEN_BUDGET)
 
         read.assert_not_called()
         triage_cls.assert_called_once()
+
+
+class TestValidatingTheMessage:
+    """The message arrives with `pass_validation=None`, and only a passing check
+    lets it reach triage — the same `UserMessage`, stamped True."""
+
+    @staticmethod
+    async def _turn(ctx):
+        with patch(
+            "app.orchestration.orchestrator.TriageWorkflow",
+            return_value=_triage_with_plan(None),
+        ) as triage_cls, patch(
+            "app.orchestration.orchestrator.record_chat_run", new_callable=AsyncMock
+        ) as record:
+            await Orchestrator().run(ctx)
+        return triage_cls, record
+
+    @staticmethod
+    def _unvalidated(make_request_context):
+        ctx = make_request_context(user_message=UserMessage(content="books like Dune"))
+        ctx.sse_stream.send_chars = AsyncMock()
+        return ctx
+
+    async def test_a_passing_message_reaches_triage_validated(
+        self, make_request_context
+    ):
+        """Same message, so the chat_id already sent to the client still names it."""
+        ctx = self._unvalidated(make_request_context)
+        raw = ctx.user_message
+
+        triage_cls, _ = await self._turn(ctx)
+
+        triage_cls.assert_called_once()
+        assert ctx.user_message is raw
+        assert ctx.user_message.pass_validation is True
+
+    async def test_the_turns_record_shows_the_message_arrived_unchecked(
+        self, make_request_context
+    ):
+        """The root's input is stamped before the check runs."""
+        ctx = self._unvalidated(make_request_context)
+
+        _, record = await self._turn(ctx)
+
+        assert record.await_args.args[1].input["pass_validation"] is None
+
+    @pytest.mark.parametrize(
+        ("flags", "reply"),
+        [
+            ({"security_issue": True}, HARMFUL_REPLY),
+            ({"harmful_content": True}, HARMFUL_REPLY),
+            ({"gibberish_or_incoherent": True}, INCOHERENT_REPLY),
+            # the order is the priority: harm is named before gibberish
+            ({"harmful_content": True, "gibberish_or_incoherent": True}, HARMFUL_REPLY),
+        ],
+    )
+    async def test_a_failed_check_gets_its_fixed_reply_and_no_triage(
+        self, make_request_context, validate, flags, reply
+    ):
+        ctx = self._unvalidated(make_request_context)
+        validate.return_value = _validation(**flags)
+
+        triage_cls, _ = await self._turn(ctx)
+
+        triage_cls.assert_not_called()
+        ctx.sse_stream.send_chars.assert_awaited_once_with(reply)
+        assert ctx.user_message.pass_validation is False
+
+    async def test_the_refusal_is_on_the_turns_record(
+        self, make_request_context, validate
+    ):
+        ctx = self._unvalidated(make_request_context)
+        validate.return_value = _validation(gibberish_or_incoherent=True)
+
+        _, record = await self._turn(ctx)
+
+        root = record.await_args.args[1]
+        assert any(d.startswith("refused by validation") for d in root.details)
+        assert root.ok
+
+    async def test_a_check_with_no_verdict_stops_the_turn(
+        self, make_request_context, validate
+    ):
+        """Nothing unchecked goes further: a failed step is unwrapped, not
+        waved through."""
+        validate.return_value = OperationResult(name="validate_user_message")
+
+        ctx = self._unvalidated(make_request_context)
+
+        triage_cls, _ = await self._turn(ctx)
+
+        triage_cls.assert_not_called()
+        assert ctx.user_message.pass_validation is None

@@ -2,7 +2,7 @@
 
 Retrieval nodes hand one of these downstream instead of a book list: the node
 runs only a COUNT, and whichever node is last in the plan turns the query into
-rows. See docs/design/execution-pipeline-v1.md.
+rows. See docs/decisions/005-counts-first-retrieval.md.
 
 Everything that can be *derived* from a built query lives here as a method —
 the counting statement, the materializing statement, pooling several into one —
@@ -70,14 +70,12 @@ class DeferredBookQuery:
     order, and `count_stmt`/`materialize_stmt` work unchanged.
 
     **Nothing on this class marks that exception, and `compose()` does not
-    refuse it.** A tracked `capped` attribute and a guard on composition were
-    both tried and removed on 2026-08-24. What that left unprotected has since
-    split in two (2026-08-24, `Combine_Intersect`):
+    refuse it.** What that leaves unprotected depends on the op:
 
     - **`"and"` is as safe as a narrowing ever was.** The LIMIT applies before
       the membership test, so the count means "of the 250 nearest, N also
       match" rather than "N in the catalog" — the same lossiness a metadata
-      bound on a pool always had, and the caller's to phrase. The ranking now
+      bound on a pool always had, and the caller's to phrase. The ranking
       survives it, which is the whole point of the score column.
     - **`"or"` is still wrong and still unguarded.** The LIMIT applies before
       the union, so it changes which books qualify, and 250 of ~1,200 similar
@@ -85,7 +83,7 @@ class DeferredBookQuery:
       Nothing registered reaches it: `Combine_Union` does not exist. Before it
       does, tune the similarity floor so the pool needs no LIMIT — which
       dissolves the exception rather than policing it — or restore the guard.
-      See docs/design/execution-pipeline-v1.md.
+      See docs/decisions/005-counts-first-retrieval.md.
 
     Deliberately not a Pydantic model or a dataclass: it rides on a Pydantic
     output field, and nothing should try to walk into `stmt`.
@@ -135,7 +133,7 @@ class DeferredBookQuery:
         union contains rows the scored input never matched, so the column would
         be undefined for some of them. `Combine_Union`'s hazards are untouched
         by this — see the class docstring and
-        docs/design/execution-pipeline-v1.md.
+        docs/decisions/005-counts-first-retrieval.md.
         """
         if not queries:
             raise ValueError("compose() needs at least one query")
@@ -220,3 +218,8 @@ class DeferredBookQuery:
 
     def __repr__(self) -> str:
         return f"<DeferredBookQuery {self.label}>"
+
+    def to_summary(self) -> dict[str, str]:
+        """What a step's `record.input` shows for a query it was handed —
+        airglider's fallback for a value with no serializable form."""
+        return {"label": self.label, "sql": compile_sql(self.stmt)}

@@ -21,20 +21,19 @@ dev:
 	LOG_LEVEL=INFO poetry run uvicorn app.main:app --reload --reload-include "*.py" --reload-include "*.env"
 
 # The deployed service, locally: APP_ENVIRONMENT=production (the same value the
-# deploy recipe sets) and no --reload, so the production-only paths are live —
-# today that means the session token budget, which is read everywhere but only
-# enforced here. Against the compose Postgres; for the deployed database use
-# local-prod-neon.
+# deploy recipe sets) and no --reload, so the production-only paths are live:
+# the site-wide token cap, the per-IP rate limit and chat_runs recording.
+# Against the compose Postgres; for the deployed database use local-prod-neon.
 .PHONY: local-prod
 local-prod:
 	APP_ENVIRONMENT=production LOG_LEVEL=INFO poetry run uvicorn app.main:app
 
-# local-prod against Neon — the same override dev-neon uses: config/.env.neon
-# holds only POSTGRES_* values, and process env beats config/.env in
+# local-prod against Neon — the same override dev-neon uses: the POSTGRES_*
+# lines of config/.env.deployment, and process env beats config/.env in
 # pydantic-settings. As close to the deployed service as this machine gets.
 .PHONY: local-prod-neon
 local-prod-neon:
-	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && $(MAKE) local-prod
+	set -a && eval "$$(grep '^POSTGRES_' $(DEPLOY_ENV))" && set +a && $(MAKE) local-prod
 
 # clear the pycache
 .PHONY: clean
@@ -68,24 +67,26 @@ postgres-cli:
 	docker exec -it -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
 		psql -U $$POSTGRES_USER -d $$POSTGRES_DB
 
-# run an ad hoc query file against the dev postgres container (default: data/sql_dev_commands.sql)
-# usage: make postgres-query [FILE=data/some_other_file.sql]
+# run a SQL file against the dev postgres container
+# usage: make postgres-query FILE=path/relative/to/backend.sql
 .PHONY: postgres-query
 postgres-query:
+	@test -n "$(FILE)" || { echo "usage: make postgres-query FILE=<file.sql>"; exit 1; }
 	set -a && . $(ENV_FILE) && set +a && \
 	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
-		psql -U $$POSTGRES_USER -d $$POSTGRES_DB < $(MAKEFILE_DIR)$(or $(FILE),data/sql_dev_commands.sql)
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB < $(MAKEFILE_DIR)$(FILE)
 
 BACKUP_FILE ?= $(MAKEFILE_DIR)data/backup.sql
-# restore plain-SQL backup (data/backup.sql) into the compose postgres container
+# restore a whole-database dump (postgres-dump) into the compose postgres container.
+# NOTE: the dump has its own CREATE TABLEs, so restore into an empty database;
+# a container that ran db/init already has the tables and the restore errors.
 .PHONY: postgres-restore
 postgres-restore:
 	set -a && . $(ENV_FILE) && set +a && \
 	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
 		psql -U $$POSTGRES_USER -d $$POSTGRES_DB < $(BACKUP_FILE)
 
-# dump the postgres data to a file (overwrites existing backup.sql)
-# currently throw an error because entry point init and backup does have IF NOT EXISTS
+# dump the whole database, schema included, to data/backup.sql (overwrites it)
 .PHONY: postgres-dump
 postgres-dump:
 	set -a && . $(ENV_FILE) && set +a && \
@@ -93,13 +94,18 @@ postgres-dump:
 		pg_dump -U $$POSTGRES_USER -d $$POSTGRES_DB > $(MAKEFILE_DIR)data/backup.sql
 	@echo "PostgreSQL data dumped to $(MAKEFILE_DIR)data/backup.sql"
 
-# restore the postgres books data from a file
+# load data/backup/books.sql (postgres-dump-books) into a fresh container's
+# empty books table — the local twin of neon-bootstrap's books step. The
+# container ran db/init (indexes included) on an empty table, so the ivfflat
+# index is rebuilt after the load, or similarity recall degrades silently.
 .PHONY: postgres-restore-books
 postgres-restore-books:
 	set -a && . $(ENV_FILE) && set +a && \
 	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
-		psql -U $$POSTGRES_USER -d $$POSTGRES_DB < $(MAKEFILE_DIR)data/backup/backup.sql
-	@echo "PostgreSQL data restored from $(MAKEFILE_DIR)data/backup/backup.sql
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB -v ON_ERROR_STOP=1 < $(MAKEFILE_DIR)data/backup/books.sql && \
+	docker exec -i -e PGPASSWORD=$$POSTGRES_PASSWORD $(POSTGRES_CONTAINER) \
+		psql -U $$POSTGRES_USER -d $$POSTGRES_DB -c "REINDEX INDEX books_embedding_idx;"
+	@echo "books restored from $(MAKEFILE_DIR)data/backup/books.sql"
 
 # dump chat_runs data to a timestamped .sql file (data only, restorable via psql <)
 .PHONY: postgres-dump-chat-runs
@@ -120,7 +126,7 @@ postgres-dump-feedback:
 	@echo "feedback dumped to $(MAKEFILE_DIR)data/"
 
 # dump test_runs data to a timestamped .sql file (data only, restorable via psql <)
-# — the suite/case links written by evals/run_suites.py, keyed by chat_id
+# — the suite/case links written by evals/planjane/run_suites.py, keyed by chat_id
 .PHONY: postgres-dump-test-runs
 postgres-dump-test-runs:
 	set -a && . $(ENV_FILE) && set +a && \
@@ -217,54 +223,56 @@ neon-bootstrap:
 	neon psql -- -v ON_ERROR_STOP=1 -f $(MAKEFILE_DIR)db/init/02_indexes.sql
 	@echo "Neon bootstrapped."
 
-# the API against Neon instead of the compose container: config/.env.neon holds
-# only POSTGRES_* values, and process env beats config/.env in pydantic-settings
+# the API against Neon instead of the compose container: only the POSTGRES_*
+# lines of config/.env.deployment, so the OpenAI key stays the dev one, and
+# process env beats config/.env in pydantic-settings
 .PHONY: dev-neon
 dev-neon:
-	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && $(MAKE) dev
+	set -a && eval "$$(grep '^POSTGRES_' $(DEPLOY_ENV))" && set +a && $(MAKE) dev
 
 # -------------------
 # Deploy (Cloud Run)
 # -------------------
 
-# The recipe below is the whole description of the service: every flag that
-# shapes the deployed revision is here, so nothing lives only in the console
-# and a redeploy can't quietly drop a setting someone clicked in once.
-CLOUD_RUN_SERVICE := book-shelf-api
-CLOUD_RUN_REGION  := us-east5
-GCP_PROJECT       := tuanqpham0921
-# Setting it turns Firebase App Check on (app/api/dependencies.py): every route
-# but health then needs a token minted for the web app in this project.
-GCP_PROJECT_NUMBER := 286869228046
-# A dedicated service account, not the compute default (which carries project
-# Editor): this one may only read the two secrets below.
-CLOUD_RUN_SA      := $(CLOUD_RUN_SERVICE)@$(GCP_PROJECT).iam.gserviceaccount.com
-# Firebase serves the site on both hostnames, so both must be allowed.
-ALLOW_ORIGINS     := https://tuanqpham0921.web.app,https://tuanqpham0921.firebaseapp.com
+# config/.env.deployment is the one place production is adjusted: the
+# DEPLOY_* lines say where the service runs and how big it is, and the APP_ /
+# POSTGRES_ / OPENAI_ lines are its env. It is git-ignored, so the endpoint host
+# and the keys stay out of version control. `dev-neon` and `local-prod-neon`
+# read its POSTGRES_* lines, so the deployed database and your local Neon runs
+# cannot drift.
+DEPLOY_ENV := $(MAKEFILE_DIR)config/.env.deployment
+# One value off DEPLOY_ENV. Recursive (`=`), so only deploy targets read it.
+deploy_var = $(shell sed -n 's/^$(1)=//p' $(DEPLOY_ENV))
+
+CLOUD_RUN_SERVICE = $(call deploy_var,DEPLOY_SERVICE)
+CLOUD_RUN_REGION  = $(call deploy_var,DEPLOY_REGION)
+GCP_PROJECT       = $(call deploy_var,DEPLOY_PROJECT)
 
 # Deploy the backend. Builds from source via Cloud Build (no cloudbuild.yaml:
 # the Dockerfile and these flags already say everything one would contain),
 # pushes to Artifact Registry, and rolls out a new revision.
 #
-# Database settings are read from config/.env.neon — the same file `dev-neon`
-# uses, so the deployed database and your local Neon runs cannot drift, and the
-# endpoint host stays out of version control. The password is NOT passed here:
-# it and the OpenAI key come from Secret Manager, which is what keeps them out
-# of the revision's env (revisions are immutable and readable forever).
+# The env is every APP_ / POSTGRES_ / OPENAI_ line except the two secrets:
+# POSTGRES_PASSWORD and OPENAI_API_KEY reach the service only through Secret
+# Manager, which keeps them out of the revision's env (revisions are immutable
+# and readable forever). Rotating one is a new secret version — see
+# README.md — not an edit here.
 .PHONY: deploy
 deploy:
-	set -a && . $(MAKEFILE_DIR)config/.env.neon && set +a && \
+	ENV_VARS=$$(grep -E '^(APP|POSTGRES|OPENAI)_[A-Z_]*=' $(DEPLOY_ENV) | grep -vE '^(POSTGRES_PASSWORD|OPENAI_API_KEY)=' | paste -sd@ -) && \
 	gcloud run deploy $(CLOUD_RUN_SERVICE) \
 		--source=$(MAKEFILE_DIR) \
 		--project=$(GCP_PROJECT) \
 		--region=$(CLOUD_RUN_REGION) \
-		--service-account=$(CLOUD_RUN_SA) \
+		--service-account=$(call deploy_var,DEPLOY_SERVICE_ACCOUNT) \
 		--allow-unauthenticated \
-		--cpu=1 --memory=1Gi --cpu-boost \
-		--timeout=300 \
-		--min-instances=0 --max-instances=3 --concurrency=5 \
+		--cpu=$(call deploy_var,DEPLOY_CPU) --memory=$(call deploy_var,DEPLOY_MEMORY) --cpu-boost \
+		--timeout=$(call deploy_var,DEPLOY_TIMEOUT) \
+		--min-instances=$(call deploy_var,DEPLOY_MIN_INSTANCES) \
+		--max-instances=$(call deploy_var,DEPLOY_MAX_INSTANCES) \
+		--concurrency=$(call deploy_var,DEPLOY_CONCURRENCY) \
 		--startup-probe=httpGet.path=/ready,initialDelaySeconds=5,periodSeconds=5,timeoutSeconds=5,failureThreshold=6 \
-		--set-env-vars="^@^APP_NAME=book-shelf-backend@APP_ENVIRONMENT=production@APP_ALLOW_ORIGINS=$(ALLOW_ORIGINS)@APP_FIREBASE_PROJECT_NUMBER=$(GCP_PROJECT_NUMBER)@POSTGRES_HOST=$$POSTGRES_HOST@POSTGRES_PORT=$$POSTGRES_PORT@POSTGRES_DB=$$POSTGRES_DB@POSTGRES_USER=$$POSTGRES_USER@POSTGRES_SSL_MODE=$$POSTGRES_SSL_MODE@POSTGRES_MIN_CONNECTIONS=$$POSTGRES_MIN_CONNECTIONS@POSTGRES_MAX_CONNECTIONS=$$POSTGRES_MAX_CONNECTIONS@OPENAI_BASE_MODEL=gpt-4.1-mini@OPENAI_TOKENIZER_ENCODING=o200k_base@OPENAI_EMBEDDING_MODEL=text-embedding-3-large@OPENAI_EMBEDDING_DIMENSIONS=1024@OPENAI_MAX_CONCURRENCY=10" \
+		--set-env-vars="^@^$$ENV_VARS" \
 		--set-secrets=POSTGRES_PASSWORD=postgres-password:latest,OPENAI_API_KEY=openai-api-key:latest
 	@$(MAKE) deploy-check
 
@@ -335,10 +343,6 @@ tests-all:
 typecheck:
 	poetry run pyright
 
-.PHONY: playground
-playground:
-	poetry run python playground/scratch.py
-
 .PHONY: local-end-to-end-test
 local-end-to-end-test:
 	./tests/scripts/local_end_to_end_test.sh
@@ -348,8 +352,3 @@ local-end-to-end-test:
 # so they still run as `make query-suite-all` from backend/ (cwd stays backend/,
 # so the relative suite/log paths in those recipes resolve).
 include $(MAKEFILE_DIR)evals/makefile
-
-# .Phony: lint
-# lint:
-# 	poetry run ruff check --fix clients/ tests/unit/clients/
-#   poetry run black common/utils/ tests/unit/common/utils/

@@ -1,17 +1,5 @@
-"""Mermaid flowcharts from a neutral list of boxes.
-
-The caller says what to draw — one `MermaidBox` per node with the ids it points
-at — and this module owns how: id sanitization, label markup, edge emission and
-orientation.
-
-Nothing here knows about goals or any app type; its only import is `airglider`,
-so this module travels wherever PlanJane travels. Turning goals into boxes is
-the layer above (`dial/mermaid.py`).
-
-Edges are declared as `sent_to`, the direction the arrow is drawn. Callers hold
-the reverse (`depends_on`) and invert once when building boxes, so a box cannot
-declare one arrow while the diagram emits another.
-"""
+"""Mermaid flowcharts from a list of `MermaidBox`es: ids, label markup, edges and
+orientation. Knows nothing about goals."""
 
 import re
 from collections import Counter
@@ -45,6 +33,7 @@ class MermaidBox:
     id: str
     title: str = ""
     body: str | Mapping[str, Any] | None = None
+    # the drawn direction; callers hold `depends_on` and invert it once
     sent_to: Sequence[str] = ()
 
 

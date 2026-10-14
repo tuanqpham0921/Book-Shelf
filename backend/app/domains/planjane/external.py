@@ -1,17 +1,5 @@
-"""What PlanJane exposes to the layers around it: the plan, the goal it is made
-of, and the order those goals run in.
-
-`schemas.py` is what the *LLM* fills in; this is what the rest of the app reads
-back. `SystemGoal` sits here rather than there because it is both — the planner
-LLM emits it as a nested tool schema, and then it travels: the task runner
-dispatches one per node, triage layers them, `run_recorder` serializes them. A
-consumer importing it should not have to reach through the tool schema that
-produced it, and `executor.py` should not be the address for a payload.
-
-Imports `schemas.py` for nothing — the dependency runs the other way
-(`GoalParseRequest.system_goals` is a `list[SystemGoal]`), which is what keeps
-this module importable without pulling in the planner's prompt example.
-"""
+"""What the plan *is* — `SystemGoal`, `ExecutionOrder`, `PlanJaneOutput` — as
+the rest of the app reads it back."""
 
 import logging
 from collections import defaultdict
@@ -31,6 +19,7 @@ from app.common.field_types import (
 )
 from app.registry import NodeTypeEnum
 
+# NOTE: never imports tools.py — the dependency runs tools → external
 from .labels import PlannerNodeTypeEnum
 
 logger = logging.getLogger(__name__)
@@ -134,6 +123,11 @@ class ExecutionOrder(NamedTuple):
 
 
 class PlanJaneOutput(NodeWorkflowOutput):
+    """The plan: goals sorted into accepted (what the task runner runs),
+    refused (unsure or unsupported) and buffered (valid, but past
+    MAX_SYSTEM_GOALS), the parts of the message set aside as out of scope, and
+    the rendered diagram."""
+
     accepted_goals: list[SystemGoal] = Field(default_factory=list)
     refused_goals: list[SystemGoal] = Field(default_factory=list)
     buffer_goals: list[SystemGoal] = Field(default_factory=list)

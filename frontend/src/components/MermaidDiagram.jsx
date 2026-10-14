@@ -111,7 +111,7 @@ function MermaidDiagram({ chart }) {
 
                 // Clean up orphaned divs
                 if (svgId){
-                    console.log('Mermaid cleaning ID:', svgId)
+                    // console.log('Mermaid cleaning ID:', svgId)
                     const tempDiv = document.getElementById(`d${svgId}`)
                     if (tempDiv && tempDiv.parentNode) {
                         tempDiv.parentNode.removeChild(tempDiv)

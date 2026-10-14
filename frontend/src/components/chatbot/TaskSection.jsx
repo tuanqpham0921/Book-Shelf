@@ -1,11 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { ChevronRight, Check, X } from 'lucide-react';
-
-function formatArg(value) {
-    if (Array.isArray(value)) return value.join(', ');
-    if (typeof value === 'object') return JSON.stringify(value);
-    return String(value);
-}
+import CodeBlock from '@/design-system/CodeBlock';
 
 function DetailRow({ label, className = '', children }) {
     return (
@@ -38,14 +33,10 @@ function TaskDetails({ details }) {
         <dl className="task-details">
             {args && (
                 <DetailRow label="Arguments">
-                    {Object.entries(args).map(([key, value]) => (
-                        <div key={key}>
-                            <span className="task-details-key">{key}:</span> {formatArg(value)}
-                        </div>
-                    ))}
+                    <CodeBlock language="json">{JSON.stringify(args, null, 2)}</CodeBlock>
                 </DetailRow>
             )}
-            {sql && <DetailRow label="SQL"><pre>{sql}</pre></DetailRow>}
+            {sql && <DetailRow label="SQL"><CodeBlock language="sql">{sql}</CodeBlock></DetailRow>}
             {error_message && (
                 <DetailRow label="Error" className="task-details-error">{error_message}</DetailRow>
             )}
@@ -65,16 +56,11 @@ function TaskDetails({ details }) {
  * The body is its details, then what the node streamed (its line and cards)
  * under a Preview label that says how much of the match the cards are.
  *
- * Open/closed follows the stream by default (expanded while running, folded on
- * completion) until the user clicks, after which their choice sticks.
+ * `section.open` is only where it starts: folded for a task, expanded for the
+ * plan diagram. After that it is the user's to toggle.
  */
 function TaskSection({ section, children }) {
-    const [userToggled, setUserToggled] = useState(false);
     const [open, setOpen] = useState(section.open !== false);
-
-    useEffect(() => {
-        if (!userToggled) setOpen(section.open !== false);
-    }, [section.open, userToggled]);
 
     const collapsible = section.collapsible !== false;
     const isOpen = collapsible ? open : true;
@@ -90,12 +76,11 @@ function TaskSection({ section, children }) {
 
     const toggle = () => {
         if (!collapsible) return;
-        setUserToggled(true);
         setOpen(current => !current);
     };
 
     return (
-        <div className="task-section">
+        <div className="task-section animate-slide-down">
             <button
                 type="button"
                 onClick={toggle}
@@ -125,7 +110,7 @@ function TaskSection({ section, children }) {
             </button>
 
             {isOpen && (
-                <div className="task-section-body">
+                <div className="task-section-body animate-slide-down">
                     {/* a cancelled step closes with nothing to show */}
                     {section.details && Object.keys(section.details).length > 0 && (
                         <TaskDetails details={section.details} />

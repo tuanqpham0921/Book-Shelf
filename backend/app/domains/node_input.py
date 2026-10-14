@@ -1,21 +1,7 @@
-"""What a unit of work is invoked *with* — the typed half of the call.
+"""Node inputs, and `build_input`, which fills one from the planner's
+instruction and upstream outputs — by type, never by key."""
 
-`RequestContext` answers "what can I reach"; this answers "what am I working
-on". A node declares its input as a subclass and lists it on its `NodeSpec`;
-`build_input` assembles it from the planner's instruction plus what ran before
-it.
-
-The declaration is the point, not the typing. A `dict[str, Any]` can say
-something is missing but never *what*; a named, empty field says which slot is
-empty and what shape would fill it — the seam an agentic node needs to ask the
-planner for one. So default a field whenever the node has a real fallback, and
-require it only when the node cannot proceed without it.
-
-Fields are filled by type, never by name — a key in `artifacts` is provenance.
-
-Imports nothing else from `app/domains/`: `base_workflow` imports *it*.
-"""
-
+# NOTE: imports nothing else from app/domains/ — base_workflow imports this.
 import logging
 from collections.abc import Mapping
 from types import UnionType
@@ -45,15 +31,14 @@ class NodeInput(WorkflowInput):
 
     For a node it is the *only* thing it is told about the ask — no node reads
     `ctx.user_message`, which is why the goal text is shipped to an argument
-    parser as an `AssistantMessage` rather than as a user turn. The one
-    exception is the generation node, which reads the user's message
-    deliberately, as the untrusted half of a trust split.
+    parser as an `AssistantMessage` rather than as a user turn.
 
-    Named for what it is rather than `query`, which in this codebase already
-    means a `DeferredBookQuery` on every book-shaped output.
+    NOTE: not `query`, which already means a `DeferredBookQuery` on every
+    book-shaped output.
     """
 
     instruction: str
+
 
 ParsedT = TypeVar("ParsedT", bound=BaseModel)
 
@@ -69,6 +54,7 @@ class ParsedInput(WorkflowInput, Generic[ParsedT]):
     """
 
     parsed_result: ParsedT
+
 
 def _resolve(annotation: Any, available: list[Any]) -> tuple[bool, Any]:
     """`(filled, value)` for one field, matched against the artifacts by type.

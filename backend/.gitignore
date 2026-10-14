@@ -33,3 +33,6 @@ log.txt
 
 # Neon project link — written by `neon link`
 .neon
+
+# local files
+TODO.md

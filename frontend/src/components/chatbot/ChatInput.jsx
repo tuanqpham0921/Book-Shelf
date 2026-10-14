@@ -9,6 +9,7 @@ const TEXTAREA_MAX_HEIGHT_PX = 128 // keep in sync with max-h-32 below
 
 function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onStop }) {
     const [showSuggestions, setShowSuggestions] = useState(true)
+    const [suggestionGroup, setSuggestionGroup] = useState(Object.keys(userInputSuggestions)[0])
     const suggestionsRef = useRef(null) // Ref for the suggestions container
     const hintsButtonRef = useRef(null) // Ref for the hints button
     const textareaRef = useRef(null) // Ref for auto-growing the textarea
@@ -21,6 +22,9 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
         if (!el) return
         el.style.height = 'auto'
         el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`
+        // scrollHeight is rounded to a whole pixel, so below the cap the box can
+        // come out a fraction short — scroll only once the cap is actually hit
+        el.style.overflowY = el.scrollHeight > TEXTAREA_MAX_HEIGHT_PX ? 'auto' : 'hidden'
     }, [newMessage])
 
     // Suggestions panel spans the full width of the input box, not just the
@@ -36,9 +40,9 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
         }
     }
 
-    const handleSuggestionClick = (suggestion) => {
+    const handleSuggestionClick = (text) => {
         setShowSuggestions(false)
-        setNewMessage(suggestion.text)
+        setNewMessage(text)
     }
 
     return (
@@ -48,19 +52,28 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
                 {showSuggestions && (
                     <div
                         ref={suggestionsRef} // Attach ref to suggestions container
-                        className="absolute bottom-full left-0 right-0 mb-2 bg-[var(--bg-primary)] border border-[var(--border-light)] rounded-lg shadow-lg max-h-48 overflow-y-auto z-50"
+                        className="absolute bottom-full left-0 right-0 mb-2 bg-[var(--bg-primary)] border border-[var(--border-light)] rounded-lg shadow-lg max-h-48 flex flex-col overflow-hidden z-50"
                     >
-                        <div className="sticky top-0 bg-white z-20 border-b border-[var(--border-light)]">
-                            <div className="text-xs text-[var(--text-inactive)] p-2 px-5">Quick suggestions:</div>
+                        {/* Only the list scrolls, so the scrollbar starts below the tabs */}
+                        <div className="shrink-0 bg-white border-b border-[var(--border-light)] flex gap-4 px-5 pt-2">
+                            {Object.keys(userInputSuggestions).map((name) => (
+                                <button
+                                    key={name}
+                                    onClick={() => setSuggestionGroup(name)}
+                                    className={`text-xs pb-2 underline-animated underline-button flush ${suggestionGroup === name ? 'active' : ''}`}
+                                >
+                                    {name}
+                                </button>
+                            ))}
                         </div>
-                        <div className="p-2 pt-0">
-                            {userInputSuggestions.map((suggestion) => (
+                        <div className="p-2 pt-0 overflow-y-auto">
+                            {userInputSuggestions[suggestionGroup].map((text) => (
                                 <DropdownItem
-                                    key={suggestion.id}
-                                    onClick={() => handleSuggestionClick(suggestion)}
+                                    key={text}
+                                    onClick={() => handleSuggestionClick(text)}
                                     className="rounded"
                                 >
-                                    {suggestion.text}
+                                    {text}
                                 </DropdownItem>
                             ))}
                         </div>
@@ -69,7 +82,7 @@ function ChatInput({ newMessage, isStreaming, setNewMessage, onSendMessage, onSt
 
                 <textarea
                     ref={textareaRef}
-                    className="w-full max-h-32 text-lg px-4 py-3 bg-transparent border resize-none border-none outline-none overflow-y-auto"
+                    className="w-full max-h-32 text-lg px-4 py-3 bg-transparent border resize-none border-none outline-none overflow-y-hidden"
                     value={newMessage}
                     onChange={e => {
                         if (e.target.value.length <= 500) {

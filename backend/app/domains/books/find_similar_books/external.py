@@ -1,9 +1,62 @@
-from pydantic import BaseModel, Field
-from typing import Any
+"""Analyze_Similar_Books' request, input and output schemas."""
 
+from typing import Literal, Any
+
+from pydantic import BaseModel, Field
+
+from app.domains.base_request import BaseRequest
 from app.domains.books.external import BookAnchorOutput, BookCandidateOutput
 from app.domains.books.schemas import Book
 from app.domains.node_input import NodeInput
+
+from .labels import SimilarBooksNodeTypeEnum
+
+
+class SimilarBooksSearch(BaseRequest):
+    """Purpose: Find the books most similar in meaning to a book the user named.
+
+    Args: none — this node reads nothing out of the goal description. What it
+        searches for is built from the anchor books themselves.
+
+    Returns: BookCandidateOutput — the books nearest the anchor, nearest first.
+    A pool to choose from, not a final answer.
+
+    depends_on: 1+ nodes returning BookAnchorOutput — Retrieve_by_Title, the
+    node for a book the user named. A bibliography, a subject search or a
+    numeric search returns BookCandidateOutput and CANNOT anchor this node:
+    "mystery" matches hundreds of books, and averaging hundreds of blurbs
+    describes nothing. A goal depending on one is skipped.
+
+    Use when: the user names a book and wants more like it.
+        - One book — "books like Dune": one Retrieve_by_Title, one goal here.
+        - Several books BLENDED — "books like Dune and Neuromancer", "something
+          between X and Y": ONE goal here, depending on every title retrieval.
+          The anchors are folded into a single description, so the pool is what
+          the named books have in common.
+        - Several books SEPARATELY — "books like Dune or like Neuromancer",
+          "recommendations for each of these": ONE GOAL PER BOOK, each depending
+          on its own retrieval. Two goals, two pools. Pooling them into one goal
+          would average two tastes into a description of neither.
+
+    Do not use: when no book is named. Taste, mood and theme with nothing to
+    anchor on ("something cozy and hopeful") are not this node's — it searches
+    from the anchor books, not from the words in the goal. A subject word
+    ("mysteries", "books about space") is Retrieve_by_Lexical_Traits.
+
+    Constraints: every anchor a goal depends on is folded into one description
+    and produces one pool — so AND is one goal with several depends_on, OR is
+    several goals with one each. At most 5 anchor books in total across a
+    goal's dependencies; more than that is refused rather than averaged.
+
+    Example queries:
+        - "recommend books like Dune"
+        - "books like Dune and Neuromancer"        (one goal, two depends_on)
+        - "books like Dune or like Neuromancer"    (two goals, one each)
+    """
+
+    node_type: Literal[SimilarBooksNodeTypeEnum.REQUEST] = (
+        SimilarBooksNodeTypeEnum.REQUEST
+    )
 
 
 class SimilarBooksInput(NodeInput):
@@ -20,9 +73,6 @@ class SimilarBooksInput(NodeInput):
 
     There is no fallback to fall back to. A similarity search with nothing to be
     similar to is a different question — one no registered node answers today.
-
-    No `documents` field: `AnalyzeBooksOutput` is a reserved name with no class,
-    and a field can only select by type against a type that exists.
     """
 
     anchors: list[BookAnchorOutput] = Field(..., min_length=1)
@@ -38,9 +88,8 @@ class ScoreStats(BaseModel):
     chose the whole pool; a `min` well above it means the floor did the cutting
     and the pool is smaller than its ceiling.
 
-    It is also the record `Book.similarity_score` used to keep. Per-book, that
-    field only survived as far as the browser, where `BookOut` dropped it; the
-    spread reaches `chat_runs` and is what "why these books" is answered from.
+    The spread reaches `chat_runs`, and is what "why these books" is answered
+    from.
     """
 
     count: int
@@ -69,16 +118,12 @@ class SimilarBooksOutput(BookCandidateOutput):
     be fed back in as an anchor to another similarity search, and a later node
     that re-ranks or picks from it declares `list[BookCandidateOutput]`.
 
-    Shaped like every other retrieval — a count and a query, no rows — which it
-    was not until 2026-08-24. `embedding_search_stmt` carries an ORDER BY and a
-    LIMIT, and this node used to hand on 50 fetched rows because
-    `DeferredBookQuery` forbids both by invariant. It now takes that invariant's
-    one documented exception instead, because the rows cost more than the
-    exception does: with a query, `Combine_Intersect` bounds the pool in SQL
-    and `score` carries cosine order through the narrowing, so a bound on a
-    similarity ask is expressible without this node parsing one.
+    Shaped like every other retrieval — a count and a query, no rows — though
+    its query is `DeferredBookQuery`'s one documented exception: it carries an
+    ORDER BY and a LIMIT. With a query, `Combine_Intersect` bounds the pool in
+    SQL and `score` carries cosine order through the narrowing.
 
-    Counting, intersecting and materializing `query` are all safe — the count
+    NOTE: counting, intersecting and materializing `query` are all safe — the count
     after an intersect means "of the 250 nearest, N also match". **Pooling it
     with `"or"` is not** — the LIMIT applies before the union, so it changes
     which books qualify, and `compose()` then drops the `score` that chose

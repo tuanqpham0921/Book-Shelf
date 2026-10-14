@@ -1,24 +1,5 @@
-"""The similarity node's flow. `run` is the table of contents; everything else
-sits where the flow reaches it.
-
-How this slice is laid out (the reading rule):
-
-- **This file is the flow** — `run()` plus every *step* (anything awaited), as
-  methods in the order `run` calls them. Pure helpers whose input needs no
-  rendering are module-level functions here, also in flow order.
-- **A satellite module is one LLM call's pure half** — `analyze_references.py`
-  holds the rendering, the tool model and the request builder for the node's
-  one LLM call, and nothing that runs.
-- **`dependents.py` is step 1's interpretation** — what the node makes of the
-  anchors its input contract selected.
-
-The node does one thing: fold the books the user named into a description of
-what to look for next, and hand back a query for the pool nearest that
-description. It does not rank the pool, drop books from it, or write the reply —
-those are a later node's, and none of them exists yet. Handing on the *query*
-rather than the rows is what leaves room for them: `Combine_Intersect` can bound
-the pool in SQL and cosine order survives the narrowing.
-"""
+"""Analyze_Similar_Books' executor: fold the named books into a description,
+embed it, and hand on the nearest pool as a query."""
 
 from app.domains.books.base_workflow import BookWorkflow
 from app.domains.books.schemas import Book
@@ -55,15 +36,16 @@ CANDIDATE_POOL_SIZE = 250
 
 
 class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
-    ui_loading_message = "Finding similar books..."
+    description = "Finds books similar to ones you named"
+
+    ui_loading_message = "finding similar books..."
 
     async def run(self, node_input: SimilarBooksInput) -> None:
         await self.sse_stream.send_ui_loading(self.ui_loading_message)
 
         # 1. interpret the anchors, then check them *before* spending a round
         # trip. Every anchor counted itself on the way here, so how many books
-        # this comes to is known without asking the database again — which is
-        # what let the old count-then-cap step disappear from BookWorkflow.
+        # this comes to is known without asking the database again.
         parsed = ParsedDependents.from_anchors(node_input.anchors)
         self.add_details(f"anchors: {parsed.to_summary()}")
         self.check_anchors(parsed)
@@ -94,7 +76,8 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
 
         # 4. embed + build. The named books are excluded from their own results
         # in SQL, so the excluded rows do not eat pool slots. Nothing is fetched
-        # here — what comes back is the query, like every other retrieval.
+        # here — what comes back is the query, like every other retrieval, so
+        # Combine_Intersect can bound the pool in SQL and keep cosine order.
         pool = (
             await self.build_pool(
                 analyzed, exclude_isbns=[book.isbn13 for book in references]
@@ -153,7 +136,7 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
                 f"node folds into one description"
             )
 
-    @task
+    @task(description="Reads the books you named")
     async def analyze_references(self, books: list[Book]) -> str | None:
         """Fold the anchor books into one description to embed.
 
@@ -167,10 +150,7 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
         missing (`ok=True`, empty payload); `run` is where that becomes a dead
         end, because `run` is what knows there is no other half left.
         """
-        # TODO: caching for dev
-        # return "A witty, finely observed comedy of manners set in a tightly governed social world where marriage, reputation and property shape every visit and conversation. The plot unfolds through salons, country assemblies and polite calls as a pair of sharp-minded protagonists spar, misread and slowly reassess one another amid the pressures of family expectation and class-conscious neighbors. Much of the action is social choreography\u2014dinners, letters, dances, gossip and small humiliations\u2014where unsaid motives and restrained emotion carry more weight than dramatic outbursts. The tone is light, ironic and humane: the narrator gently exposes vanity and prejudice while remaining affectionate toward the characters\u2019 foibles. Conflicts are interpersonal and moral rather than violent, moving the cast toward clearer self-knowledge, humility and the renegotiation of pride and prejudice. This is a domestically scaled novel that rewards attention to dialogue and manners, offering sly social critique beneath an entertaining surface of romantic entanglement and corrective revelations."
-        
-        await self.sse_stream.send_ui_loading("analyzing books...")
+        await self.sse_stream.send_ui_loading("analyzing referenced books...")
 
         document_text = render_documents(books)
         if not document_text:
@@ -185,12 +165,9 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
         )
         return analysis.semantic_input
 
-    @task
+    @task(description="Searches for nearby books")
     async def build_pool(
-        self,
-        search_text: str,
-        exclude_isbns: list[str],
-        limit: int = CANDIDATE_POOL_SIZE,
+        self, search_text: str, exclude_isbns: list[str]
     ) -> DeferredBookQuery:
         """The pool: a query for the books nearest the embedded description.
 
@@ -223,10 +200,10 @@ class FindSimilarBooksExecutor(BookWorkflow[SimilarBooksOutput]):
         embedding = embedded.unwrap().embeddings[0]
 
         return embedding_search_stmt(
-            embedding, limit=limit, exclude_isbns=exclude_isbns
+            embedding, limit=CANDIDATE_POOL_SIZE, exclude_isbns=exclude_isbns
         )
 
-    @task
+    @task(description="Sizes the search results")
     async def pool_stats(self, query: DeferredBookQuery) -> int:
         """Stamp the pool on the output and size it, in one round trip.
 

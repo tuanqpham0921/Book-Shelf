@@ -1,17 +1,9 @@
-"""PlanJane — the planner. Turns a user message into an ordered plan of goals.
+"""PlanJane, the planner: turns a message into a plan of goals. Import from
+here — the external / tools / executor split is internal."""
 
-What decides *whether* to call it (cache, small talk, out of scope) is not in
-here: that is `app/orchestration/triage.py`, one layer up.
-
-`external.py` holds what the plan *is* (`SystemGoal`, `PlanJaneOutput`,
-`ExecutionOrder`) and is the address for it; `schemas.py` holds what the LLM
-fills in; `executor.py` runs. Import from this package root rather than any of
-them — the split is free to move.
-"""
-
-from .executor import GoalParseRequest, PlanJaneExecutor, PlanJaneInput
+from .executor import PlanJaneExecutor, PlanJaneInput
 from .external import ExecutionOrder, PlanJaneOutput, SystemGoal
-from .schemas import MAX_SYSTEM_GOALS
+from .tools import MAX_SYSTEM_GOALS, GoalParseRequest
 
 __all__ = [
     "PlanJaneExecutor",
