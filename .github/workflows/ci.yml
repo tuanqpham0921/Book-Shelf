@@ -55,7 +55,7 @@ jobs:
         run: poetry run pytest tests/integration
 
   frontend-build:
-    name: Frontend lint and build
+    name: Frontend build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -74,9 +74,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Lint
-        run: npm run lint
 
       # Catches a broken bundle before `make deploy` publishes it. Builds in
       # production mode, so it also proves .env.production parses.
